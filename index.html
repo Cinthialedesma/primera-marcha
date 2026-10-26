@@ -313,7 +313,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 /* messages live over the dashboard, never over the road */
 .toasts { top: auto; bottom: 12px; left: 50%; right: auto; transform: translateX(-50%); max-width: min(480px, 56%); align-items: center; }
 .toast { font-size: .82rem; padding: 6px 10px; }
-.next-chip { background: rgba(16,18,20,.82); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; font-size: .78rem; display: flex; gap: 6px; align-items: center; }
+.next-chip[hidden] { display: none; }
+.next-chip { position: absolute; top: 12px; right: 12px; z-index: 2; max-width: 34%; background: rgba(16,18,20,.82); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; font-size: .78rem; display: flex; gap: 6px; align-items: center; }
 .next-chip i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .stall-card {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 6;
@@ -362,6 +363,13 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     <h1>Primera <span>Marcha</span></h1>
     <p>Maneja un auto mecánico desde el asiento del conductor: embrague, cambios, volante, espejos y reglas de tránsito.</p>
     <div class="top-actions">
+      <label class="sel" for="mode">Lugar
+        <select id="mode">
+          <option value="city">Ciudad</option>
+          <option value="hill">Subidas y bajadas</option>
+          <option value="parking">Estacionamiento</option>
+        </select>
+      </label>
       <label class="sel" for="traffic">Tránsito
         <select id="traffic">
           <option value="auto">Según mi nivel</option>
@@ -403,8 +411,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       <div class="limit-sign" id="limit-sign">50</div>
       <canvas class="gps" id="gps" aria-label="GPS"></canvas>
       <div class="hud-score"><b id="hud-score">0</b><span id="hud-level">Aprendiz</span></div>
-      <div class="next-chip" id="next-chip" hidden></div>
     </div>
+    <div class="next-chip" id="next-chip" hidden></div>
     <div class="toasts" id="toasts" aria-live="polite"></div>
     <div class="stall-card" id="stall-card" role="dialog" aria-labelledby="stall-title" hidden>
       <div class="card-head">
@@ -591,6 +599,10 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   const TARGET_SPACE = 9;
   const PERP_RECT = { x0: SPACE_X0, x1: SPACE_X1, z0: spaceZ(TARGET_SPACE) - SPACE_W / 2, z1: spaceZ(TARGET_SPACE) + SPACE_W / 2 };
   const PAR_RECT = { x0: 20.3, x1: 28.3, z0: -83.5, z1: -81.0 };
+  // hill street: a long climb and descent, steepest (12.6 %) every 150 m, where the PARE signs are
+  const HILL_A = 6, HILL_P = 300, HILL_CH = 60;
+  const hillH = z => HILL_A * Math.sin(2 * Math.PI * (-z) / HILL_P);
+  const hillDz = z => -HILL_A * 2 * Math.PI / HILL_P * Math.cos(2 * Math.PI * (-z) / HILL_P);
   const LEVELS = [[0, "Aprendiz"], [150, "Principiante"], [400, "Intermedia"], [800, "Canchera"]];
 
   const toRpm = w => w * 60 / (2 * Math.PI);
@@ -624,7 +636,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const ax = Math.abs(x - Math.round(x / G) * G), az = Math.abs(z - Math.round(z / G) * G), e = HALF + CORNER_R;
     return ax > HALF && ax < e && az > HALF && az < e && Math.hypot(ax - e, az - e) > CORNER_R;
   }
-  const drivable = (x, z) => onRoad(x, z) || inCornerArc(x, z) || inLot(x, z) || inRect(x, z, DRIVE);
+  const drivable = (x, z) => mode === "hill" ? Math.abs(x) <= HALF : onRoad(x, z) || inCornerArc(x, z) || inLot(x, z) || inRect(x, z, DRIVE);
   function corners(x, z, th, hl = CAR_L / 2, hw = CAR_W / 2) {
     const d = dirOf(th), r = rightOf(th), out = [];
     for (const a of [hl, -hl]) for (const b of [hw, -hw]) out.push([x + d.x * a + r.x * b, z + d.z * a + r.z * b]);
@@ -651,8 +663,11 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 
   // ---------- state ----------
   let S;
+  let mode = "city";
+  const START = { city: { x: LANE, z: -14, th: 0 }, hill: { x: LANE, z: 25, th: 0 }, parking: { x: 22, z: -40, th: Math.PI / 2, limit: 20 } };
+  const heightAt = (x, z) => mode === "hill" ? hillH(z) : 0;
   function freshState() {
-    return {
+    return Object.assign({
       t: 0, x: LANE, z: -14, th: 0, v: 0, dist: 0, steer: 0,
       we: 0, running: false, crank: 0, gear: "N", hand: true,
       clutch: 0, clutchManual: false, brake: 0, gas: 0, shake: 0, blink: null,
@@ -661,7 +676,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       parkT: 0, parkedPerp: false, parkedPar: false, lastHit: -9, lastCurb: -9, lastCurbT: -9, shiftT: 0, wipers: false, wiperA: 0, exam: null, licensed: false, boxExitT: -9, guide: null,
       score: 0, cleanDist: 0, bestClean: 0, trafficLevel: 0,
       mission: 0, counts: { infr: 0, stall: 0, grind: 0, crash: 0 }, log: [], hist: [], paused: false,
-    };
+      hs: null, dh: null, launchRolled: false, lastRoll: -9, parkedFront: false, parkedBack: false,
+    }, START[mode]);
   }
   S = freshState();
   let help = true;
@@ -734,6 +750,9 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     for (let k = h.length - 1; k >= 0; k--) if (h[k].clutch >= BITE_TOP) { lastPressed = h[k].t; break; }
     const release = lastPressed == null ? null : now - lastPressed;
     const kmh = Math.abs(S.v) * 3.6, g = S.gear, pct = x => Math.round(x * 100) + "%";
+    const past = h.find(q => now - q.t <= 2) || { v: Math.abs(S.v) };
+    const slowing = past.v > Math.abs(S.v) + 0.8, braked = recent.some(q => q.brake > 0.1);
+    const pullingAway = past.v < 0.6;
     const state = S.clutch >= BITE_TOP ? "pisado a fondo" : S.clutch > BITE_FULL ? "en el punto de roce" : "suelto";
     const nums = `Al apagarse: marcha ${g}, embrague ${state} (pedal al ${pct(S.clutch)}), acelerador al ${pct(S.gas)} (máximo ${pct(maxGas)} en los últimos 2 segundos), ${Math.round(kmh)} km/h.`;
     let restart = "Para seguir: embrague a fondo (A), pulsa E y vuelve a salir en 1ª.";
@@ -747,15 +766,19 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       text = "El auto se frenó de golpe contra el obstáculo. Con el embrague suelto, el motor gira unido a las ruedas: si las ruedas se detienen de golpe, el motor también.";
       steps = ["Cuando vayas muy despacio cerca de un obstáculo, usa el punto de roce y ten el pie listo en el freno.", "Si ves que vas a tocar algo, pisa embrague y freno al mismo tiempo."];
       restart = "Para salir: embrague a fondo (A), pulsa E, pon reversa (R) y retrocede despacio usando el punto de roce. También puedes girar el volante hacia el otro lado y salir en 1ª.";
-    } else if (S.hand) {
+    } else if (S.hand && pullingAway) {
       title = "Tenías el freno de mano puesto";
       text = "El freno de mano sujeta las ruedas traseras. Al soltar el embrague, el motor tuvo que empujar contra ese freno y se quedó sin fuerza.";
       steps = ["Antes de arrancar, mira la luz roja (P) del tablero.", "Pon 1ª con el embrague a fondo y recién ahí baja el freno de mano con Q.", "Después acelera un poco y suelta el embrague despacio."];
-    } else if (S.brake > 0.3 && kmh < 4) {
-      title = "Frenaste hasta detenerte sin pisar el embrague";
+    } else if (slowing && braked) {
+      title = "Frenaste sin pisar el embrague";
       text = "Con un cambio puesto y el embrague suelto, el motor gira atado a las ruedas. Si las ruedas se detienen, el motor baja de vueltas hasta apagarse (cerca de 400 rpm).";
-      steps = ["Frena normalmente mientras el auto va rápido.", "Cuando las rpm bajen a unas 1.000, pisa el embrague a fondo.", "Mantén el embrague pisado hasta detenerte. Si vas a esperar, pon neutro."];
-    } else if (g !== "1" && g !== "R" && kmh < 8) {
+      steps = ["Frena normalmente mientras el auto va rápido.", `En ${g}ª el motor se ahoga cerca de ${g === "1" ? 3 : g === "2" ? 5 : 8} km/h: antes de llegar ahí (o cuando las rpm bajen a unas 1.000), pisa el embrague a fondo.`, "Mantén el embrague pisado hasta detenerte. Si vas a esperar, pon neutro."];
+    } else if (slowing) {
+      title = `Fuiste perdiendo velocidad en ${g}ª`;
+      text = `El auto se fue frenando solo (o en subida) y en ${g}ª el motor quedó con muy pocas vueltas, hasta apagarse.`;
+      steps = ["Cuando las rpm bajen de unas 1.200, baja un cambio o acelera un poco.", "Si vas a detenerte, pisa el embrague antes de que el motor llegue a 1.000 rpm."];
+    } else if (g !== "1" && g !== "R" && pullingAway) {
       title = `Intentaste salir en ${g}ª`;
       text = `Las marchas altas son para ir más rápido. Desde detenido, en ${g}ª el motor no tiene fuerza para mover el auto y se ahoga.`;
       steps = ["Para salir desde parado usa siempre 1ª (arriba a la izquierda en la palanca).", "Después de detenerte, pisa el embrague y baja a 1ª antes de volver a salir."];
@@ -839,11 +862,13 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 
     const Fd = Tc * ratio / R * EFF;
     const hold = S.brake * (opts.rain ? 6500 : 9500) + (S.hand ? 5200 : 0) + 160;
+    // on a slope gravity pulls the car downhill: this is what makes hill starts hard
+    const Fx = Fd + (mode === "hill" ? -M * 9.81 * hillDz(S.z) * dirOf(S.th).z : 0);
     if (Math.abs(S.v) < 0.03) {
-      if (Math.abs(Fd) <= hold) S.v = 0;
-      else S.v += (Fd - Math.sign(Fd) * hold) / M * dt;
+      if (Math.abs(Fx) <= hold) S.v = 0;
+      else S.v += (Fx - Math.sign(Fx) * hold) / M * dt;
     } else {
-      const F = Fd - Math.sign(S.v) * (hold + 0.42 * S.v * S.v);
+      const F = Fx - Math.sign(S.v) * (hold + 0.42 * S.v * S.v);
       const nv = S.v + F / M * dt;
       S.v = nv * S.v < 0 ? 0 : nv;
     }
@@ -903,6 +928,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   }
 
   function onCurb(x, z) {
+    if (mode === "hill") return Math.abs(x) <= HALF + CURB_BAND;
     const dx = Math.abs(x - Math.round(x / G) * G), dz = Math.abs(z - Math.round(z / G) * G);
     return dx <= HALF + CURB_BAND || dz <= HALF + CURB_BAND;
   }
@@ -959,7 +985,63 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     return { i, j, dist: Math.abs(S.x - i * G) - HALF, axis: "EW" };
   }
 
+  function checkHill(dt) {
+    const kmh = Math.abs(S.v) * 3.6, u = -S.z, north = Math.cos(S.th) > 0.7, half = HILL_P / 2;
+    S.limit = 40;
+    if (kmh > S.limit + 4) { S.overT += dt; if (S.overT > 1.5 && !S.speeding) { S.speeding = true; infraction(`Exceso de velocidad: ${Math.round(kmh)} km/h en zona de ${S.limit}`); } }
+    else if (kmh <= S.limit) { S.overT = 0; S.speeding = false; }
+    const off = S.x * rightOf(S.th).x;
+    if (S.v > 2 && Math.abs(Math.cos(S.th)) > 0.7 && off < -0.3) { S.wrongT += dt; if (S.wrongT > 1.5 && !S.wrongFlag) { S.wrongFlag = true; infraction("Vas por el carril contrario"); } }
+    else { S.wrongT = 0; S.wrongFlag = false; }
+    // rolling back without reverse
+    if (S.gear !== "R" && S.v < -0.3) {
+      S.launchRolled = true;
+      if (S.t - S.lastRoll > 6) { S.lastRoll = S.t; infraction("El auto se fue para atrás en la subida", -10); }
+      tip("Te vas para atrás: pisa el freno (↓) o sube el freno de mano (Q).", "rollback", 8);
+    }
+    if (S.v === 0 && (S.hand || S.brake > 0.3)) S.launchRolled = false;
+    if (S.v > 2 && !S.launchRolled && Math.abs(hillDz(S.z)) > 0.06) S.hillLaunchOk = true;
+    if (north) {
+      const front = u + CAR_L / 2, n = Math.max(0, Math.ceil((front - 0.01) / half)), lineU = n * half, uphill = n % 2 === 0;
+      if (!S.hs || S.hs.n !== n) {
+        const prev = S.hs;
+        if (prev && prev.n < n) {
+          if (prev.minV > 1.5 / 3.6) infraction(`Pasaste un PARE en ${prev.uphill ? "subida" : "bajada"} sin detenerte`);
+          else {
+            award(10, `PARE respetado en ${prev.uphill ? "subida" : "bajada"}`);
+            if (prev.uphill) { S.hillStopOk = true; if (!prev.rolled) { S.hillStartOk = true; award(15, "Arrancaste en subida sin irte para atrás"); } }
+          }
+        }
+        S.hs = { n, uphill, minV: Infinity, stopped: false, maxU: -Infinity, rolled: false };
+      }
+      const hs = S.hs, dist = lineU - front;
+      if (dist < 15) hs.minV = Math.min(hs.minV, Math.abs(S.v));
+      if (Math.abs(S.v) < 0.05 && dist < 6) hs.stopped = true;
+      if (hs.stopped) { hs.maxU = Math.max(hs.maxU, u); if (u < hs.maxU - 0.3) hs.rolled = true; }
+      if (dist > 15 && dist < 50 && S.v > 3) {
+        if (uphill) tip(`PARE en subida en ${Math.round(dist)} m. Al detenerte, sube el freno de mano (Q). Para salir: 1ª, acelera a unas 2.000 rpm, suelta el embrague hasta que el auto haga fuerza y recién ahí baja el freno de mano.`, "hill-stop" + n, 60);
+        else tip(`PARE en bajada en ${Math.round(dist)} m: frena antes de lo normal, en bajada el auto tarda más en detenerse.`, "down-stop" + n, 60);
+      }
+      // the descent: from a quarter to three quarters of each wave
+      const k = Math.floor((u - HILL_P / 4) / HILL_P), ws = HILL_P / 4 + k * HILL_P, we = ws + half;
+      if (k >= 0 && u >= ws && u <= we) {
+        if (!S.dh || S.dh.k !== k) { S.dh = { k, max: 0, neutral: false, done: false }; tip("Empieza una bajada pronunciada: pon 2ª y deja que el motor frene. No la bajes en neutro.", "down" + k, 60); }
+        S.dh.max = Math.max(S.dh.max, kmh);
+        if (S.gear === "N" && kmh > 5 && !S.dh.neutral) { S.dh.neutral = true; infraction("Bajaste en punto muerto (neutro)", -10); }
+      } else if (S.dh && !S.dh.done && u > we) {
+        S.dh.done = true;
+        if (S.dh.max <= 30 && !S.dh.neutral) { S.downOk = true; award(15, "Bajaste la pendiente controlando la velocidad"); }
+        else if (S.dh.max > 30) tip(`Bajaste a ${Math.round(S.dh.max)} km/h. En bajada usa 2ª y frena de a poco para no pasar los 30 km/h.`, "down-fast" + S.dh.k, 30);
+      }
+    }
+    const rpm = toRpm(S.we), e = S.gear === "N" ? 0 : engage(S.clutch), g = +S.gear;
+    if (!S.running && S.gas > 0.4) tip("El motor está apagado: embrague a fondo y pulsa E.", "off", 12);
+    if (S.hand && S.running && e > 0.4 && Math.abs(hillDz(S.z)) < 0.03) tip("Tienes el freno de mano puesto (Q).", "hand", 12);
+    if (S.hand && S.v > 2) toast("Vas con el freno de mano puesto.", "bad", "hand-moving", 8);
+    if (g >= 1 && g <= 4 && rpm > 3300 && e > 0.9 && S.gas > 0.2) tip(`Puedes pasar a ${g + 1}ª.`, "up" + g, 25);
+  }
   function checkRules(dt) {
+    if (mode === "hill") { checkHill(dt); return; }
     const kmh = Math.abs(S.v) * 3.6;
     const ap = approach();
     if (ap && ap.dist > 0 && ap.dist < 15) {
@@ -1025,7 +1107,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       } else { S.wrongT = 0; S.wrongFlag = false; }
     }
 
-    S.limit = inLot(S.x, S.z) ? 20 : 50;
+    S.limit = inLot(S.x, S.z) || mode === "parking" ? 20 : 50;
     if (kmh > S.limit + 4) {
       S.overT += dt;
       if (S.overT > 1.5 && !S.speeding) { S.speeding = true; infraction(`Exceso de velocidad: ${Math.round(kmh)} km/h en zona de ${S.limit}`); }
@@ -1037,7 +1119,12 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if ((inPerp || inPar) && S.v === 0) {
       S.parkT += dt;
       if (S.parkT > 1) {
-        if (inPerp && !S.parkedPerp) { S.parkedPerp = true; award(40, "Estacionaste en el lugar marcado"); toast("Bien estacionado (+40).", "good"); tip("Ahora asegura el auto: freno de mano (Q), neutro (N) y apaga el motor (E).", "secure", 30); }
+        if (inPerp && mode === "parking") {
+          const nose = Math.sin(S.th) > 0;
+          if (nose && !S.parkedFront) { S.parkedFront = true; award(30, "Estacionaste de frente"); toast("Bien estacionado de frente (+30).", "good"); }
+          if (!nose && !S.parkedBack) { S.parkedBack = true; award(40, "Estacionaste de culata"); toast("Bien estacionado en reversa (+40).", "good"); }
+        }
+        if (inPerp && !S.parkedPerp && mode === "city") { S.parkedPerp = true; award(40, "Estacionaste en el lugar marcado"); toast("Bien estacionado (+40).", "good"); tip("Ahora asegura el auto: freno de mano (Q), neutro (N) y apaga el motor (E).", "secure", 30); }
         if (inPar && !S.parkedPar) { S.parkedPar = true; award(60, "Estacionaste en paralelo"); toast("Estacionamiento en paralelo logrado (+60).", "good"); }
       }
     } else S.parkT = 0;
@@ -1053,15 +1140,15 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (S.hand && S.v > 2) toast("Vas con el freno de mano puesto.", "bad", "hand-moving", 8);
     if (g >= 1 && g <= 4 && rpm > 3300 && e > 0.9 && S.gas > 0.2) tip(`Puedes pasar a ${g + 1}ª: suelta el acelerador, embrague a fondo, cambio y suelta.`, "up" + g, 25);
     if (g >= 2 && rpm < 1200 && e > 0.9 && S.v > 0.5) tip(`El motor va muy bajo de vueltas: baja a ${g - 1}ª o pisa el embrague.`, "down" + g, 15);
-    if (S.mission >= 6 && !inLot(S.x, S.z) && S.x > -4 && S.x < HALF && S.z < -25 && S.z > -70 && Math.abs(S.th) < 0.4)
+    if (mode === "city" && S.mission >= 6 && !inLot(S.x, S.z) && S.x > -4 && S.x < HALF && S.z < -25 && S.z > -70 && Math.abs(S.th) < 0.4)
       tip("La entrada a la zona de práctica de estacionamiento está a tu derecha.", "lot", 30);
-    if (inLot(S.x, S.z) && S.mission >= 6) tip("En el estacionamiento ve en 1ª o reversa usando solo el punto de roce. Mira los espejos laterales (clic para agrandar).", "lot-in", 60);
+    if (inLot(S.x, S.z) && (mode === "parking" || S.mission >= 6)) tip("En el estacionamiento ve en 1ª o reversa usando solo el punto de roce. Mira los espejos laterales (clic para agrandar).", "lot-in", 60);
     const near = traffic.find(c => { const d = dirOf(S.th), dx = c.x - S.x, dz = c.z - S.z, a = dx * d.x + dz * d.z, l = Math.abs(dx * d.z - dz * d.x); return a > 0 && a < 10 && l < 1.6; });
     if (near && S.v > 6) tip("Vas muy cerca del auto de adelante: deja al menos 2 segundos de distancia.", "distance", 20);
   }
 
   // ---------- missions ----------
-  const MISSIONS = [
+  const CITY_MISSIONS = [
     { title: "Enciende el motor", hint: "Mantén el embrague a fondo (Espacio o A) y pulsa E. Si es tu primera vez, puedes activar el embrague automático en la pestaña Controles. El motor de arranque gira un momento antes de encender.", done: () => S.running },
     { title: "Arranca en primera sin que se apague", hint: "Embrague a fondo, 1ª, quita el freno de mano (Q). Acelera hasta unas 1.500 rpm y mantenlo con toques de D. Recién ahí suelta A. Cuando las rpm bajen un poco y el auto tiemble, estás en el punto de roce: deja el pedal ahí (rueda del mouse) hasta que el auto avance y después termina de soltar.", done: () => S.running && S.gear === "1" && S.v * 3.6 > 8 && S.clutch < BITE_FULL },
     { title: "Pasa a segunda", hint: "Cerca de 15–20 km/h: suelta el acelerador, embrague a fondo, 2ª, suelta el embrague y vuelve a acelerar.", done: () => S.running && S.gear === "2" && S.v * 3.6 > 18 && S.clutch < BITE_FULL },
@@ -1072,6 +1159,18 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     { title: "Estaciona en paralelo", hint: "Ponte al lado del auto de adelante, a 1 m, con las colas alineadas. En reversa gira todo a la derecha hasta quedar en 45°, endereza, y cuando tu frente pase la cola del auto de adelante gira todo a la izquierda.", done: () => S.parkedPar },
     { title: "Examen final", hint: "Sigue el GPS hasta los 3 puntos verdes (los ves en la calle como columnas verdes) y vuelve a estacionar en el lugar marcado. Apruebas con 2 infracciones o menos.", done: () => S.exam && S.exam.passed },
   ];
+  const HILL_MISSIONS = [
+    { title: "Arranca en subida sin irte para atrás", hint: "Empiezas parada en una subida con el freno de mano puesto. Embrague a fondo, 1ª, acelera hasta unas 2.000 rpm y suelta el embrague hasta que el auto haga fuerza (las rpm bajan un poco y el auto tiembla). Recién ahí baja el freno de mano (Q) y sigue soltando el embrague de a poco.", done: () => S.hillLaunchOk },
+    { title: "Detente en el PARE en subida", hint: "Al llegar al PARE frena hasta detenerte por completo antes de la línea. Pisa el embrague antes de parar y sube el freno de mano (Q) para no irte para atrás.", done: () => S.hillStopOk },
+    { title: "Sal del PARE en subida sin irte para atrás", hint: "Desde el PARE: 1ª, acelera a unas 2.000 rpm, suelta el embrague hasta el punto de roce y baja el freno de mano. Si el auto retrocede aunque sea un poco, no cuenta.", done: () => S.hillStartOk },
+    { title: "Baja la pendiente sin pasar los 30 km/h", hint: "En la bajada pon 2ª y deja el embrague suelto: el motor frena el auto. Ayúdate con el freno de a poco. Nunca bajes en neutro.", done: () => S.downOk },
+  ];
+  const PARK_MISSIONS = [
+    { title: "Estaciona de frente en el lugar amarillo", hint: "El lugar está adelante a la derecha. Ve en 1ª usando solo el punto de roce, sin acelerar. Entra derecho y detente antes del muro.", done: () => S.parkedFront },
+    { title: "Estaciona de culata (en reversa)", hint: "Sal del lugar, avanza unos metros más allá, pon reversa (R) y entra marcha atrás. Mira los espejos laterales (clic para agrandar) para quedar entre las líneas.", done: () => S.parkedBack },
+    { title: "Estaciona en paralelo", hint: "Al fondo del estacionamiento, entre dos autos. Ponte al lado del auto de adelante a 1 m, con las colas alineadas. En reversa gira todo a la derecha hasta quedar en 45°, endereza, y cuando tu frente pase la cola del auto de adelante gira todo a la izquierda.", done: () => S.parkedPar },
+  ];
+  let MISSIONS = CITY_MISSIONS;
   const missionsEl = document.getElementById("missions");
   function renderMissions() {
     missionsEl.innerHTML = "";
@@ -1087,7 +1186,9 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (S.mission >= MISSIONS.length) {
       const li = document.createElement("li");
       li.className = "current";
-      li.innerHTML = `<span class="n">★</span><span>¡Aprobaste el examen! Ya tienes tu licencia de práctica. Sigue manejando con tránsito, con lluvia o sin ayudas para subir tu puntaje.</span>`;
+      li.innerHTML = mode === "city"
+        ? `<span class="n">★</span><span>¡Aprobaste el examen! Ya tienes tu licencia de práctica. Sigue manejando con tránsito, con lluvia o sin ayudas para subir tu puntaje.</span>`
+        : `<span class="n">★</span><span>Completaste las misiones de este lugar. Prueba otro en el selector Lugar, arriba.</span>`;
       missionsEl.appendChild(li);
     }
   }
@@ -1100,7 +1201,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     toast("Examen final: sigue el GPS hasta el primer punto verde.", "good", "exam-start" + S.t, 1);
   }
   function updateExam() {
-    if (S.mission === MISSIONS.length - 1 && !S.exam) startExam();
+    if (mode === "city" && S.mission === MISSIONS.length - 1 && !S.exam) startExam();
     const ex = S.exam;
     if (!ex || ex.passed || ex.failed) return;
     const infr = S.counts.infr - ex.infr0;
@@ -1251,13 +1352,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   helpBtn.addEventListener("click", () => { help = !help; helpBtn.setAttribute("aria-pressed", help); });
   const trafficSel = document.getElementById("traffic");
   trafficSel.addEventListener("change", () => document.getElementById("road").focus());
-  document.getElementById("btn-reset").addEventListener("click", () => {
-    for (const c of traffic) removeCar(c);
-    traffic.length = 0;
-    S = freshState(); knob.x = 100; knob.y = 100; toastsEl.innerHTML = "";
-    document.getElementById("stall-card").hidden = true;
-    renderMissions(); renderScore();
-  });
+  document.getElementById("btn-reset").addEventListener("click", () => setMode(mode));
+  document.getElementById("mode").addEventListener("change", e => { setMode(e.target.value); document.getElementById("road").focus(); });
 
   const mirrorEls = { rear: document.getElementById("m-rear"), left: document.getElementById("m-left"), right: document.getElementById("m-right") };
   function toggleMirror(name) {
@@ -1589,15 +1685,15 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   const awningGeo = new THREE.BoxGeometry(10, 0.12, 1.4); awningGeo.rotateX(-0.25);
   const unitGeo = new THREE.BoxGeometry(2, 1.2, 1.4);
   // a building whose front faces the street at rotation ry (front = local +z)
-  function addBuilding(bd, x, z, ry, w, d, floors, seed) {
+  function addBuilding(bd, x, z, ry, w, d, floors, seed, yb = 0) {
     const fac = facadeMats[Math.floor(seed * 70) % facadeMats.length], shop = shopMats[Math.floor(seed * 97) % shopMats.length];
     const upH = floors * 3.2;
-    const g0 = boxUV(w, 4, d, FAC_W, 4); bd.add(g0, [shop, shop, roofMat, roofMat, shop, shop], x, 2, z, ry); g0.dispose();
-    const g1 = boxUV(w, upH, d, FAC_W, FAC_H); bd.add(g1, [fac, fac, roofMat, roofMat, fac, fac], x, 4 + upH / 2, z, ry); g1.dispose();
-    const top = 4 + upH, f = { x: Math.sin(ry), z: Math.cos(ry) };
+    const g0 = boxUV(w, 4, d, FAC_W, 4); bd.add(g0, [shop, shop, roofMat, roofMat, shop, shop], x, yb + 2, z, ry); g0.dispose();
+    const g1 = boxUV(w, upH, d, FAC_W, FAC_H); bd.add(g1, [fac, fac, roofMat, roofMat, fac, fac], x, yb + 4 + upH / 2, z, ry); g1.dispose();
+    const top = yb + 4 + upH, f = { x: Math.sin(ry), z: Math.cos(ry) };
     bd.add(corniceGeo, corniceMat, x, top + 0.25, z, ry, (w + 0.5) / 10, 1, (d + 0.5) / 10);
-    bd.add(corniceGeo, corniceMat, x, 4.05, z, ry, (w + 0.3) / 10, 0.4, (d + 0.3) / 10);
-    if (seed > 0.35) bd.add(awningGeo, awningMats[Math.floor(seed * 13) % 4], x + f.x * (d / 2 + 0.7), 3.3, z + f.z * (d / 2 + 0.7), ry, w * 0.8 / 10, 1, 1);
+    bd.add(corniceGeo, corniceMat, x, yb + 4.05, z, ry, (w + 0.3) / 10, 0.4, (d + 0.3) / 10);
+    if (seed > 0.35) bd.add(awningGeo, awningMats[Math.floor(seed * 13) % 4], x + f.x * (d / 2 + 0.7), yb + 3.3, z + f.z * (d / 2 + 0.7), ry, w * 0.8 / 10, 1, 1);
     if (seed < 0.5) bd.add(unitGeo, unitMat, x - f.x * 2, top + 0.9, z - f.z * 2, ry);
   }
 
@@ -1736,6 +1832,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     return { key: ap.i + "," + ap.j + side, side, P, d, out, path, target: wrap(th + (side === "right" ? 1 : -1) * Math.PI / 2), bx: Bx, bz: Bz, cued: false };
   }
   function updateGuide() {
+    if (mode === "hill") { S.guide = null; guideDots.forEach(m => { m.visible = false; }); return; }
     // the blinker switches off by itself after the turn, so keep the guide until the turn is finished
     if (!help || (!S.blink && !(S.guide && S.guide.cued))) S.guide = null;
     else if (S.blink && (!S.guide || S.guide.side !== S.blink)) {
@@ -1870,6 +1967,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   }
   function disposeGroup(g) { g.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
   function updateCells() {
+    if (mode === "hill") { updateHill(); return; }
     const ci = Math.floor(S.x / G), cj = Math.floor(S.z / G);
     for (const [key, g] of cells) {
       const [i, j] = key.split(",").map(Number);
@@ -1881,6 +1979,85 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       if (!cells.has(key)) { cells.set(key, buildCell(i, j)); if (r > 1) return; }
     }
   }
+  // ---- hill street ----
+  const hillRoot = new THREE.Group(); hillRoot.visible = false; scene.add(hillRoot);
+  const hillChunks = new Map();
+  const hillGrassMat = L({ map: canvasTex(128, 128, (ctx, w, h) => noise(ctx, w, h, "#5b7243", 0.25, 5000)) });
+  const slopeSignMat = L({ map: canvasTex(256, 256, (ctx, w) => {
+    ctx.translate(w / 2, w / 2); ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = "#111"; ctx.fillRect(-86, -86, 172, 172); ctx.fillStyle = "#f2c230"; ctx.fillRect(-78, -78, 156, 156);
+    ctx.rotate(-Math.PI / 4); ctx.fillStyle = "#111";
+    ctx.beginPath(); ctx.moveTo(-60, 40); ctx.lineTo(60, 40); ctx.lineTo(60, -10); ctx.closePath(); ctx.fill();
+    ctx.font = "bold 44px 'Saira Semi Condensed', Arial, sans-serif"; ctx.textAlign = "center"; ctx.fillText("12%", -16, 10);
+  }, false), transparent: true, alphaTest: 0.5 });
+  function hillStrip(x0, x1, u0, u1, segs, yOff, su, sv) {
+    const len = u1 - u0, g = new THREE.PlaneGeometry(x1 - x0, len, 1, segs);
+    g.rotateX(-Math.PI / 2); g.translate((x0 + x1) / 2, 0, -(u0 + u1) / 2);
+    const pos = g.attributes.position, uv = g.attributes.uv;
+    for (let i = 0; i < pos.count; i++) { pos.setY(i, hillH(pos.getZ(i)) + yOff); uv.setXY(i, uv.getX(i) * (x1 - x0) / su, uv.getY(i) * len / sv); }
+    g.computeVertexNormals();
+    return g;
+  }
+  function buildHillChunk(c) {
+    const grp = new THREE.Group(), flat = makeBuilder(), solid = makeBuilder(), u0 = c * HILL_CH, u1 = u0 + HILL_CH;
+    const add = (g, m, b) => { b.add(g, m, 0, 0, 0); g.dispose(); };
+    add(hillStrip(-HALF, HALF, u0, u1, 30, 0, 7, 9), roadMat, flat);
+    for (const sd of [-1, 1]) {
+      const a = sd < 0 ? [-HALF - WALK, -HALF] : [HALF, HALF + WALK];
+      add(hillStrip(a[0], a[1], u0, u1, 30, 0.15, 2, 2), walkMat, flat);
+      add(hillStrip(sd < 0 ? -160 : HALF + WALK, sd < 0 ? -HALF - WALK : 160, u0, u1, 12, -0.02, 5, 5), hillGrassMat, flat);
+      for (let u = u0, n = 0; u < u1 - 4; n++) {
+        const h = hash2(c * 5 + n, sd * 7), w = Math.min(u1 - u, 10 + h * 8);
+        if (h > 0.12) {
+          const zc = -(u + w / 2), yb = Math.min(hillH(-u), hillH(-(u + w))) - 0.4;
+          addBuilding(solid, sd * (HALF + WALK + 7), zc, sd < 0 ? Math.PI / 2 : -Math.PI / 2, w - 0.3, 14, 1 + Math.floor(hash2(n, c) * 5), h, yb);
+        }
+        u += w;
+      }
+    }
+    // PARE lines every 150 m (steepest climb and steepest descent) and slope warnings before them
+    for (let n = Math.ceil(u0 / (HILL_P / 2)); n * HILL_P / 2 < u1; n++) {
+      const us = n * HILL_P / 2, y = hillH(-us);
+      flat.add(lineGeo, paintMat, LANE, y + 0.04, -us);
+      flat.add(wordGeo, roadWordMat, LANE, hillH(-(us - 5)) + 0.06, -(us - 5));
+      solid.add(poleGeo, poleMat, HALF + 0.7, y + 1.2, -us + 0.3, 0, 1, 2.4, 1);
+      solid.add(signGeo, stopSignMat, HALF + 0.7, y + 2.4, -us + 0.35);
+    }
+    for (let k = Math.ceil((u0 + 70) / HILL_P); k * HILL_P - 70 < u1; k++) {
+      for (const us of [k * HILL_P - 70, k * HILL_P + HILL_P / 2 - 70]) {
+        if (us < u0 || us >= u1) continue;
+        const y = hillH(-us);
+        solid.add(poleGeo, poleMat, HALF + 0.7, y + 1.2, -us, 0, 1, 2.4, 1);
+        solid.add(signGeo, slopeSignMat, HALF + 0.7, y + 2.4, -us + 0.05);
+      }
+    }
+    flat.build(grp, false, true); solid.build(grp, true, true);
+    hillRoot.add(grp);
+    return grp;
+  }
+  function updateHill() {
+    const cu = Math.floor(-S.z / HILL_CH);
+    for (const [c, g] of hillChunks) if (c < cu - 2 || c > cu + 5) { hillRoot.remove(g); disposeGroup(g); hillChunks.delete(c); }
+    for (let c = cu - 2; c <= cu + 5; c++) if (!hillChunks.has(c)) { hillChunks.set(c, buildHillChunk(c)); if (c > cu + 1) return; }
+  }
+  function setMode(m) {
+    mode = m;
+    MISSIONS = m === "hill" ? HILL_MISSIONS : m === "parking" ? PARK_MISSIONS : CITY_MISSIONS;
+    for (const c of traffic) removeCar(c);
+    traffic.length = 0;
+    for (const [, g] of cells) { scene.remove(g); disposeGroup(g); }
+    cells.clear(); lightSets.clear();
+    for (const [, g] of hillChunks) { hillRoot.remove(g); disposeGroup(g); }
+    hillChunks.clear();
+    const city = m !== "hill";
+    lot.visible = city; ground.visible = city; hillRoot.visible = !city;
+    S = freshState(); knob.x = 100; knob.y = 100; toastsEl.innerHTML = "";
+    document.getElementById("stall-card").hidden = true; document.getElementById("result-card").hidden = true;
+    document.getElementById("mode").value = m;
+    renderMissions(); renderScore();
+    const intro = { city: "Ciudad: misiones de manejo y examen final.", hill: "Subidas y bajadas: empiezas parada en una subida con el freno de mano puesto. Practica arrancar sin irte para atrás.", parking: "Estacionamiento: practica estacionar de frente, de culata y en paralelo. Ve despacio, solo con el punto de roce." };
+    toast(intro[m], "tip", "intro" + m + S.t, 1);
+  }
   function updateLights() {
     for (const set of lightSets.values()) for (const axis of ["NS", "EW"]) {
       const st = lightState(set.i, set.j, axis);
@@ -1890,6 +2067,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 
   // ---------- traffic ----------
   function trafficTarget() {
+    if (mode !== "city") return 0;
     const m = trafficSel.value;
     if (m === "off") return 0;
     if (m === "low") return 8;
@@ -2036,24 +2214,24 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   function render3d() {
     ground.position.set(Math.round(S.x / 16) * 16, -0.02, Math.round(S.z / 16) * 16);
     sun.position.set(S.x + 50, 90, S.z + 35); sun.target.position.set(S.x, 0, S.z); sun.target.updateMatrixWorld();
-    placeCar(myCar, S.x, S.z, S.th);
+    placeCar(myCar, S.x, S.z, S.th); myCar.position.y = heightAt(S.x, S.z);
     updateGuide();
-    perpTarget.visible = S.mission === 6 || S.mission >= MISSIONS.length || (S.exam && S.exam.phase === "park" && !S.exam.passed);
+    perpTarget.visible = mode === "city" ? S.mission === 6 || S.mission >= MISSIONS.length || (S.exam && S.exam.phase === "park" && !S.exam.passed) : mode === "parking" && (S.mission <= 1 || S.mission >= MISSIONS.length);
     const exm = S.exam, cp = exm && exm.phase === "route" && !exm.failed ? exm.cps[exm.idx] : null;
     examMarker.visible = !!cp;
     if (cp) { examMarker.position.set(cp[0] * G, 3, cp[1] * G); examMarker.rotation.y += 0.01; }
-    parTarget.visible = S.mission === 7 || S.mission >= MISSIONS.length;
+    parTarget.visible = mode === "city" ? S.mission === 7 || S.mission >= MISSIONS.length : mode === "parking" && S.mission >= 2;
 
     const amp = S.shake;
     const jx = (Math.random() - 0.5) * 0.02 * amp + Math.sin(S.t * 31) * 0.004 * amp;
     const jy = (Math.random() - 0.5) * 0.03 * amp + Math.sin(S.t * 47) * 0.006 * amp + Math.sin(S.dist * 1.7) * 0.003 * Math.min(1, Math.abs(S.v) / 10);
     const d = dirOf(S.th), r = rightOf(S.th);
-    const ex = S.x + d.x * 0.1 - r.x * 0.37 + r.x * jx, ez = S.z + d.z * 0.1 - r.z * 0.37 + r.z * jx, ey = 1.22 + jy;
+    const ex = S.x + d.x * 0.1 - r.x * 0.37 + r.x * jx, ez = S.z + d.z * 0.1 - r.z * 0.37 + r.z * jx, hy = heightAt(S.x, S.z), ey = hy + 1.22 + jy;
     camera.position.set(ex, ey, ez);
     sky.position.set(ex, 0, ez); skyline.position.set(ex, 30, ez);
     const look = dirOf(S.th + S.steer * 0.6);
     const pitch = -S.brake * 0.35 * Math.min(1, Math.abs(S.v) / 3);
-    camera.lookAt(ex + look.x * 20, ey - 0.9 + pitch, ez + look.z * 20);
+    camera.lookAt(ex + look.x * 20, heightAt(ex + look.x * 20, ez + look.z * 20) + 1.22 + jy - 0.9 + pitch, ez + look.z * 20);
     wheelEl.setAttribute("transform", `rotate(${(S.steer / MAX_STEER * 450).toFixed(1)} 500 390) translate(${(jx * 900).toFixed(1)},${(jy * 900).toFixed(1)})`);
 
     renderer.shadowMap.needsUpdate = true;
@@ -2068,11 +2246,11 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       const b = 5, x = el.left - sr.left + b, y = H - (el.top - sr.top) - el.height + b, w = el.width - 2 * b, h = el.height - 2 * b;
       if (w < 4 || h < 4) continue;
       let pos, tgt;
-      if (name === "rear") { pos = v3(S.x + d.x * 0.3, 1.32, S.z + d.z * 0.3); tgt = v3(pos.x - d.x * 20, 1.1, pos.z - d.z * 20); }
+      if (name === "rear") { pos = v3(S.x + d.x * 0.3, hy + 1.32, S.z + d.z * 0.3); tgt = v3(pos.x - d.x * 20, heightAt(pos.x - d.x * 20, pos.z - d.z * 20) + 1.1, pos.z - d.z * 20); }
       else {
         const s = name === "left" ? -1 : 1;
-        pos = v3(S.x + d.x * 0.75 + r.x * s * 1.02, 1.02, S.z + d.z * 0.75 + r.z * s * 1.02);
-        tgt = v3(pos.x - d.x * 20 + r.x * s * 2.2, 0.8, pos.z - d.z * 20 + r.z * s * 2.2);
+        pos = v3(S.x + d.x * 0.75 + r.x * s * 1.02, hy + 1.02, S.z + d.z * 0.75 + r.z * s * 1.02);
+        tgt = v3(pos.x - d.x * 20 + r.x * s * 2.2, heightAt(pos.x - d.x * 20, pos.z - d.z * 20) + 0.8, pos.z - d.z * 20 + r.z * s * 2.2);
       }
       c.position.copy(pos); c.lookAt(tgt);
       if (Math.abs(c.aspect - w / h) > 0.01 || !c.flipped) { c.aspect = w / h; c.flip(); c.flipped = true; }
@@ -2134,6 +2312,15 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     gctx.setTransform(1, 0, 0, 1, 0, 0);
     gctx.fillStyle = "#2c3a2a"; gctx.fillRect(0, 0, w, h);
     const X = x => w / 2 + (x - S.x) * sc, Z = z => h / 2 + (z - S.z) * sc;
+    if (mode === "hill") {
+      gctx.fillStyle = "#6b6e72"; gctx.fillRect(X(-HALF), 0, 7 * sc, h);
+      for (let n = Math.max(0, Math.floor((-S.z - 140) / (HILL_P / 2))); n * HILL_P / 2 < -S.z + 140; n++) {
+        gctx.fillStyle = "#e2553f"; gctx.beginPath(); gctx.arc(X(0), Z(-n * HILL_P / 2), 3 * dpr, 0, Math.PI * 2); gctx.fill();
+      }
+      gctx.translate(w / 2, h / 2); gctx.rotate(S.th);
+      gctx.fillStyle = "#4fc3f7"; gctx.beginPath(); gctx.moveTo(0, -8 * dpr); gctx.lineTo(5 * dpr, 6 * dpr); gctx.lineTo(-5 * dpr, 6 * dpr); gctx.closePath(); gctx.fill();
+      return;
+    }
     gctx.fillStyle = "#6b6e72";
     for (let i = Math.floor((S.x - 140) / G); i <= Math.ceil((S.x + 140) / G); i++) gctx.fillRect(X(i * G - HALF), 0, 7 * sc, h);
     for (let j = Math.floor((S.z - 140) / G); j <= Math.ceil((S.z + 140) / G); j++) gctx.fillRect(0, Z(j * G - HALF), w, 7 * sc);
@@ -2219,7 +2406,15 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     knobDot.setAttribute("cx", knob.x); knobDot.setAttribute("cy", knob.y);
     if (S.limit !== lastLimit) { lastLimit = S.limit; el("limit-sign").textContent = S.limit; }
     tickScoreStats();
-    const chip = el("next-chip"), ap = help ? approach() : null;
+    const chip = el("next-chip"), ap = help && mode !== "hill" ? approach() : null;
+    if (mode === "hill") {
+      const front = -S.z + CAR_L / 2, n = Math.max(0, Math.ceil((front - 0.01) / (HILL_P / 2))), dist = n * HILL_P / 2 - front;
+      const grade = Math.round(-hillDz(S.z) * Math.cos(S.th) * 100);
+      const txt = help && Math.cos(S.th) > 0.7 && dist < 120 ? `PARE en ${n % 2 === 0 ? "subida" : "bajada"} · ${Math.max(0, Math.round(dist))} m · pendiente ${grade > 0 ? "+" : ""}${grade}%` : "";
+      if (txt) { if (chip.dataset.t !== txt) { chip.dataset.t = txt; chip.innerHTML = '<i style="background:#e2553f"></i>'; chip.appendChild(document.createTextNode(txt)); } chip.hidden = false; }
+      else chip.hidden = true;
+      return;
+    }
     if (S.exam && S.exam.phase === "route" && !S.exam.failed) {
       const [ci, cj] = S.exam.cps[S.exam.idx], txt = `Examen: punto ${S.exam.idx + 1} de 3 · ${Math.round(Math.hypot(S.x - ci * G, S.z - cj * G))} m`;
       if (chip.dataset.t !== txt) { chip.dataset.t = txt; chip.innerHTML = '<i style="background:#46e86c"></i>'; chip.appendChild(document.createTextNode(txt)); }
@@ -2264,7 +2459,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const prev = { x: S.x, z: S.z, th: S.th };
     const n = Math.max(1, Math.ceil(dt / (1 / 600)));
     for (let i = 0; i < n; i++) if (!S.paused) physics(dt / n);
-    S.hist.push({ t: S.t, rpm: toRpm(S.we), clutch: S.clutch, e: S.gear === "N" ? 0 : engage(S.clutch), gas: S.gas });
+    S.hist.push({ t: S.t, rpm: toRpm(S.we), clutch: S.clutch, e: S.gear === "N" ? 0 : engage(S.clutch), gas: S.gas, v: Math.abs(S.v), brake: S.brake });
     while (S.hist.length && S.hist[0].t < S.t - 4.5) S.hist.shift();
     updateTraffic(dt);
     collide(prev);
