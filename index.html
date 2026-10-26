@@ -619,6 +619,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   }
   const inLot = (x, z) => inRect(x, z, LOT);
   const CORNER_R = 5; // street corners are rounded, as in real cities
+  const ZONE = HALF + CORNER_R + 3;
   function inCornerArc(x, z) {
     const ax = Math.abs(x - Math.round(x / G) * G), az = Math.abs(z - Math.round(z / G) * G), e = HALF + CORNER_R;
     return ax > HALF && ax < e && az > HALF && az < e && Math.hypot(ax - e, az - e) > CORNER_R;
@@ -979,31 +980,41 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       if (!S.redOk[key]) { S.redOk[key] = true; award(5, "Te detuviste con luz roja"); }
     }
 
-    const box = boxAt(S.x, S.z);
-    if (box && !S.box) {
-      const key = box.i + "," + box.j, axis = Math.abs(dirOf(S.th).z) > 0.5 ? "NS" : "EW";
-      S.box = { key, th: S.th, blink: S.blink };
-      if (S.v > 0) {
-        if (ctrlOf(box.i, box.j) === "stop") {
-          if ((S.appr[key] ?? Infinity) > 1.5 / 3.6) infraction("Pasaste un PARE sin detenerte por completo");
-          else { award(10, "PARE respetado"); S.stopOk = true; }
-        } else if (lightState(box.i, box.j, axis) === "red") infraction("Cruzaste con luz roja", -30);
+    // each corner is judged in a zone that starts before the rounded curb, so a turn that begins early still counts
+    const box = boxAt(S.x, S.z), zi = Math.round(S.x / G), zj = Math.round(S.z / G);
+    const inZone = Math.abs(S.x - zi * G) <= ZONE && Math.abs(S.z - zj * G) <= ZONE && !inLot(S.x, S.z);
+    if (inZone && (!S.box || S.box.key !== zi + "," + zj)) {
+      S.box = { key: zi + "," + zj, i: zi, j: zj, th: S.th, blink: S.blink, judged: false };
+    }
+    if (S.box && !S.box.judged && S.v > 0) {
+      // judge PARE / red light once the front of the car passes the stop line
+      const z = S.box, d = dirOf(z.th), remaining = (z.i * G - S.x) * d.x + (z.j * G - S.z) * d.z;
+      if (remaining < STOP_LINE + CAR_L / 2) {
+        z.judged = true;
+        const key = z.key, axis = Math.abs(d.z) > 0.5 ? "NS" : "EW";
+        if (remaining > -2) {
+          if (ctrlOf(z.i, z.j) === "stop") {
+            if ((S.appr[key] ?? Infinity) > 1.5 / 3.6) infraction("Pasaste un PARE sin detenerte por completo");
+            else { award(10, "PARE respetado"); S.stopOk = true; }
+          } else if (lightState(z.i, z.j, axis) === "red") infraction("Cruzaste con luz roja", -30);
+        }
+        delete S.appr[key]; delete S.redOk[key];
       }
-      delete S.appr[key]; delete S.redOk[key];
-    } else if (!box && S.box) {
+    }
+    if (S.box && !inZone) {
       const turn = wrap(S.th - S.box.th);
       if (Math.abs(turn) > Math.PI / 4 && S.v > 0) {
         const side = turn > 0 ? "right" : "left", name = side === "right" ? "derecha" : "izquierda";
-        if (S.box.blink !== side) infraction(`Doblaste a la ${name} sin señalizar`);
-        else { award(10, `Doblaste a la ${name} señalizando`); S.turned[side] = true; }
-        S.blink = null;
-      }
+        if (S.box.blink !== side && S.blink !== side) infraction(`Doblaste a la ${name} sin señalizar`);
+        else { award(10, `Doblaste a la ${name} señalizando`); toast(`Bien: doblaste a la ${name} señalizando (+10).`, "good", "turned" + S.box.key); S.turned[side] = true; }
+        S.blink = null; // the blinker switches itself off after the turn; the guide stays until the car is straight
+      } else if (S.blink && S.v > 0) tip("Seguiste derecho con el guiño puesto: apágalo tocando la misma tecla (Z o X).", "blink-left-on", 20);
       S.box = null;
       S.boxExitT = S.t;
     }
     if (S.box && kmh > 25 && Math.abs(S.steer) > 0.2) tip("Muy rápido para doblar: baja a 2ª y a menos de 20 km/h.", "fast-turn", 15);
 
-    if (!box && S.t - S.boxExitT > 3 && onRoad(S.x, S.z) && !inLot(S.x, S.z) && S.v > 2) {
+    if (!S.box && S.t - S.boxExitT > 3 && onRoad(S.x, S.z) && !inLot(S.x, S.z) && S.v > 2) {
       const i = Math.round(S.x / G), j = Math.round(S.z / G), r = rightOf(S.th);
       let off = null;
       if (Math.abs(S.x - i * G) <= HALF && Math.abs(r.x) > 0.7) off = (S.x - i * G) * r.x;
@@ -1729,7 +1740,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (!help || (!S.blink && !(S.guide && S.guide.cued))) S.guide = null;
     else if (S.blink && (!S.guide || S.guide.side !== S.blink)) {
       const ap = approach();
-      S.guide = ap && ap.dist > 0 && ap.dist < 40 && !S.box ? makeGuide(ap, S.blink) : null;
+      S.guide = ap && ap.dist > 0 && ap.dist < 40 && !(S.box && S.box.key === ap.i + "," + ap.j && S.box.judged) ? makeGuide(ap, S.blink) : null;
     }
     const g = S.guide;
     if (g && (Math.hypot(S.x - g.bx, S.z - g.bz) > 45 || (g.cued && (S.x - g.P[2].x) * g.out.x + (S.z - g.P[2].z) * g.out.z > (g.finished ? 8 : 30)))) S.guide = null;
@@ -1748,7 +1759,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (!g.cued && along > -(0.8 + S.v * 0.45) && S.v > 0) { g.cued = true; toast("Ahora gira a la " + name + " hasta que termine la línea amarilla", "tip", "turnnow" + g.key, 30); }
     else if (!g.cued && along > -6 && along < -2 && S.v > 0) tip("Prepárate: empieza a girar cuando tu auto llegue al primer punto de la curva amarilla.", "turnsoon" + g.key, 30);
     const past = (S.x - g.P[2].x) * g.out.x + (S.z - g.P[2].z) * g.out.z;
-    if (g.engaged && !g.finished && past > 6) { g.finished = true; toast("Curva terminada: suelta la flecha y sigue derecho por tu carril.", "tip", "straight" + g.key, 30); }
+    const lat = Math.abs((S.x - g.P[2].x) * -g.out.z + (S.z - g.P[2].z) * g.out.x);
+    if (g.engaged && !g.finished && past > 6 && lat < 0.35 && Math.abs(wrap(S.th - g.target)) < 0.05) { g.finished = true; toast("Curva terminada: suelta la flecha y sigue derecho por tu carril.", "tip", "straight" + g.key, 30); }
   }
 
   // ---- city blocks ----
