@@ -533,7 +533,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   // ---------- car constants ----------
   const R = 0.3, M = 1150, FINAL = 4.1, IE = 0.2, KC = 40, TCMAX = 230, EFF = 0.92;
   const IDLE = 850, STALL_RPM = 400, BITE_TOP = 0.6, BITE_FULL = 0.2;
-  const WHEELBASE = 2.5, REAR = 1.25, MAX_STEER = 0.6, CAR_L = 4.2, CAR_W = 1.8, CURB_BAND = 0.9;
+  const WHEELBASE = 2.5, REAR = 1.25, MAX_STEER = 0.6, CAR_L = 4.2, CAR_W = 1.8, CURB_BAND = 3; // the whole sidewalk can be mounted (with a penalty); buildings and walls stop you
   const RATIOS = { R: -3.4, N: 0, 1: 3.6, 2: 2.15, 3: 1.45, 4: 1.07, 5: 0.84 };
   // ---------- city constants ----------
   const G = 90, HALF = 3.5, WALK = 3, LANE = 1.75;
@@ -572,7 +572,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     return dx <= HALF || dz <= HALF;
   }
   const inLot = (x, z) => inRect(x, z, LOT);
-  const CORNER_R = WALK;
+  const CORNER_R = 5; // street corners are rounded, as in real cities
   function inCornerArc(x, z) {
     const ax = Math.abs(x - Math.round(x / G) * G), az = Math.abs(z - Math.round(z / G) * G), e = HALF + CORNER_R;
     return ax > HALF && ax < e && az > HALF && az < e && Math.hypot(ax - e, az - e) > CORNER_R;
@@ -611,7 +611,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       clutch: 0, clutchManual: false, brake: 0, gas: 0, shake: 0, blink: null,
       limit: 50, overT: 0, speeding: false, wrongT: 0, wrongFlag: false,
       box: null, appr: {}, redOk: {}, stopOk: false, turned: { left: false, right: false },
-      parkT: 0, parkedPerp: false, parkedPar: false, lastHit: -9, lastCurb: -9, boxExitT: -9, guide: null,
+      parkT: 0, parkedPerp: false, parkedPar: false, lastHit: -9, lastCurb: -9, lastCurbT: -9, boxExitT: -9, guide: null,
       score: 0, cleanDist: 0, bestClean: 0, trafficLevel: 0,
       mission: 0, counts: { infr: 0, stall: 0, grind: 0, crash: 0 }, log: [], hist: [], paused: false,
     };
@@ -690,7 +690,11 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const nums = `Al apagarse: marcha ${g}, embrague ${state} (pedal al ${pct(S.clutch)}), acelerador al ${pct(S.gas)} (máximo ${pct(maxGas)} en los últimos 2 segundos), ${Math.round(kmh)} km/h.`;
     let restart = "Para seguir: embrague a fondo (A), pulsa E y vuelve a salir en 1ª.";
     let title, text, steps;
-    if (S.t - S.lastHit < 0.6) {
+    if (S.t - S.lastCurbT < 1.5 && S.t - S.lastHit >= 0.6) {
+      title = "Te subiste al cordón y el auto perdió velocidad";
+      text = "Al pisar el cordón, la rueda tuvo que subir el escalón y el auto se frenó. Con el cambio puesto y poca velocidad, el motor quedó sin vueltas y se apagó.";
+      steps = ["Para doblar a la derecha, avanza hasta que tu auto llegue a la esquina antes de girar: si giras muy temprano, la rueda de adentro pisa el cordón.", "Pon el señalizador: con las Ayudas activadas aparece la línea amarilla que marca por dónde ir.", "Si sientes el golpe del cordón, pisa el embrague para que no se apague."];
+    } else if (S.t - S.lastHit < 0.6) {
       title = "Chocaste con el cambio puesto";
       text = "El auto se frenó de golpe contra el obstáculo. Con el embrague suelto, el motor gira unido a las ruedas: si las ruedas se detienen de golpe, el motor también.";
       steps = ["Cuando vayas muy despacio cerca de un obstáculo, usa el punto de roce y ten el pie listo en el freno.", "Si ves que vas a tocar algo, pisa embrague y freno al mismo tiempo."];
@@ -861,7 +865,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     }
     if (!hit) {
       if (curbCorners(me) > 0) {
-        S.v *= 0.96; S.shake = Math.max(S.shake, 0.6);
+        S.lastCurbT = S.t; S.v -= Math.sign(S.v) * Math.min(Math.abs(S.v), 1.2 / 60); S.shake = Math.max(S.shake, 0.6);
         if (S.t - S.lastCurb > 4) { S.lastCurb = S.t; infraction("Te subiste al cordón de la vereda", -10); tip("Para doblar sin tocar el cordón, sigue la guía amarilla y empieza a girar cuando te lo indique.", "curb-tip", 25); }
       }
       return;
