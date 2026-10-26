@@ -333,6 +333,28 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .75rem; color: var(--muted); }
 .legend i { display: inline-block; width: 12px; height: 3px; margin-right: 4px; vertical-align: middle; }
 .stall-card .btn { align-self: flex-end; }
+/* compact explanation cards that never need scrolling to close */
+.stall-card { top: 8px; transform: translateX(-50%); max-height: calc(100% - 16px); width: min(440px, calc(100% - 24px)); padding: 0 14px 12px; gap: 6px; }
+.stall-card .card-head { position: sticky; top: 0; z-index: 1; background: rgba(24,26,29,.98); display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; padding-top: 12px; }
+.stall-card .card-head > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stall-card .x { background: none; border: 1px solid var(--line); color: var(--ink); border-radius: 6px; width: 30px; height: 30px; cursor: pointer; flex: none; font-size: 1rem; }
+.stall-card h3 { font-size: 1.02rem; }
+.stall-card p, .stall-card ol { font-size: .82rem; }
+#stall-chart { height: 64px; }
+.stall-card .card-foot { position: sticky; bottom: -12px; background: rgba(24,26,29,.98); padding: 8px 0 12px; display: flex; justify-content: flex-end; gap: 8px; }
+.result-card { border-left-color: var(--green); }
+.result-card.fail { border-left-color: var(--red); }
+.result-card .eyebrow { color: var(--green); }
+.result-card.fail .eyebrow { color: var(--red); }
+.result-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.result-stats div { background: var(--panel-2); border-radius: 6px; padding: 6px; text-align: center; font-size: .72rem; color: var(--muted); }
+.result-stats b { display: block; font-family: var(--font-num); font-weight: 400; font-size: 1.2rem; color: var(--ink); }
+#glass { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.options { display: flex; flex-direction: column; gap: 8px; padding: 10px; background: var(--panel-2); border-radius: 8px; }
+.options label { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: start; font-size: .88rem; cursor: pointer; }
+.options small { display: block; color: var(--muted); font-size: .78rem; }
+.options input { margin-top: 3px; accent-color: var(--amber); }
+.pedal .key { font-size: .72rem; }
 </style>
 
 <div class="app">
@@ -356,6 +378,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 
   <section class="stage" id="stage">
     <canvas id="road" tabindex="0" aria-label="Vista desde el asiento del conductor"></canvas>
+    <canvas id="glass" aria-hidden="true"></canvas>
     <svg class="dash" id="dash" viewBox="0 0 1000 260" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
       <defs>
         <linearGradient id="hood" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b8562a"></stop><stop offset="1" stop-color="#6e2f15"></stop></linearGradient>
@@ -384,16 +407,26 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     </div>
     <div class="toasts" id="toasts" aria-live="polite"></div>
     <div class="stall-card" id="stall-card" role="dialog" aria-labelledby="stall-title" hidden>
-      <span class="eyebrow">Se apagó el motor · juego en pausa</span>
-      <h3 id="stall-title"></h3>
+      <div class="card-head">
+        <div><span class="eyebrow">Se apagó el motor · juego en pausa</span><h3 id="stall-title"></h3></div>
+        <button class="x" id="stall-x" type="button" aria-label="Cerrar">✕</button>
+      </div>
       <p id="stall-text"></p>
       <canvas id="stall-chart" aria-label="Revoluciones, embrague y acelerador en los últimos 4 segundos"></canvas>
-      <div class="legend"><span><i style="background:#f0a535"></i>Revoluciones (rpm)</span><span><i style="background:#6fa8dc"></i>Embrague agarrando</span><span><i style="background:#73c27a"></i>Acelerador</span><span><i style="background:#e2553f"></i>Bajo esta línea se apaga</span></div>
+      <div class="legend"><span><i style="background:#f0a535"></i>Revoluciones</span><span><i style="background:#6fa8dc"></i>Embrague agarrando</span><span><i style="background:#73c27a"></i>Acelerador</span><span><i style="background:#e2553f"></i>Se apaga</span></div>
       <p class="nums" id="stall-nums"></p>
-      <h4>La próxima vez</h4>
       <ol id="stall-steps"></ol>
       <p class="restart" id="stall-restart"></p>
-      <button class="btn" id="stall-ok" type="button">Entendido <span class="key">Enter</span></button>
+      <div class="card-foot"><button class="btn" id="stall-ok" type="button">Entendido <span class="key">Enter</span></button></div>
+    </div>
+    <div class="stall-card result-card" id="result-card" role="dialog" aria-labelledby="result-title" hidden>
+      <div class="card-head">
+        <div><span class="eyebrow" id="result-eyebrow">Examen final</span><h3 id="result-title"></h3></div>
+        <button class="x" id="result-x" type="button" aria-label="Cerrar">✕</button>
+      </div>
+      <p id="result-text"></p>
+      <div class="result-stats" id="result-stats"></div>
+      <div class="card-foot"><button class="btn" id="result-retry" type="button" hidden>Intentar de nuevo</button><button class="btn" id="result-ok" type="button">Seguir manejando <span class="key">Enter</span></button></div>
     </div>
     <div class="focus-hint" id="focus-hint" hidden>Haz clic en la calle para usar el teclado</div>
   </section>
@@ -419,15 +452,15 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       <div class="pedals">
         <button class="pedal" data-p="clutch" type="button">
           <span class="bar"><span class="bite"></span><span class="fill"></span></span>
-          <span class="key">A</span><span class="name">Embrague</span>
+          <span class="key">Espacio</span><span class="name">Embrague</span>
         </button>
         <button class="pedal" data-p="brake" type="button">
           <span class="bar"><span class="fill"></span></span>
-          <span class="key">S</span><span class="name">Freno</span>
+          <span class="key">↓</span><span class="name">Freno</span>
         </button>
         <button class="pedal" data-p="gas" type="button">
           <span class="bar"><span class="fill"></span></span>
-          <span class="key">D</span><span class="name">Acelerador</span>
+          <span class="key">↑</span><span class="name">Acelerador</span>
         </button>
       </div>
       <p class="caption">Rueda del mouse sobre la calle: control fino del embrague (arriba suelta, abajo pisa). La franja rayada es el punto de roce.</p>
@@ -449,6 +482,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       <div class="aux">
         <button class="btn" id="btn-engine" type="button"><span class="key">E</span> Encender</button>
         <button class="btn" id="btn-hand" type="button"><span class="key">Q</span> Freno de mano</button>
+        <button class="btn" id="btn-horn" type="button"><span class="key">H</span> Bocina</button>
+        <button class="btn" id="btn-wipers" type="button" aria-pressed="false"><span class="key">L</span> Limpiaparabrisas</button>
       </div>
       <div class="steer">
         <button class="btn pedal-like" data-p="left" type="button"><span class="key">←</span> Volante</button>
@@ -468,18 +503,29 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       <ol class="missions" id="missions"></ol>
     </div>
     <div class="pane" id="pane-controls" hidden>
+      <h2>Lo básico</h2>
       <div class="controls">
-        <span class="key">A</span><span>Embrague (mantener = pisar; al soltar sube despacio)</span>
-        <span class="key">Rueda</span><span>Embrague fino: lo deja quieto donde lo pongas</span>
-        <span class="key">S</span><span>Freno</span>
-        <span class="key">D</span><span>Acelerador</span>
-        <span class="key">← →</span><span>Volante. Al soltar vuelve solo si el auto avanza</span>
-        <span class="key">Z</span><span>Señalizador izquierdo</span>
-        <span class="key">X</span><span>Señalizador derecho</span>
-        <span class="key">E</span><span>Encender / apagar motor</span>
+        <span class="key">↑</span><span>Acelerar</span>
+        <span class="key">↓</span><span>Frenar</span>
+        <span class="key">← →</span><span>Volante</span>
+        <span class="key">Espacio</span><span>Embrague (mantener = pisar)</span>
+        <span class="key">1 2 3 4 5 R N</span><span>Cambios (o la palanca con el mouse)</span>
+        <span class="key">E</span><span>Encender / apagar</span>
+      </div>
+      <h2>En la calle</h2>
+      <div class="controls">
+        <span class="key">Z / X</span><span>Guiño izquierdo / derecho</span>
         <span class="key">Q</span><span>Freno de mano</span>
-        <span class="key">1–5 R N</span><span>Cambios (o arrastra la perilla con el mouse)</span>
-        <span class="key">M</span><span>Agrandar el espejo retrovisor (o clic en cualquier espejo)</span>
+        <span class="key">H</span><span>Bocina</span>
+        <span class="key">L</span><span>Limpiaparabrisas</span>
+        <span class="key">M</span><span>Agrandar el espejo (o clic en un espejo)</span>
+        <span class="key">Rueda</span><span>Embrague fino con la rueda del mouse</span>
+      </div>
+      <p class="note">También funcionan A (embrague), S (freno) y D (acelerador).</p>
+      <h2>Opciones</h2>
+      <div class="options">
+        <label for="opt-autoclutch"><input type="checkbox" id="opt-autoclutch"><span>Embrague automático<small>Para empezar: el auto maneja el embrague por ti. Solo aceleras, frenas y cambias.</small></span></label>
+        <label for="opt-rain"><input type="checkbox" id="opt-rain"><span>Lluvia<small>Menos visibilidad, el auto tarda más en frenar y vas a necesitar el limpiaparabrisas (L).</small></span></label>
       </div>
       <p class="note">El GPS muestra en amarillo el lugar para estacionar. La zona de práctica está a la derecha, a unos 40 m de donde partes.</p>
     </div>
@@ -611,7 +657,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       clutch: 0, clutchManual: false, brake: 0, gas: 0, shake: 0, blink: null,
       limit: 50, overT: 0, speeding: false, wrongT: 0, wrongFlag: false,
       box: null, appr: {}, redOk: {}, stopOk: false, turned: { left: false, right: false },
-      parkT: 0, parkedPerp: false, parkedPar: false, lastHit: -9, lastCurb: -9, lastCurbT: -9, boxExitT: -9, guide: null,
+      parkT: 0, parkedPerp: false, parkedPar: false, lastHit: -9, lastCurb: -9, lastCurbT: -9, shiftT: 0, wipers: false, wiperA: 0, exam: null, licensed: false, boxExitT: -9, guide: null,
       score: 0, cleanDist: 0, bestClean: 0, trafficLevel: 0,
       mission: 0, counts: { infr: 0, stall: 0, grind: 0, crash: 0 }, log: [], hist: [], paused: false,
     };
@@ -654,7 +700,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   function requestGear(g) {
     if (g === S.gear) return true;
     if (g === "N") { S.gear = "N"; return true; }
-    if (S.clutch < BITE_TOP + 0.05) {
+    if (opts.autoClutch) { S.shiftT = 0.35; S.clutch = 1; }
+    else if (S.clutch < BITE_TOP + 0.05) {
       S.counts.grind++; award(-5, "Raspaste la caja: cambio sin embrague a fondo", "warn");
       toast("¡Crrrk! El cambio no entra si el embrague no está a fondo.", "bad", "grind", 1);
       return false;
@@ -666,7 +713,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   }
   function toggleEngine() {
     if (S.running || S.crank > 0) { S.running = false; S.crank = 0; return; }
-    if (S.gear !== "N" && S.clutch < BITE_TOP + 0.05) {
+    if (S.gear !== "N" && S.clutch < BITE_TOP + 0.05 && !opts.autoClutch) {
       toast("No arranca: pisa el embrague a fondo (A) o pon neutro.", "bad", "start");
       return;
     }
@@ -790,7 +837,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     S.we = Math.max(0, S.we + (Te - Tc) / IE * dt);
 
     const Fd = Tc * ratio / R * EFF;
-    const hold = S.brake * 9500 + (S.hand ? 5200 : 0) + 160;
+    const hold = S.brake * (opts.rain ? 6500 : 9500) + (S.hand ? 5200 : 0) + 160;
     if (Math.abs(S.v) < 0.03) {
       if (Math.abs(Fd) <= hold) S.v = 0;
       else S.v += (Fd - Math.sign(Fd) * hold) / M * dt;
@@ -807,12 +854,19 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     S.dist += Math.abs(S.v) * dt;
     S.cleanDist += Math.abs(S.v) * dt;
     if (S.running && toRpm(S.we) < STALL_RPM) stall();
-    const lug = S.running && e > 0.25 ? clamp((1000 - toRpm(S.we)) / 500, 0, 1) * e : 0;
+    const lug = S.running && e > 0.25 ? clamp((780 - toRpm(S.we)) / 300, 0, 1) * e * 0.7 : 0;
     S.shake += ((lug + (S.running ? 0.04 : 0)) - S.shake) * Math.min(1, dt * 20);
   }
 
   function updateControls(dt) {
-    if (held("clutch")) { S.clutch = Math.min(1, S.clutch + 4 * dt); S.clutchManual = false; }
+    if (opts.autoClutch) {
+      // works like a centrifugal clutch: it only grabs as the engine revs above idle, so it never stalls
+      S.shiftT = Math.max(0, S.shiftT - dt);
+      const rpm = toRpm(S.we), grab = clamp((rpm - 950) / 700, 0, 1);
+      const target = S.gear === "N" || S.shiftT > 0 ? 1 : Math.abs(S.v) > 4 && rpm > 1100 ? 0 : BITE_TOP - grab * (BITE_TOP - BITE_FULL + 0.05);
+      S.clutch += clamp(target - S.clutch, -3 * dt, 6 * dt);
+      S.clutchManual = false;
+    } else if (held("clutch")) { S.clutch = Math.min(1, S.clutch + 4 * dt); S.clutchManual = false; }
     else if (!S.clutchManual) S.clutch = Math.max(0, S.clutch - 0.25 * dt);
     S.brake = held("brake") ? Math.min(1, S.brake + 2 * dt) : Math.max(0, S.brake - 4 * dt);
     S.gas = held("gas") ? Math.min(1, S.gas + 1.2 * dt) : Math.max(0, S.gas - 2.5 * dt);
@@ -997,7 +1051,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 
   // ---------- missions ----------
   const MISSIONS = [
-    { title: "Enciende el motor", hint: "Mantén el embrague a fondo (A) y pulsa E. El motor de arranque gira un momento antes de encender.", done: () => S.running },
+    { title: "Enciende el motor", hint: "Mantén el embrague a fondo (Espacio o A) y pulsa E. Si es tu primera vez, puedes activar el embrague automático en la pestaña Controles. El motor de arranque gira un momento antes de encender.", done: () => S.running },
     { title: "Arranca en primera sin que se apague", hint: "Embrague a fondo, 1ª, quita el freno de mano (Q). Acelera hasta unas 1.500 rpm y mantenlo con toques de D. Recién ahí suelta A. Cuando las rpm bajen un poco y el auto tiemble, estás en el punto de roce: deja el pedal ahí (rueda del mouse) hasta que el auto avance y después termina de soltar.", done: () => S.running && S.gear === "1" && S.v * 3.6 > 8 && S.clutch < BITE_FULL },
     { title: "Pasa a segunda", hint: "Cerca de 15–20 km/h: suelta el acelerador, embrague a fondo, 2ª, suelta el embrague y vuelve a acelerar.", done: () => S.running && S.gear === "2" && S.v * 3.6 > 18 && S.clutch < BITE_FULL },
     { title: "Respeta un PARE", hint: "Cada 90 m hay una esquina. El GPS marca en rojo las que tienen PARE. Detente por completo antes de la línea blanca y vuelve a arrancar en 1ª.", done: () => S.stopOk },
@@ -1005,6 +1059,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     { title: "Dobla a la izquierda señalizando", hint: "Señalizador izquierdo (Z), reduce, avanza hasta el centro de la intersección y gira con ← hasta quedar en el carril derecho de la otra calle.", done: () => S.turned.left },
     { title: "Estaciona en el lugar marcado", hint: "Vuelve a la zona de práctica (el GPS la muestra; la entrada está en la calle de partida). Estaciona dentro del rectángulo amarillo, de frente o en reversa, y quédate sin moverte un segundo.", done: () => S.parkedPerp },
     { title: "Estaciona en paralelo", hint: "Ponte al lado del auto de adelante, a 1 m, con las colas alineadas. En reversa gira todo a la derecha hasta quedar en 45°, endereza, y cuando tu frente pase la cola del auto de adelante gira todo a la izquierda.", done: () => S.parkedPar },
+    { title: "Examen final", hint: "Sigue el GPS hasta los 3 puntos verdes (los ves en la calle como columnas verdes) y vuelve a estacionar en el lugar marcado. Apruebas con 2 infracciones o menos.", done: () => S.exam && S.exam.passed },
   ];
   const missionsEl = document.getElementById("missions");
   function renderMissions() {
@@ -1021,9 +1076,53 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (S.mission >= MISSIONS.length) {
       const li = document.createElement("li");
       li.className = "current";
-      li.innerHTML = `<span class="n">★</span><span>Completaste todas las misiones. Ahora maneja con tránsito y sube tu puntaje hasta llegar a Canchera.</span>`;
+      li.innerHTML = `<span class="n">★</span><span>¡Aprobaste el examen! Ya tienes tu licencia de práctica. Sigue manejando con tránsito, con lluvia o sin ayudas para subir tu puntaje.</span>`;
       missionsEl.appendChild(li);
     }
+  }
+  const EXAM_POOL = [[1, -1], [1, -2], [0, -2], [-1, -2], [-1, -1], [-1, 0], [1, 0], [0, 1], [1, 1]];
+  function startExam() {
+    const pool = EXAM_POOL.slice(), cps = [];
+    while (cps.length < 3) cps.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+    S.exam = { cps, idx: 0, infr0: S.counts.infr, phase: "route", passed: false };
+    S.parkedPerp = false;
+    toast("Examen final: sigue el GPS hasta el primer punto verde.", "good", "exam-start" + S.t, 1);
+  }
+  function updateExam() {
+    if (S.mission === MISSIONS.length - 1 && !S.exam) startExam();
+    const ex = S.exam;
+    if (!ex || ex.passed || ex.failed) return;
+    const infr = S.counts.infr - ex.infr0;
+    if (infr > 2) { ex.failed = true; showResult(false); return; }
+    if (ex.phase === "route") {
+      const [i, j] = ex.cps[ex.idx];
+      if (Math.hypot(S.x - i * G, S.z - j * G) < 6) {
+        ex.idx++;
+        if (ex.idx < 3) toast(`Punto ${ex.idx} de 3 listo. Sigue al siguiente punto verde del GPS.`, "good", "cp" + ex.idx);
+        else { ex.phase = "park"; S.parkedPerp = false; toast("Puntos listos. Último paso: vuelve a la zona de práctica y estaciona en el lugar marcado.", "good", "cp-park"); }
+      }
+    } else if (ex.phase === "park" && S.parkedPerp) { ex.passed = true; award(200, "Aprobaste el examen final"); S.licensed = true; showResult(true); }
+  }
+  function showResult(ok) {
+    const ex = S.exam, infr = S.counts.infr - ex.infr0, card = document.getElementById("result-card");
+    S.paused = true; for (const k in keys) keys[k] = false;
+    card.classList.toggle("fail", !ok);
+    document.getElementById("result-eyebrow").textContent = ok ? "Examen final · aprobado" : "Examen final · no aprobado";
+    document.getElementById("result-title").textContent = ok ? "¡Aprobaste! Ya tienes tu licencia de práctica" : "Esta vez no: tuviste más de 2 infracciones";
+    document.getElementById("result-text").textContent = ok
+      ? "Llegaste a los 3 puntos y estacionaste respetando las reglas. Puedes seguir manejando con más tránsito, con lluvia o sin ayudas."
+      : "Revisa en la pestaña Puntaje qué infracciones fueron y vuelve a intentarlo. Ve más despacio y señaliza antes de cada esquina.";
+    document.getElementById("result-stats").innerHTML = `<div><b>${infr}</b>infracciones</div><div><b>${ex.idx}/3</b>puntos</div><div><b>${S.score}</b>puntaje</div>`;
+    document.getElementById("result-retry").hidden = ok;
+    toastsEl.innerHTML = ""; card.hidden = false; card.scrollTop = 0;
+    document.getElementById("result-ok").focus({ preventScroll: true });
+  }
+  function closeResult() {
+    const card = document.getElementById("result-card");
+    if (card.hidden) return;
+    card.hidden = true; S.paused = false;
+    if (S.exam && S.exam.failed && !document.getElementById("result-retry").hidden) {} // stays failed until "Intentar de nuevo"
+    document.getElementById("road").focus();
   }
   function checkMissions() {
     if (S.mission < MISSIONS.length && MISSIONS[S.mission].done()) {
@@ -1079,12 +1178,12 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   }));
 
   // ---------- input ----------
-  const KEYMAP = { a: "clutch", s: "brake", d: "gas", arrowleft: "left", arrowright: "right" };
+  const KEYMAP = { a: "clutch", " ": "clutch", s: "brake", arrowdown: "brake", d: "gas", arrowup: "gas", arrowleft: "left", arrowright: "right" };
   window.addEventListener("keydown", e => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target && e.target.tagName === "SELECT") return;
     const k = e.key.toLowerCase();
-    if (S.paused) { if (k === "enter" || k === "escape" || k === " ") { closeStall(); e.preventDefault(); } return; }
+    if (S.paused) { if (k === "enter" || k === "escape") { closeStall(); closeResult(); e.preventDefault(); } return; }
     if (KEYMAP[k]) { keys[KEYMAP[k]] = true; e.preventDefault(); return; }
     if (e.repeat) return;
     if (k === "e") toggleEngine();
@@ -1092,6 +1191,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     else if (k === "z") S.blink = S.blink === "left" ? null : "left";
     else if (k === "x") S.blink = S.blink === "right" ? null : "right";
     else if (k === "m") toggleMirror("rear");
+    else if (k === "h") honk(true);
+    else if (k === "l") toggleWipers();
     else if ("12345".includes(k) && k.length === 1) shiftTo(k);
     else if (k === "r") shiftTo("R");
     else if (k === "n" || k === "0") shiftTo("N");
@@ -1121,6 +1222,20 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   document.getElementById("btn-engine").addEventListener("click", toggleEngine);
   document.getElementById("btn-hand").addEventListener("click", () => { S.hand = !S.hand; });
   document.getElementById("stall-ok").addEventListener("click", closeStall);
+  document.getElementById("stall-x").addEventListener("click", closeStall);
+  document.getElementById("result-ok").addEventListener("click", closeResult);
+  document.getElementById("result-x").addEventListener("click", closeResult);
+  document.getElementById("result-retry").addEventListener("click", () => { closeResult(); startExam(); });
+  const opts = { autoClutch: false, rain: false };
+  try { const saved = JSON.parse(localStorage.getItem("pm-opts") || "{}"); Object.assign(opts, saved); } catch (err) {}
+  const optAuto = document.getElementById("opt-autoclutch"), optRain = document.getElementById("opt-rain");
+  optAuto.checked = opts.autoClutch; optRain.checked = opts.rain;
+  const saveOpts = () => { try { localStorage.setItem("pm-opts", JSON.stringify(opts)); } catch (err) {} };
+  optAuto.addEventListener("change", () => { opts.autoClutch = optAuto.checked; saveOpts(); toast(opts.autoClutch ? "Embrague automático activado: solo acelera, frena y cambia." : "Embrague manual: ahora lo manejas tú (Espacio o A)."); document.getElementById("road").focus(); });
+  optRain.addEventListener("change", () => { opts.rain = optRain.checked; saveOpts(); applyWeather(); if (opts.rain) tip("Está lloviendo: enciende el limpiaparabrisas (L) y frena antes, el auto tarda más en detenerse.", "rain", 30); document.getElementById("road").focus(); });
+  function toggleWipers() { S.wipers = !S.wipers; document.getElementById("btn-wipers").setAttribute("aria-pressed", S.wipers); }
+  document.getElementById("btn-wipers").addEventListener("click", toggleWipers);
+  document.getElementById("btn-horn").addEventListener("click", () => honk(true));
   const helpBtn = document.getElementById("btn-help");
   helpBtn.addEventListener("click", () => { help = !help; helpBtn.setAttribute("aria-pressed", help); });
   const trafficSel = document.getElementById("traffic");
@@ -1221,9 +1336,15 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const target = audio.on && rpm > 60 ? (S.crank > 0 ? 0.03 : 0.035 + 0.05 * S.gas) : 0;
     audio.g.gain.setTargetAtTime(target, t, 0.05);
   }
-  function honk() {
-    if (!audio || !audio.on) return;
-    const ac = audio.ac, o = ac.createOscillator(), o2 = ac.createOscillator(), g = ac.createGain();
+  let hornCtx = null;
+  function honk(mine) {
+    if (!mine && (!audio || !audio.on)) return;
+    try { hornCtx = hornCtx || (audio && audio.ac) || new (window.AudioContext || window.webkitAudioContext)(); hornCtx.resume(); } catch (err) { return; }
+    if (mine) {
+      // cars ahead that were waiting for you get going
+      for (const c of traffic) { const d = dirOf(S.th), a = (c.x - S.x) * d.x + (c.z - S.z) * d.z; if (a > 0 && a < 20 && c.hitT > 0) c.hitT = 0; }
+    }
+    const ac = hornCtx, o = ac.createOscillator(), o2 = ac.createOscillator(), g = ac.createGain();
     o.type = o2.type = "square"; o.frequency.value = 415; o2.frequency.value = 520;
     g.gain.value = 0.04; o.connect(g); o2.connect(g); g.connect(ac.destination);
     o.start(); o2.start(); o.stop(ac.currentTime + 0.45); o2.stop(ac.currentTime + 0.45);
@@ -1276,13 +1397,46 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   }
 
   // sky dome
-  const skyTex = canvasTex(4, 256, (ctx, w, h) => {
+  // sky with soft clouds, drawn once for clear weather and once for rain
+  const makeSky = rainy => canvasTex(1024, 512, (ctx, w, h) => {
     const gr = ctx.createLinearGradient(0, 0, 0, h);
-    gr.addColorStop(0, "#5f93cc"); gr.addColorStop(0.42, "#a9c6e2"); gr.addColorStop(0.5, "#d3dde6"); gr.addColorStop(1, "#d3dde6");
+    if (rainy) { gr.addColorStop(0, "#6d747b"); gr.addColorStop(0.45, "#9aa1a7"); gr.addColorStop(0.5, "#aab0b5"); gr.addColorStop(1, "#aab0b5"); }
+    else { gr.addColorStop(0, "#4f86c6"); gr.addColorStop(0.4, "#a3c3e3"); gr.addColorStop(0.5, "#d3dde6"); gr.addColorStop(1, "#d3dde6"); }
     ctx.fillStyle = gr; ctx.fillRect(0, 0, w, h);
+    for (let n = 0; n < (rainy ? 90 : 38); n++) {
+      const cx = Math.random() * w, cy = h * (0.12 + Math.random() * 0.3), r = 18 + Math.random() * 40;
+      for (let k = 0; k < 7; k++) {
+        const g2 = ctx.createRadialGradient(cx + k * r * 0.5, cy + Math.sin(k) * r * 0.2, 0, cx + k * r * 0.5, cy, r);
+        const c = rainy ? "120,126,132" : "255,255,255";
+        g2.addColorStop(0, `rgba(${c},${rainy ? 0.5 : 0.55})`); g2.addColorStop(1, `rgba(${c},0)`);
+        ctx.fillStyle = g2; ctx.fillRect(cx + k * r * 0.5 - r, cy - r, r * 2, r * 2);
+      }
+    }
   }, false);
+  const skyTex = makeSky(false), skyRainTex = makeSky(true);
   const sky = new THREE.Mesh(new THREE.SphereGeometry(450, 24, 16), new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false, depthWrite: false }));
   scene.add(sky);
+  // far skyline: a ring of building silhouettes beyond the fog, so the city doesn't end in a flat wall
+  const skylineTex = canvasTex(2048, 256, (ctx, w, h) => {
+    ctx.clearRect(0, 0, w, h);
+    for (const [col, minH, maxH, step] of [["rgba(150,166,182,.55)", 60, 200, 26], ["rgba(120,136,152,.75)", 30, 140, 34]]) {
+      ctx.fillStyle = col;
+      for (let x = 0; x < w; ) { const bw = step + Math.random() * step * 1.5, bh = minH + Math.random() * (maxH - minH); ctx.fillRect(x, h - bh, bw - 2, bh); if (Math.random() < 0.15) ctx.fillRect(x + bw / 3, h - bh - 30, 4, 30); x += bw; }
+    }
+  }, false);
+  skylineTex.wrapS = THREE.RepeatWrapping; skylineTex.repeat.set(3, 1);
+  const skyline = new THREE.Mesh(new THREE.CylinderGeometry(330, 330, 70, 48, 1, true), new THREE.MeshBasicMaterial({ map: skylineTex, transparent: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+  skyline.position.y = 30; scene.add(skyline);
+  const examMarker = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 6, 24, 1, true), new THREE.MeshBasicMaterial({ color: 0x46e86c, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false }));
+  examMarker.visible = false; scene.add(examMarker);
+  function applyWeather() {
+    sky.material.map = opts.rain ? skyRainTex : skyTex; sky.material.needsUpdate = true;
+    const c = opts.rain ? 0xaab0b5 : HORIZON;
+    scene.background.setHex(c); scene.fog.color.setHex(c);
+    scene.fog.near = opts.rain ? 40 : 90; scene.fog.far = opts.rain ? 170 : 270;
+    sun.intensity = opts.rain ? 0.45 : 0.95;
+    skyline.material.opacity = opts.rain ? 0.35 : 1;
+  }
 
   // merges static pieces of a block into one mesh per material
   function makeBuilder() {
@@ -1578,7 +1732,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       S.guide = ap && ap.dist > 0 && ap.dist < 40 && !S.box ? makeGuide(ap, S.blink) : null;
     }
     const g = S.guide;
-    if (g && (Math.hypot(S.x - g.bx, S.z - g.bz) > 45 || (g.cued && (S.x - g.P[2].x) * g.out.x + (S.z - g.P[2].z) * g.out.z > 30))) S.guide = null;
+    if (g && (Math.hypot(S.x - g.bx, S.z - g.bz) > 45 || (g.cued && (S.x - g.P[2].x) * g.out.x + (S.z - g.P[2].z) * g.out.z > (g.finished ? 8 : 30)))) S.guide = null;
     guideDots.forEach((m, k) => {
       if (!S.guide) { m.visible = false; return; }
       let p;
@@ -1872,7 +2026,10 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     sun.position.set(S.x + 50, 90, S.z + 35); sun.target.position.set(S.x, 0, S.z); sun.target.updateMatrixWorld();
     placeCar(myCar, S.x, S.z, S.th);
     updateGuide();
-    perpTarget.visible = S.mission === 6 || S.mission >= MISSIONS.length;
+    perpTarget.visible = S.mission === 6 || S.mission >= MISSIONS.length || (S.exam && S.exam.phase === "park" && !S.exam.passed);
+    const exm = S.exam, cp = exm && exm.phase === "route" && !exm.failed ? exm.cps[exm.idx] : null;
+    examMarker.visible = !!cp;
+    if (cp) { examMarker.position.set(cp[0] * G, 3, cp[1] * G); examMarker.rotation.y += 0.01; }
     parTarget.visible = S.mission === 7 || S.mission >= MISSIONS.length;
 
     const amp = S.shake;
@@ -1881,7 +2038,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const d = dirOf(S.th), r = rightOf(S.th);
     const ex = S.x + d.x * 0.1 - r.x * 0.37 + r.x * jx, ez = S.z + d.z * 0.1 - r.z * 0.37 + r.z * jx, ey = 1.22 + jy;
     camera.position.set(ex, ey, ez);
-    sky.position.set(ex, 0, ez);
+    sky.position.set(ex, 0, ez); skyline.position.set(ex, 30, ez);
     const look = dirOf(S.th + S.steer * 0.6);
     const pitch = -S.brake * 0.35 * Math.min(1, Math.abs(S.v) / 3);
     camera.lookAt(ex + look.x * 20, ey - 0.9 + pitch, ez + look.z * 20);
@@ -1913,6 +2070,49 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     renderer.setScissorTest(false);
   }
 
+  // ---------- rain drops on the windshield and the wiper blades ----------
+  const glass = document.getElementById("glass"), glctx = glass.getContext("2d");
+  const drops = [];
+  let lastWiperA = 0;
+  function drawGlass(dt) {
+    const dpr = Math.min(2, window.devicePixelRatio || 1), cw = Math.round(glass.clientWidth * dpr), ch = Math.round(glass.clientHeight * dpr);
+    if (glass.width !== cw || glass.height !== ch) { glass.width = cw; glass.height = ch; }
+    const w = glass.width, h = glass.height;
+    glctx.clearRect(0, 0, w, h);
+    if (opts.rain && drops.length < 900) for (let k = 0; k < 40 * dt * (1 + Math.abs(S.v) / 6); k++) drops.push({ x: Math.random() * w, y: Math.random() * h * 0.78, r: (1 + Math.random() * 2.6) * dpr, life: 0 });
+    // falling rain streaks in the air
+    if (opts.rain) {
+      glctx.strokeStyle = "rgba(220,228,236,.35)"; glctx.lineWidth = 1 * dpr; glctx.beginPath();
+      for (let k = 0; k < 70; k++) { const x = Math.random() * w, y = Math.random() * h * 0.8; glctx.moveTo(x, y); glctx.lineTo(x - 3 * dpr, y + 16 * dpr); }
+      glctx.stroke();
+    }
+    // wipers sweep between 10° and 170° around two pivots at the base of the windshield
+    if (S.wipers) S.wiperA += dt * 2 * Math.PI / 1.3; else if (Math.sin(S.wiperA) > 0.02) S.wiperA += dt * 2 * Math.PI / 1.3; else S.wiperA = 0;
+    const ang = a => Math.PI * (0.06 + 0.88 * (1 - Math.cos(a)) / 2);
+    const piv = [[w * 0.3, h * 0.78], [w * 0.64, h * 0.78]], len = w * 0.36, a0 = ang(lastWiperA), a1 = ang(S.wiperA);
+    lastWiperA = S.wiperA;
+    for (let n = drops.length - 1; n >= 0; n--) {
+      const d = drops[n];
+      d.life += dt; if (d.life > 3 && Math.random() < dt * 0.5) d.y += d.r * 0.6;
+      let wiped = false;
+      for (const [px, py] of piv) {
+        const dx = d.x - px, dy = py - d.y, dist = Math.hypot(dx, dy), a = Math.atan2(dy, -dx);
+        if (dist < len && a >= Math.min(a0, a1) - 0.03 && a <= Math.max(a0, a1) + 0.03) wiped = true;
+      }
+      if (wiped || d.y > h * 0.8) { drops.splice(n, 1); continue; }
+      glctx.fillStyle = "rgba(200,215,228,.28)"; glctx.beginPath(); glctx.arc(d.x, d.y, d.r, 0, Math.PI * 2); glctx.fill();
+      glctx.fillStyle = "rgba(255,255,255,.55)"; glctx.beginPath(); glctx.arc(d.x - d.r * 0.3, d.y - d.r * 0.3, d.r * 0.35, 0, Math.PI * 2); glctx.fill();
+    }
+    if (S.wiperA > 0 || S.wipers) {
+      glctx.strokeStyle = "#0e0f10"; glctx.lineCap = "round";
+      for (const [px, py] of piv) {
+        const a = ang(S.wiperA), ex = px - Math.cos(a) * len, ey = py - Math.sin(a) * len;
+        glctx.lineWidth = 7 * dpr; glctx.beginPath(); glctx.moveTo(px, py); glctx.lineTo(ex, ey); glctx.stroke();
+        glctx.lineWidth = 3 * dpr; glctx.beginPath(); glctx.moveTo(px - Math.cos(a) * len * 0.15, py - Math.sin(a) * len * 0.15); glctx.lineTo(ex, ey); glctx.stroke();
+      }
+    }
+  }
+
   // ---------- GPS ----------
   const gps = document.getElementById("gps"), gctx = gps.getContext("2d");
   function drawGps() {
@@ -1936,6 +2136,12 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       }
     gctx.fillStyle = "#d9d4c8";
     for (const c of traffic) { gctx.beginPath(); gctx.arc(X(c.x), Z(c.z), 1.8 * dpr, 0, Math.PI * 2); gctx.fill(); }
+    if (S.exam && S.exam.phase === "route" && !S.exam.failed) {
+      const [ci, cj] = S.exam.cps[S.exam.idx];
+      const px = clamp(X(ci * G), 6, w - 6), pz = clamp(Z(cj * G), 6, h - 6);
+      gctx.fillStyle = "#46e86c"; gctx.strokeStyle = "#0f1a10"; gctx.lineWidth = 2;
+      gctx.beginPath(); gctx.arc(px, pz, 6 * dpr, 0, Math.PI * 2); gctx.fill(); gctx.stroke();
+    }
     gctx.translate(w / 2, h / 2); gctx.rotate(S.th);
     gctx.fillStyle = "#4fc3f7"; gctx.beginPath(); gctx.moveTo(0, -8 * dpr); gctx.lineTo(5 * dpr, 6 * dpr); gctx.lineTo(-5 * dpr, 6 * dpr); gctx.closePath(); gctx.fill();
   }
@@ -2002,6 +2208,11 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (S.limit !== lastLimit) { lastLimit = S.limit; el("limit-sign").textContent = S.limit; }
     tickScoreStats();
     const chip = el("next-chip"), ap = help ? approach() : null;
+    if (S.exam && S.exam.phase === "route" && !S.exam.failed) {
+      const [ci, cj] = S.exam.cps[S.exam.idx], txt = `Examen: punto ${S.exam.idx + 1} de 3 · ${Math.round(Math.hypot(S.x - ci * G, S.z - cj * G))} m`;
+      if (chip.dataset.t !== txt) { chip.dataset.t = txt; chip.innerHTML = '<i style="background:#46e86c"></i>'; chip.appendChild(document.createTextNode(txt)); }
+      chip.hidden = false; return;
+    }
     if (ap && ap.dist > -1 && ap.dist < 120) {
       const stop = ctrlOf(ap.i, ap.j) === "stop", st = stop ? null : lightState(ap.i, ap.j, ap.axis);
       const col = stop ? "#e2553f" : { red: "#ff3b24", yellow: "#ffbe2e", green: "#46e86c" }[st];
@@ -2049,7 +2260,9 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     updateLights();
     checkRules(dt);
     checkMissions();
+    updateExam();
     render3d();
+    drawGlass(dt);
     drawGps();
     const rpm = toRpm(S.we);
     drawGauge(tach, rpm / 1000, 8, 1, 6.5, "rpm × 1000", String(Math.round(rpm / 10) * 10));
@@ -2058,6 +2271,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     updateSound();
     requestAnimationFrame(frame);
   }
+  applyWeather();
   renderMissions();
   renderScore();
   tip("Hola. Primera misión: " + MISSIONS[0].hint, "welcome", 999);
