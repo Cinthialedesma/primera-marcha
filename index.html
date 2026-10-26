@@ -819,9 +819,9 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const steerIn = (held("right") ? 1 : 0) - (held("left") ? 1 : 0);
     const g = S.guide;
     const sign = g ? (g.side === "right" ? 1 : -1) : 0;
-    if (g && steerIn === sign) g.engaged = true;
-    // once the turn is started with the arrow, the assist finishes the curve unless you steer the other way
-    if (g && help && S.v > 0.3 && (steerIn === sign || (g.engaged && steerIn !== -sign))) {
+    // only after the "turn now" cue and only while the arrow is held; letting go hands the wheel back
+    if (g && help && S.v > 0.3 && g.cued && steerIn === sign) {
+      g.engaged = true;
       // pure pursuit from the rear axle toward a point 4.5 m ahead on the line
       const d = dirOf(S.th), rx = S.x - d.x * REAR, rz = S.z - d.z * REAR;
       let bi = 0, bd = Infinity;
@@ -830,7 +830,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       while (k < g.path.length - 1 && run < 4.5 + REAR) { run += Math.hypot(g.path[k + 1].x - g.path[k].x, g.path[k + 1].z - g.path[k].z); k++; }
       const t = g.path[k], ang = Math.atan2(t.x - rx, -(t.z - rz)), alpha = wrap(ang - S.th), ld = Math.max(1, Math.hypot(t.x - rx, t.z - rz));
       const want = clamp(Math.atan2(2 * WHEELBASE * Math.sin(alpha), ld), -MAX_STEER, MAX_STEER);
-      S.steer += clamp(want - S.steer, -1.6 * dt, 1.6 * dt);
+      S.steer += clamp(want - S.steer, -1.0 * dt, 1.0 * dt);
     } else if (steerIn) S.steer = clamp(S.steer + steerIn * 1.0 * dt, -MAX_STEER, MAX_STEER);
     else {
       const back = Math.min(0.8, Math.abs(S.v) * 0.2) * dt;
@@ -1591,7 +1591,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     // spoken-style cues: when to turn and when to straighten
     const along = (S.x - g.P[0].x) * g.d.x + (S.z - g.P[0].z) * g.d.z;
     const name = g.side === "right" ? "derecha (mantén →)" : "izquierda (mantén ←)";
-    if (!g.cued && along > -(0.8 + S.v * 0.45) && S.v > 0) { g.cued = true; toast("Ahora gira a la " + name, "tip", "turnnow" + g.key, 30); }
+    if (!g.cued && along > -(0.8 + S.v * 0.45) && S.v > 0) { g.cued = true; toast("Ahora gira a la " + name + " hasta que termine la línea amarilla", "tip", "turnnow" + g.key, 30); }
     else if (!g.cued && along > -6 && along < -2 && S.v > 0) tip("Prepárate: empieza a girar cuando tu auto llegue al primer punto de la curva amarilla.", "turnsoon" + g.key, 30);
     const past = (S.x - g.P[2].x) * g.out.x + (S.z - g.P[2].z) * g.out.z;
     if (g.engaged && !g.finished && past > 6) { g.finished = true; toast("Curva terminada: suelta la flecha y sigue derecho por tu carril.", "tip", "straight" + g.key, 30); }
