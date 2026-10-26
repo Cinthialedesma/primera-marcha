@@ -366,6 +366,11 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 .sensor { display: flex; gap: 2px; align-items: center; }
 .sensor i { width: 10px; height: 8px; border-radius: 2px; background: #2a2e34; display: inline-block; }
 .sensor i.on { background: var(--green); } .sensor i.on.mid { background: var(--amber); } .sensor i.on.near { background: var(--red); }
+.signs { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.sign-row { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 10px; align-items: center; }
+.sign-row img { width: 44px; height: 44px; }
+.sign-row b { display: block; font-size: .88rem; }
+.sign-row span { color: var(--muted); font-size: .82rem; }
 </style>
 
 <div class="app">
@@ -554,6 +559,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     </div>
     <div class="pane" id="pane-rules" hidden>
       <div class="rules">
+        <div class="rule"><h3>Señales que vas a ver</h3><div class="signs" id="sign-list"></div></div>
+        <div class="rule"><h3>Esquinas sin señales</h3><p>En Argentina, si una esquina no tiene PARE, Ceda el paso ni semáforo, tiene prioridad quien viene por tu derecha. Llega despacio, mira a la derecha y deja pasar.</p></div>
         <div class="rule"><h3>Señal PARE / ALTO</h3><p>Detención total antes de la línea blanca, aunque no venga nadie. Mira a ambos lados y avanza cuando sea seguro. Bajar a 5 km/h no cuenta.</p></div>
         <div class="rule"><h3>Semáforo</h3><p>Rojo: detente antes de la línea. Amarillo: detente si puedes hacerlo con seguridad; no es una señal para acelerar. Verde: avanza con precaución.</p></div>
         <div class="rule"><h3>Doblar</h3><p>Señaliza unos 30 m antes, reduce a 2ª y menos de 20 km/h, y dobla quedando en tu carril (el derecho). A la izquierda, abre la curva hasta el centro de la intersección.</p></div>
@@ -662,7 +669,28 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     return Math.abs(lx * d.x + lz * d.z) <= CAR_L / 2 && Math.abs(lx * r.x + lz * r.z) <= CAR_W / 2;
   }
   const overlap = (a, b) => corners(a.x, a.z, a.th).some(([x, z]) => inObb(x, z, b)) || corners(b.x, b.z, b.th).some(([x, z]) => inObb(x, z, a));
-  function ctrlOf(i, j) { return hash2(i, j) < 0.5 ? "stop" : "light"; }
+  // intersections: PARE, semáforo, Ceda el paso, or no sign at all (then whoever comes from the right goes first)
+  function ctrlOf(i, j) { const h = hash2(i, j); return h < 0.35 ? "stop" : h < 0.65 ? "light" : h < 0.83 ? "ceda" : "none"; }
+  const isAvenue = line => ((line % 3) + 3) % 3 === 1;
+  // left turn forbidden for this approach (only at some traffic lights)
+  const noLeft = (i, j, k) => ctrlOf(i, j) === "light" && hash2(i * 5 + k, j * 3 + 1) < 0.3;
+  // what each block of street has: a school zone or a speed bump in the middle
+  function segFeature(axis, line, block) {
+    if (axis === "NS" && line === 0 && block === -1) return null; // the first street stays simple
+    const h = axis === "NS" ? hash2(line * 7 + 3, block * 11 + 1) : hash2(line * 13 + 5, block * 3 + 2);
+    return h < 0.12 ? "school" : h < 0.26 ? "bump" : null;
+  }
+  function segAt(x, z) {
+    const i = Math.round(x / G), j = Math.round(z / G);
+    if (Math.abs(x - i * G) <= HALF && Math.abs(z - j * G) > HALF) { const block = Math.floor(z / G); return { axis: "NS", line: i, block, s: z - block * G }; }
+    if (Math.abs(z - j * G) <= HALF && Math.abs(x - i * G) > HALF) { const block = Math.floor(x / G); return { axis: "EW", line: j, block, s: x - block * G }; }
+    return null;
+  }
+  function streetLimit(x, z) {
+    const sg = segAt(x, z);
+    if (!sg) return null;
+    return segFeature(sg.axis, sg.line, sg.block) === "school" ? 20 : isAvenue(sg.line) ? 60 : 40;
+  }
   function lightState(i, j, axis) {
     const t = (S.t + hash2(j, i) * 26) % 26;
     if (axis === "NS") return t < 10 ? "green" : t < 13 ? "yellow" : "red";
@@ -1070,11 +1098,15 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       S.appr[key] = Math.min(S.appr[key] ?? Infinity, Math.abs(S.v));
     }
     if (ap && ap.dist > 12 && ap.dist < 55 && S.v > 3) {
-      if (ctrlOf(ap.i, ap.j) === "stop") tip(`PARE en ${Math.round(ap.dist)} m: suelta el acelerador, frena suave y pisa el embrague justo antes de detenerte.`, "ap-stop" + ap.i + "," + ap.j, 40);
+      const cc = ctrlOf(ap.i, ap.j);
+      if (cc === "ceda") tip(`Ceda el paso en ${Math.round(ap.dist)} m: baja la velocidad y deja pasar a los autos que vienen por la otra calle.`, "ap-ceda" + ap.i + "," + ap.j, 40);
+      else if (cc === "none") tip(`Esquina sin señales en ${Math.round(ap.dist)} m: tiene prioridad quien viene por tu derecha. Baja la velocidad y mira a la derecha.`, "ap-none" + ap.i + "," + ap.j, 40);
+      else if (cc === "stop") tip(`PARE en ${Math.round(ap.dist)} m: suelta el acelerador, frena suave y pisa el embrague justo antes de detenerte.`, "ap-stop" + ap.i + "," + ap.j, 40);
       else {
         const st = lightState(ap.i, ap.j, ap.axis);
         if (st !== "green") tip(`Semáforo en ${st === "red" ? "rojo" : "amarillo"} adelante: prepárate para detenerte antes de la línea blanca.`, "ap-light" + ap.i + "," + ap.j + st, 25);
       }
+      if (S.blink === "left" && noLeft(ap.i, ap.j, cardinal(S.th).k)) tip("En esta esquina está prohibido girar a la izquierda (mira el cartel redondo). Sigue derecho o dobla a la derecha.", "noleft" + ap.i + "," + ap.j, 30);
       if (ap.dist < 45 && !S.blink && !(S.turned.left && S.turned.right)) tip("Esquina adelante: puedes seguir derecho o doblar. Para doblar, señaliza (Z izquierda / X derecha): aparece una guía amarilla en el piso y te aviso cuándo girar.", "corner", 45);
     }
     if (ap && ap.dist < 25 && Math.abs(S.steer) > 0.15 && !S.blink && S.v > 0.5) tip("¿Vas a doblar? Pon el señalizador: Z izquierda, X derecha.", "blink-tip", 20);
@@ -1099,7 +1131,20 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
           if (ctrlOf(z.i, z.j) === "stop") {
             if ((S.appr[key] ?? Infinity) > 1.5 / 3.6) infraction("Pasaste un PARE sin detenerte por completo");
             else { award(10, "PARE respetado"); S.stopOk = true; }
-          } else if (lightState(z.i, z.j, axis) === "red") infraction("Cruzaste con luz roja", -30);
+          } else if (ctrlOf(z.i, z.j) === "light") { if (lightState(z.i, z.j, axis) === "red") infraction("Cruzaste con luz roja", -30); }
+          else {
+            // Ceda el paso: yield to anyone coming on the other street. No sign: yield to whoever comes from your right.
+            const cc = ctrlOf(z.i, z.j), rr = rightOf(z.th), kmhNow = Math.abs(S.v) * 3.6;
+            const threat = traffic.find(c => {
+              if (c.turn || c.v < 1) return false;
+              const dx = c.x - z.i * G, dz = c.z - z.j * G, dist = Math.hypot(dx, dz), cd = dirOf(c.th);
+              if (dist > 30 || dist < 4 || -(dx * cd.x + dz * cd.z) <= 0 || Math.abs(Math.cos(c.th - z.th)) > 0.5) return false;
+              return cc === "ceda" || dx * rr.x + dz * rr.z > 0;
+            });
+            if (threat) infraction(cc === "ceda" ? "No cediste el paso en una esquina con Ceda el paso" : "No respetaste la prioridad de quien viene por la derecha", -20);
+            else if (kmhNow > 30) infraction(cc === "ceda" ? "Entraste muy rápido a una esquina con Ceda el paso" : "Cruzaste muy rápido una esquina sin señales", -10);
+            else award(5, cc === "ceda" ? "Ceda el paso respetado" : "Esquina sin señales cruzada con precaución");
+          }
         }
         delete S.appr[key]; delete S.redOk[key];
       }
@@ -1108,6 +1153,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       const turn = wrap(S.th - S.box.th);
       if (Math.abs(turn) > Math.PI / 4 && S.v > 0) {
         const side = turn > 0 ? "right" : "left", name = side === "right" ? "derecha" : "izquierda";
+        if (side === "left" && noLeft(S.box.i, S.box.j, cardinal(S.box.th).k)) infraction("Giraste a la izquierda donde está prohibido", -20);
         if (S.box.blink !== side && S.blink !== side) infraction(`Doblaste a la ${name} sin señalizar`);
         else { award(10, `Doblaste a la ${name} señalizando`); toast(`Bien: doblaste a la ${name} señalizando (+10).`, "good", "turned" + S.box.key); S.turned[side] = true; }
         S.blink = null; // the blinker switches itself off after the turn; the guide stays until the car is straight
@@ -1128,7 +1174,19 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       } else { S.wrongT = 0; S.wrongFlag = false; }
     }
 
-    S.limit = inLot(S.x, S.z) || mode === "parking" ? 20 : 50;
+    S.limit = inLot(S.x, S.z) || mode === "parking" ? 20 : (streetLimit(S.x, S.z) ?? S.limit);
+    // school zones and speed bumps
+    const sg = segAt(S.x, S.z), feat = sg && segFeature(sg.axis, sg.line, sg.block), key = sg && sg.axis + sg.line + "," + sg.block;
+    if (feat === "school") tip("Zona escolar: máximo 20 km/h y atención a los chicos que cruzan.", "school" + key, 60);
+    if (sg && S.prevSeg && S.prevSeg.key === key && (S.prevSeg.s - G / 2) * (sg.s - G / 2) < 0 && feat === "bump") {
+      if (kmh > 20) { S.v *= 0.8; S.shake = 2.2; infraction(`Pasaste el lomo de burro a ${Math.round(kmh)} km/h`, -5); }
+      else { S.shake = Math.max(S.shake, 0.6); award(2, "Lomo de burro despacio"); }
+    }
+    if (sg && feat === "bump") {
+      const toBump = (G / 2 - sg.s) * (sg.axis === "NS" ? dirOf(S.th).z : dirOf(S.th).x);
+      if (toBump > 5 && toBump < 35 && kmh > 20) tip("Lomo de burro adelante: baja a menos de 20 km/h.", "bump" + key, 20);
+    }
+    S.prevSeg = sg ? { key, s: sg.s } : null;
     if (kmh > S.limit + 4) {
       S.overT += dt;
       if (S.overT > 1.5 && !S.speeding) { S.speeding = true; infraction(`Exceso de velocidad: ${Math.round(kmh)} km/h en zona de ${S.limit}`); }
@@ -1753,6 +1811,48 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     ctx.fillStyle = "rgba(234,231,222,.92)"; ctx.font = "bold 120px 'Saira Semi Condensed', Arial, sans-serif";
     ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("PARE", w / 2, h / 2 + 6);
   }, false);
+  const SIGN_DRAW = {
+    ceda: (ctx, w) => { ctx.translate(w / 2, w / 2); const tri = r => { ctx.beginPath(); ctx.moveTo(-r, -r * 0.6); ctx.lineTo(r, -r * 0.6); ctx.lineTo(0, r * 1.1); ctx.closePath(); };
+      ctx.fillStyle = "#c8261d"; tri(118); ctx.fill(); ctx.fillStyle = "#fff"; tri(82); ctx.fill();
+      ctx.fillStyle = "#c8261d"; ctx.font = "bold 26px 'Saira Semi Condensed', Arial, sans-serif"; ctx.textAlign = "center"; ctx.fillText("CEDA EL", 0, -26); ctx.fillText("PASO", 0, 4); },
+    limit: v => (ctx, w) => { ctx.translate(w / 2, w / 2); ctx.fillStyle = "#f4f1ea"; ctx.beginPath(); ctx.arc(0, 0, 124, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "#d13b2b"; ctx.lineWidth = 26; ctx.beginPath(); ctx.arc(0, 0, 108, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = "#16181b"; ctx.font = "bold 104px 'Saira Semi Condensed', Arial, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(String(v), 0, 6); },
+    warn: (draw, label) => (ctx, w) => { ctx.translate(w / 2, w / 2); ctx.rotate(Math.PI / 4); ctx.fillStyle = "#111"; ctx.fillRect(-86, -86, 172, 172); ctx.fillStyle = "#f2c230"; ctx.fillRect(-78, -78, 156, 156); ctx.rotate(-Math.PI / 4);
+      ctx.fillStyle = "#111"; draw(ctx); ctx.font = "bold 22px 'Saira Semi Condensed', Arial, sans-serif"; ctx.textAlign = "center"; ctx.fillText(label, 0, 62); },
+    noLeft: (ctx, w) => { ctx.translate(w / 2, w / 2); ctx.fillStyle = "#f4f1ea"; ctx.beginPath(); ctx.arc(0, 0, 124, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "#16181b"; ctx.lineWidth = 18; ctx.beginPath(); ctx.moveTo(20, 70); ctx.lineTo(20, -10); ctx.quadraticCurveTo(20, -40, -10, -40); ctx.lineTo(-40, -40); ctx.stroke();
+      ctx.fillStyle = "#16181b"; ctx.beginPath(); ctx.moveTo(-70, -40); ctx.lineTo(-36, -68); ctx.lineTo(-36, -12); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = "#d13b2b"; ctx.lineWidth = 24; ctx.beginPath(); ctx.arc(0, 0, 108, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.moveTo(-76, -76); ctx.lineTo(76, 76); ctx.stroke(); },
+  };
+  SIGN_DRAW.school = SIGN_DRAW.warn(ctx => { for (const [x, h] of [[-26, 1], [22, 0.8]]) { ctx.beginPath(); ctx.arc(x, -40 * h, 12 * h, 0, Math.PI * 2); ctx.fill(); ctx.fillRect(x - 10 * h, -26 * h, 20 * h, 40 * h); ctx.fillRect(x - 10 * h, 14 * h, 7 * h, 26 * h); ctx.fillRect(x + 3 * h, 14 * h, 7 * h, 26 * h); } }, "ESCUELA");
+  SIGN_DRAW.bump = SIGN_DRAW.warn(ctx => { ctx.fillRect(-60, 20, 120, 10); ctx.beginPath(); ctx.moveTo(-34, 20); ctx.quadraticCurveTo(0, -36, 34, 20); ctx.closePath(); ctx.fill(); }, "LOMO DE BURRO");
+  const signMat = draw => L({ map: canvasTex(256, 256, draw, false), transparent: true, alphaTest: 0.5 });
+  const cedaMat = signMat(SIGN_DRAW.ceda), schoolMat = signMat(SIGN_DRAW.school), bumpSignMat = signMat(SIGN_DRAW.bump), noLeftMat = signMat(SIGN_DRAW.noLeft);
+  const limitMats = { 20: signMat(SIGN_DRAW.limit(20)), 40: signMat(SIGN_DRAW.limit(40)), 60: signMat(SIGN_DRAW.limit(60)) };
+  const bumpMat = L({ map: canvasTex(128, 32, (ctx, w, h) => { for (let x = 0; x < w; x += 32) { ctx.fillStyle = "#f2c230"; ctx.fillRect(x, 0, 16, h); ctx.fillStyle = "#1a1a1a"; ctx.fillRect(x + 16, 0, 16, h); } }) });
+  const bumpGeo = (() => { const g = new THREE.BoxGeometry(7, 0.09, 1.2); const uv = g.attributes.uv; for (let n = 0; n < uv.count; n++) uv.setX(n, uv.getX(n) * 4); return g; })();
+  const dashGeo = new THREE.PlaneGeometry(0.45, 0.35); dashGeo.rotateX(-Math.PI / 2);
+  // fill the Rules tab with the signs as you see them in the street
+  setTimeout(() => {
+    const list = document.getElementById("sign-list");
+    if (!list) return;
+    const items = [
+      [(ctx, w) => { ctx.drawImage(stopTex.image, 0, 0, w, w); }, "PARE", "Detención total antes de la línea, aunque no venga nadie."],
+      [SIGN_DRAW.ceda, "Ceda el paso", "Baja la velocidad y deja pasar a quien viene por la otra calle. Si no viene nadie, no hace falta detenerse."],
+      [SIGN_DRAW.limit(40), "Velocidad máxima", "En calles 40 km/h, en avenidas 60 km/h (como en la Ciudad de Buenos Aires). Rige hasta la próxima señal."],
+      [SIGN_DRAW.school, "Zona escolar", "Máximo 20 km/h y atención: pueden cruzar chicos en cualquier momento."],
+      [SIGN_DRAW.bump, "Lomo de burro", "Hay un reductor de velocidad adelante: pásalo a menos de 20 km/h."],
+      [SIGN_DRAW.noLeft, "Prohibido girar a la izquierda", "En esa esquina solo puedes seguir derecho o doblar a la derecha."],
+    ];
+    for (const [draw, title, text] of items) {
+      const c = document.createElement("canvas"); c.width = c.height = 256; draw(c.getContext("2d"), 256);
+      const row = document.createElement("div"); row.className = "sign-row";
+      const img = document.createElement("img"); img.src = c.toDataURL(); img.alt = title; row.appendChild(img);
+      const t = document.createElement("div"); t.innerHTML = "<b></b><span></span>"; t.firstChild.textContent = title; t.lastChild.textContent = text; row.appendChild(t);
+      list.appendChild(row);
+    }
+  }, 0);
   const stopSignMat = L({ map: stopTex, transparent: true, alphaTest: 0.5 }), roadWordMat = L({ map: roadWordTex, transparent: true, alphaTest: 0.3 });
   const signGeo = new THREE.PlaneGeometry(0.95, 0.95), wordGeo = new THREE.PlaneGeometry(2.6, 3.2); wordGeo.rotateX(-Math.PI / 2);
   const lineGeo = new THREE.PlaneGeometry(3.4, 0.45); lineGeo.rotateX(-Math.PI / 2);
@@ -1964,8 +2064,17 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     for (let k = 0; k < 4; k++) {
       const th = k * Math.PI / 2;
       for (let b = -3.2; b < 3.3; b += 0.9) { const [x, z] = rel(ox, oz, th, -(HALF + 1.8), b + 0.25); flat.add(zebraGeo, paintMat, x, 0.012, z, -th); }
-      { const [x, z] = rel(ox, oz, th, -STOP_LINE, LANE); flat.add(lineGeo, paintMat, x, 0.012, z, -th); }
-      if (ctrl === "stop") {
+      if (ctrl === "ceda") for (let b = 0.2; b < HALF; b += 0.75) { const [x, z] = rel(ox, oz, th, -STOP_LINE, b + 0.2); flat.add(dashGeo, paintMat, x, 0.012, z, -th); }
+      else if (ctrl !== "none") { const [x, z] = rel(ox, oz, th, -STOP_LINE, LANE); flat.add(lineGeo, paintMat, x, 0.012, z, -th); }
+      if (noLeft(i, j, k)) { const [px, pz] = rel(ox, oz, th, -(STOP_LINE + 3), HALF + 0.7); solid.add(poleGeo, poleMat, px, 1.1, pz, 0, 1, 2.2, 1); solid.add(signGeo, noLeftMat, px - dirOf(th).x * 0.05, 2.2, pz - dirOf(th).z * 0.05, -th); }
+      if (ctrl === "ceda" || ctrl === "none") {
+        if (ctrl === "ceda") {
+          const [px, pz] = rel(ox, oz, th, -(STOP_LINE - 0.3), HALF + 0.7);
+          solid.add(poleGeo, poleMat, px, 1.2, pz, 0, 1, 2.4, 1);
+          const [sx, sz] = rel(ox, oz, th, -(STOP_LINE - 0.25), HALF + 0.7);
+          solid.add(signGeo, cedaMat, sx, 2.4, sz, -th);
+        }
+      } else if (ctrl === "stop") {
         { const [x, z] = rel(ox, oz, th, -(STOP_LINE + 5), LANE); flat.add(wordGeo, roadWordMat, x, 0.013, z, -th); }
         const [px, pz] = rel(ox, oz, th, -(STOP_LINE - 0.3), HALF + 0.7);
         solid.add(poleGeo, poleMat, px, 1.2, pz, 0, 1, 2.4, 1);
@@ -1982,6 +2091,23 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         { const [x, z] = rel(ox, oz, th, -(STOP_LINE - 0.3), HALF + 0.7); solid.add(poleGeo, poleMat, x, 1.4, z, 0, 1, 2.8, 1); addTrafficHead(solid, mats, x, 3.2, z, th, 0.9); }
         { const [x, z] = rel(ox, oz, th, HALF + 1.15, HALF + 1.3); addTrafficHead(solid, mats, x, 2.6, z, th, 0.8); }
       }
+    }
+    // speed limit, school zone and speed bump signs at the start of each block, for both directions
+    for (const [axis, line, block, cx, cz, ths] of [["NS", i, j, ox, oz, [[0, ox, oz + G], [Math.PI, ox, oz]]], ["EW", j, i, ox, oz, [[Math.PI / 2, ox, oz], [Math.PI * 1.5, ox + G, oz]]]]) {
+      const feat = segFeature(axis, line, block), lim = feat === "school" ? 20 : isAvenue(line) ? 60 : 40;
+      for (const [th, sx0, sz0] of ths) {
+        const [px, pz] = rel(sx0, sz0, th, HALF + WALK + 9, HALF + 0.7);
+        solid.add(poleGeo, poleMat, px, 1.2, pz, 0, 1, 2.4, 1);
+        solid.add(signGeo, limitMats[lim], px - dirOf(th).x * 0.05, 2.4, pz - dirOf(th).z * 0.05, -th);
+        if (feat === "school") solid.add(signGeo, schoolMat, px - dirOf(th).x * 0.05, 1.45, pz - dirOf(th).z * 0.05, -th, 0.9, 0.9, 0.9);
+        if (feat === "bump") {
+          const mid = axis === "NS" ? [ox, oz + G / 2] : [ox + G / 2, oz];
+          const [bx, bz] = rel(mid[0], mid[1], th, -25, HALF + 0.7);
+          solid.add(poleGeo, poleMat, bx, 1.2, bz, 0, 1, 2.4, 1);
+          solid.add(signGeo, bumpSignMat, bx - dirOf(th).x * 0.05, 2.4, bz - dirOf(th).z * 0.05, -th);
+        }
+      }
+      if (feat === "bump") solid.add(bumpGeo, bumpMat, axis === "NS" ? ox : ox + G / 2, 0.045, axis === "NS" ? oz + G / 2 : oz, axis === "NS" ? 0 : Math.PI / 2);
     }
     flat.build(grp, false, true);
     solid.build(grp, true, true);
@@ -2128,6 +2254,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   }
   function startTurn(c) {
     const th = c.k * Math.PI / 2, d = dirOf(th), r = rightOf(th), Bx = (c.i + Math.round(d.x)) * G, Bz = (c.j + Math.round(d.z)) * G;
+    if (c.next === -1 && noLeft(c.i + Math.round(d.x), c.j + Math.round(d.z), c.k)) c.next = 0;
     const k2 = (c.k + c.next + 4) % 4, d2 = dirOf(k2 * Math.PI / 2), r2 = rightOf(k2 * Math.PI / 2);
     const P0 = { x: Bx - d.x * HALF + r.x * LANE, z: Bz - d.z * HALF + r.z * LANE };
     const P2 = { x: Bx + d2.x * HALF + r2.x * LANE, z: Bz + d2.z * HALF + r2.z * LANE };
@@ -2180,9 +2307,13 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
               mustStop = true;
               if (c.v < 0.2 && toLine < 2) { c.wait += dt; if (c.wait > 1.2 && !boxBusy(ni, nj, c)) c.done = true; }
             }
-          } else {
+          } else if (ctrlOf(ni, nj) === "light") {
             const st = lightState(ni, nj, c.k % 2 === 0 ? "NS" : "EW");
             if (st === "red" || (st === "yellow" && toLine > 9)) mustStop = true;
+          } else {
+            // Ceda el paso / no sign: arrive slowly and wait while someone is crossing
+            if (toLine < 14) vT = Math.min(vT, 5);
+            if (toLine < 2 && boxBusy(ni, nj, c)) mustStop = true;
           }
         }
         if (mustStop) vT = Math.min(vT, Math.sqrt(Math.max(0, 2 * 3.5 * (toLine - 0.4))));
@@ -2405,8 +2536,9 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       if (name === "rear") { pos = v3(S.x + d.x * 0.3, hy + 1.32, S.z + d.z * 0.3); tgt = v3(pos.x - d.x * 20, heightAt(pos.x - d.x * 20, pos.z - d.z * 20) + 1.1, pos.z - d.z * 20); }
       else {
         const s = name === "left" ? -1 : 1;
-        pos = v3(S.x + d.x * 0.75 + r.x * s * 1.02, hy + 1.02, S.z + d.z * 0.75 + r.z * s * 1.02);
-        tgt = v3(pos.x - d.x * 20 + r.x * s * 2.2, heightAt(pos.x - d.x * 20, pos.z - d.z * 20) + 0.8, pos.z - d.z * 20 + r.z * s * 2.2);
+        // aimed like a real side mirror: level and a little outward, so your own car is only a strip on the inner edge
+        pos = v3(S.x + d.x * 0.75 + r.x * s * 1.05, hy + 1.12, S.z + d.z * 0.75 + r.z * s * 1.05);
+        tgt = v3(pos.x - d.x * 20 + r.x * s * 4.2, heightAt(pos.x - d.x * 20, pos.z - d.z * 20) + 0.9, pos.z - d.z * 20 + r.z * s * 4.2);
       }
       c.position.copy(pos); c.lookAt(tgt);
       if (Math.abs(c.aspect - w / h) > 0.01 || !c.flipped) { c.aspect = w / h; c.flip(); c.flipped = true; }
@@ -2486,7 +2618,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     for (const [rr, on] of [[PERP_RECT, perpTarget.visible], [PAR_RECT, parTarget.visible]]) if (on) gctx.fillRect(X(rr.x0) - 2, Z(rr.z0) - 2, (rr.x1 - rr.x0) * sc + 4, (rr.z1 - rr.z0) * sc + 4);
     for (let i = Math.floor((S.x - 140) / G); i <= Math.ceil((S.x + 140) / G); i++)
       for (let j = Math.floor((S.z - 140) / G); j <= Math.ceil((S.z + 140) / G); j++) {
-        gctx.fillStyle = ctrlOf(i, j) === "stop" ? "#e2553f" : "#f0a535";
+        gctx.fillStyle = { stop: "#e2553f", light: "#f0a535", ceda: "#ffffff", none: "#7d8288" }[ctrlOf(i, j)];
         gctx.beginPath(); gctx.arc(X(i * G), Z(j * G), 3 * dpr, 0, Math.PI * 2); gctx.fill();
       }
     gctx.fillStyle = "#d9d4c8";
@@ -2577,9 +2709,10 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       chip.hidden = false; return;
     }
     if (ap && ap.dist > -1 && ap.dist < 120) {
-      const stop = ctrlOf(ap.i, ap.j) === "stop", st = stop ? null : lightState(ap.i, ap.j, ap.axis);
-      const col = stop ? "#e2553f" : { red: "#ff3b24", yellow: "#ffbe2e", green: "#46e86c" }[st];
-      const txt = (stop ? "PARE" : "Semáforo " + { red: "rojo", yellow: "amarillo", green: "verde" }[st]) + " · " + Math.max(0, Math.round(ap.dist)) + " m";
+      const cc = ctrlOf(ap.i, ap.j), st = cc === "light" ? lightState(ap.i, ap.j, ap.axis) : null;
+      const col = cc === "stop" ? "#e2553f" : cc === "ceda" ? "#ffffff" : cc === "none" ? "#9a9fa6" : { red: "#ff3b24", yellow: "#ffbe2e", green: "#46e86c" }[st];
+      const label = cc === "stop" ? "PARE" : cc === "ceda" ? "Ceda el paso" : cc === "none" ? "Sin señales: prioridad derecha" : "Semáforo " + { red: "rojo", yellow: "amarillo", green: "verde" }[st] + (noLeft(ap.i, ap.j, cardinal(S.th).k) ? " · no girar a la izq." : "");
+      const txt = label + " · " + Math.max(0, Math.round(ap.dist)) + " m";
       if (chip.dataset.t !== txt) { chip.dataset.t = txt; chip.innerHTML = `<i style="background:${col}"></i>`; chip.appendChild(document.createTextNode(txt)); }
       chip.hidden = false;
     } else chip.hidden = true;
