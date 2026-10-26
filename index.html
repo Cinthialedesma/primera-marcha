@@ -286,6 +286,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   }
   .top h1 { font-size: 1.35rem; }
   .top p { font-size: .82rem; }
+  .top p { display: none; }
+  .top-actions { margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
   .btn { padding: 4px 10px; font-size: .85rem; }
   .stage { height: auto; min-height: 0; }
   .side { min-height: 0; overflow: hidden; }
@@ -371,6 +373,17 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 .sign-row img { width: 44px; height: 44px; }
 .sign-row b { display: block; font-size: .88rem; }
 .sign-row span { color: var(--muted); font-size: .82rem; }
+.trip-card { border-left-color: var(--amber); }
+.trip-card .eyebrow { color: var(--amber); }
+.trip-card .result-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.trip-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.trip-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: .8rem; }
+.trip-list li { padding-left: 16px; position: relative; }
+.trip-list li::before { position: absolute; left: 0; }
+.trip-list.good li::before { content: "✓"; color: var(--green); }
+.trip-list.bad li::before { content: "•"; color: var(--red); }
+.trip-list.tip li::before { content: "→"; color: var(--amber); }
+.trip-list .count { font-family: var(--font-num); color: var(--muted); }
 </style>
 
 <div class="app">
@@ -395,6 +408,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       </label>
       <button class="btn" id="btn-help" aria-pressed="true">Ayudas</button>
       <button class="btn" id="btn-sound" aria-pressed="false">Sonido</button>
+      <button class="btn" id="btn-trip">Terminar viaje</button>
       <button class="btn" id="btn-reset">Reiniciar</button>
     </div>
   </header>
@@ -446,6 +460,21 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       <ol id="stall-steps"></ol>
       <p class="restart" id="stall-restart"></p>
       <div class="card-foot"><button class="btn" id="stall-ok" type="button">Entendido <span class="key">Enter</span></button></div>
+    </div>
+    <div class="stall-card result-card trip-card" id="trip-card" role="dialog" aria-labelledby="trip-title" hidden>
+      <div class="card-head">
+        <div><span class="eyebrow" id="trip-eyebrow">Resumen del viaje</span><h3 id="trip-title"></h3></div>
+        <button class="x" id="trip-x" type="button" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="result-stats" id="trip-stats"></div>
+      <div class="trip-cols">
+        <div><h4>Lo que hiciste bien</h4><ul class="trip-list good" id="trip-good"></ul></div>
+        <div><h4>Para mejorar</h4><ul class="trip-list bad" id="trip-bad"></ul></div>
+      </div>
+      <h4>Te recomiendo</h4>
+      <ul class="trip-list tip" id="trip-tips"></ul>
+      <p class="nums" id="trip-compare"></p>
+      <div class="card-foot"><button class="btn" id="trip-restart" type="button">Empezar de nuevo</button><button class="btn" id="trip-ok" type="button">Seguir manejando <span class="key">Enter</span></button></div>
     </div>
     <div class="stall-card result-card" id="result-card" role="dialog" aria-labelledby="result-title" hidden>
       <div class="card-head">
@@ -719,6 +748,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       parkT: 0, parkedPerp: false, parkedPar: false, lastHit: -9, lastCurb: -9, lastCurbT: -9, shiftT: 0, wipers: false, wiperA: 0, exam: null, licensed: false, boxExitT: -9, guide: null,
       score: 0, cleanDist: 0, bestClean: 0, trafficLevel: 0,
       mission: 0, counts: { infr: 0, stall: 0, grind: 0, crash: 0 }, log: [], hist: [], paused: false,
+      trip: { logStart: 0, t0: 0, dist0: 0, score0: 0, maxKmh: 0 },
       hs: null, dh: null, launchRolled: false, lastRoll: -9, parkedFront: false, parkedBack: false,
     }, START[mode]);
   }
@@ -772,7 +802,11 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     return true;
   }
   function toggleEngine() {
-    if (S.running || S.crank > 0) { S.running = false; S.crank = 0; return; }
+    if (S.running || S.crank > 0) {
+      S.running = false; S.crank = 0;
+      if (S.v === 0 && S.dist - S.trip.dist0 > 300) setTimeout(showTrip, 400);
+      return;
+    }
     if (S.gear !== "N" && S.clutch < BITE_TOP + 0.05 && !opts.autoClutch) {
       toast("No arranca: pisa el embrague a fondo (A) o pon neutro.", "bad", "start");
       return;
@@ -1294,6 +1328,78 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       }
     } else if (ex.phase === "park" && S.parkedPerp) { ex.passed = true; award(200, "Aprobaste el examen final"); S.licensed = true; showResult(true); }
   }
+  // ---------- trip summary ----------
+  const TRIP_ADVICE = [
+    [/embrague casi sin acelerar|embrague muy rápido|poca fuerza en el motor/, "Para arrancar: acelera hasta unas 1.500 rpm antes de soltar el embrague y quédate un momento en el punto de roce."],
+    [/Frenaste sin pisar el embrague|perdiendo velocidad/, "Cuando frenes para detenerte, pisa el embrague antes de que las rpm bajen de 1.000."],
+    [/Intentaste salir en/, "Antes de arrancar fíjate que esté puesta la 1ª."],
+    [/freno de mano/, "Antes de soltar el embrague baja el freno de mano (Q) y mira que la luz (P) esté apagada."],
+    [/Ibas muy lento para/, "Si las rpm bajan de 1.200 y el auto tiembla, baja un cambio."],
+    [/PARE/, "En cada PARE detente del todo: la aguja de velocidad en 0 antes de la línea blanca."],
+    [/luz roja/, "Cuando el semáforo está amarillo y puedes frenar con seguridad, frena: no aceleres para pasar."],
+    [/sin señalizar/, "Pon el guiño unos 30 m antes de cada esquina donde vayas a doblar."],
+    [/Exceso de velocidad/, "Mira el cartel de arriba a la izquierda: calles 40, avenidas 60, escuelas 20."],
+    [/cordón|pared/, "Para doblar, llega despacio y empieza a girar cuando tu auto esté en la esquina; con las Ayudas, sigue la línea amarilla."],
+    [/peatón/, "Frente a una senda peatonal ve despacio y detente si alguien está cruzando o por cruzar."],
+    [/carril contrario/, "Mantente siempre a la derecha de la línea del medio."],
+    [/para atrás/, "Practica en Subidas y bajadas el arranque con freno de mano."],
+    [/Ceda|prioridad|sin señales/, "En esquinas con Ceda el paso o sin señales, baja a menos de 30 km/h y mira a la derecha antes de cruzar."],
+    [/Raspaste|reversa avanzando/, "Pisa el embrague a fondo antes de mover la palanca de cambios."],
+    [/Chocaste|Tocaste|Atropellaste/, "Ve más despacio cerca de autos y obstáculos, y usa los espejos antes de moverte."],
+    [/lomo de burro/, "Cuando veas el cartel amarillo de lomo de burro, baja a menos de 20 km/h."],
+    [/punto muerto/, "En las bajadas deja una marcha puesta (2ª) para que el motor frene."],
+  ];
+  const tripKey = t => t.startsWith("Exceso de velocidad") ? "Exceso de velocidad" : t.startsWith("Pasaste el lomo de burro") ? "Pasaste el lomo de burro rápido" : t.replace(/\s*\(\+?-?\d+\)$/, "");
+  function showTrip() {
+    const tr = S.trip, entries = S.log.slice(0, Math.max(0, S.log.length - tr.logStart));
+    const km = (S.dist - tr.dist0) / 1000, mins = (S.t - tr.t0) / 60, pts = S.score - tr.score0;
+    const group = list => { const m = new Map(); for (const e of list) { const k = tripKey(e.text); m.set(k, (m.get(k) || 0) + 1); } return [...m.entries()].sort((a, b) => b[1] - a[1]); };
+    const good = group(entries.filter(e => e.pts > 0 && !/^Misión|400 m/.test(e.text)));
+    const missions = entries.filter(e => /^Misión cumplida/.test(e.text)).length;
+    const bad = group(entries.filter(e => e.pts < 0));
+    const fill = (id, rows, empty) => {
+      const ul = document.getElementById(id); ul.innerHTML = "";
+      if (!rows.length) { const li = document.createElement("li"); li.textContent = empty; ul.appendChild(li); return; }
+      for (const [text, n] of rows.slice(0, 6)) { const li = document.createElement("li"); li.textContent = text + " "; if (n > 1) { const c = document.createElement("span"); c.className = "count"; c.textContent = "×" + n; li.appendChild(c); } ul.appendChild(li); }
+    };
+    if (missions) good.unshift([`${missions} ${missions === 1 ? "misión cumplida" : "misiones cumplidas"}`, 1]);
+    const clean = entries.filter(e => /400 m sin errores/.test(e.text)).length;
+    if (clean) good.push([`${clean * 400} m seguidos sin errores`, 1]);
+    fill("trip-good", good, "Todavía nada: este viaje fue corto.");
+    fill("trip-bad", bad, "¡Nada! No tuviste infracciones ni se te apagó el motor.");
+    // advice for the most repeated mistakes
+    const advice = [];
+    for (const [text] of bad) { const a = TRIP_ADVICE.find(([re]) => re.test(text)); if (a && !advice.includes(a[1])) advice.push(a[1]); if (advice.length === 2) break; }
+    if (!advice.length) advice.push(km < 0.3 ? "Maneja un poco más para tener un resumen completo." : "Viaje muy bien hecho. Prueba con más tránsito, con lluvia o apagando las Ayudas.");
+    const tl = document.getElementById("trip-tips"); tl.innerHTML = ""; for (const a of advice) { const li = document.createElement("li"); li.textContent = a; tl.appendChild(li); }
+    const infr = entries.filter(e => e.kind === "bad").length, stalls = entries.filter(e => /^Se apagó/.test(e.text)).length;
+    document.getElementById("trip-title").textContent = !bad.length && km >= 0.3 ? "¡Viaje perfecto!" : infr + stalls <= 2 ? "Buen viaje" : "Viaje con cosas para mejorar";
+    document.getElementById("trip-stats").innerHTML = `<div><b>${km.toFixed(1).replace(".", ",")}</b>km</div><div><b>${Math.max(1, Math.round(mins))}</b>min</div><div><b>${Math.round(tr.maxKmh)}</b>km/h máx.</div><div><b>${pts > 0 ? "+" : ""}${pts}</b>puntos</div>`;
+    let compare = "";
+    try {
+      const prev = JSON.parse(localStorage.getItem("pm-lasttrip") || "null");
+      if (prev && prev.km > 0.2 && km > 0.2) {
+        const rate = (n, k) => n / Math.max(k, 0.5), parts = [];
+        const dInf = rate(infr, km) - rate(prev.infr, prev.km), dSt = rate(stalls, km) - rate(prev.stalls, prev.km);
+        if (Math.abs(dInf) > 0.2) parts.push(dInf < 0 ? "menos infracciones" : "más infracciones");
+        if (Math.abs(dSt) > 0.2) parts.push(dSt < 0 ? "se te apagó menos el motor" : "se te apagó más el motor");
+        compare = parts.length ? `Comparado con tu viaje anterior (por kilómetro): ${parts.join(" y ")}.` : "Parecido a tu viaje anterior.";
+      }
+      localStorage.setItem("pm-lasttrip", JSON.stringify({ km, infr, stalls, score: pts }));
+    } catch (err) {}
+    document.getElementById("trip-compare").textContent = compare;
+    S.paused = true; for (const k in keys) keys[k] = false;
+    toastsEl.innerHTML = "";
+    const card = document.getElementById("trip-card"); card.hidden = false; card.scrollTop = 0;
+    document.getElementById("trip-ok").focus({ preventScroll: true });
+  }
+  function closeTrip() {
+    const card = document.getElementById("trip-card");
+    if (card.hidden) return;
+    card.hidden = true; S.paused = false;
+    S.trip = { logStart: S.log.length, t0: S.t, dist0: S.dist, score0: S.score, maxKmh: 0 };
+    document.getElementById("road").focus();
+  }
   function showResult(ok) {
     const ex = S.exam, infr = S.counts.infr - ex.infr0, card = document.getElementById("result-card");
     S.paused = true; for (const k in keys) keys[k] = false;
@@ -1374,7 +1480,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target && e.target.tagName === "SELECT") return;
     const k = e.key.toLowerCase();
-    if (S.paused) { if (k === "enter" || k === "escape") { closeStall(); closeResult(); e.preventDefault(); } return; }
+    if (S.paused) { if (k === "enter" || k === "escape") { closeStall(); closeResult(); closeTrip(); e.preventDefault(); } return; }
     if (KEYMAP[k]) { keys[KEYMAP[k]] = true; e.preventDefault(); return; }
     if (e.repeat) return;
     if (k === "e") toggleEngine();
@@ -1414,6 +1520,10 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   document.getElementById("btn-hand").addEventListener("click", () => { S.hand = !S.hand; });
   document.getElementById("stall-ok").addEventListener("click", closeStall);
   document.getElementById("stall-x").addEventListener("click", closeStall);
+  document.getElementById("btn-trip").addEventListener("click", () => { if (S.paused) return; showTrip(); });
+  document.getElementById("trip-ok").addEventListener("click", closeTrip);
+  document.getElementById("trip-x").addEventListener("click", closeTrip);
+  document.getElementById("trip-restart").addEventListener("click", () => { document.getElementById("trip-card").hidden = true; setMode(mode); });
   document.getElementById("result-ok").addEventListener("click", closeResult);
   document.getElementById("result-x").addEventListener("click", closeResult);
   document.getElementById("result-retry").addEventListener("click", () => { closeResult(); startExam(); });
@@ -2203,7 +2313,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const city = m !== "hill";
     lot.visible = city; ground.visible = city; hillRoot.visible = !city;
     S = freshState(); knob.x = 100; knob.y = 100; toastsEl.innerHTML = "";
-    document.getElementById("stall-card").hidden = true; document.getElementById("result-card").hidden = true;
+    document.getElementById("stall-card").hidden = true; document.getElementById("result-card").hidden = true; document.getElementById("trip-card").hidden = true;
     document.getElementById("mode").value = m;
     renderMissions(); renderScore();
     const intro = { city: "Ciudad: misiones de manejo y examen final.", hill: "Subidas y bajadas: empiezas parada en una subida con el freno de mano puesto. Practica arrancar sin irte para atrás.", parking: "Estacionamiento: practica estacionar de frente, de culata y en paralelo. Ve despacio, solo con el punto de roce." };
@@ -2759,6 +2869,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     checkRules(dt);
     checkMissions();
     updateExam();
+    S.trip.maxKmh = Math.max(S.trip.maxKmh, Math.abs(S.v) * 3.6);
     render3d();
     drawGlass(dt);
     updateCoach();
