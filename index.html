@@ -209,6 +209,13 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 .path .steps button.done { background: var(--green); border-color: var(--green); color: #0f1a10; }
 .path .steps button.here { border-color: var(--amber); color: var(--amber); }
 .path .steps button:disabled { cursor: not-allowed; opacity: .5; }
+.quiz-opts { display: flex; flex-direction: column; gap: 6px; }
+.quiz-opts button { text-align: left; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; font: inherit; font-size: .86rem; color: var(--ink); cursor: pointer; }
+.quiz-opts button:hover:not(:disabled) { border-color: var(--amber-dim); }
+.quiz-opts button.right { border-color: var(--green); background: rgba(115,194,122,.15); }
+.quiz-opts button.wrong { border-color: var(--red); background: rgba(226,85,63,.15); }
+.quiz-opts button:disabled { cursor: default; }
+#quiz-img { width: 74px; height: 74px; align-self: center; }
 .path p { margin: 0; font-size: .82rem; color: var(--muted); }
 .path p b { color: var(--ink); font-weight: 600; }
 .missions .hint { display: block; font-size: .85rem; color: var(--muted); margin-top: 4px; }
@@ -498,6 +505,16 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       <div class="result-stats" id="result-stats"></div>
       <div class="card-foot"><button class="btn" id="result-retry" type="button" hidden>Intentar de nuevo</button><button class="btn" id="result-ok" type="button">Seguir manejando <span class="key">Enter</span></button></div>
     </div>
+    <div class="stall-card result-card quiz-card" id="quiz-card" role="dialog" aria-labelledby="quiz-q" hidden>
+      <div class="card-head">
+        <div><span class="eyebrow" id="quiz-eyebrow">Examen teórico</span><h3 id="quiz-q"></h3></div>
+        <button class="x" id="quiz-x" type="button" aria-label="Cerrar">✕</button>
+      </div>
+      <img id="quiz-img" alt="" hidden>
+      <div class="quiz-opts" id="quiz-opts"></div>
+      <p class="nums" id="quiz-why"></p>
+      <div class="card-foot"><button class="btn" id="quiz-next" type="button" hidden>Siguiente <span class="key">Enter</span></button></div>
+    </div>
     <div class="focus-hint" id="focus-hint" hidden>Haz clic en la calle para usar el teclado</div>
   </section>
 
@@ -612,6 +629,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     </div>
     <div class="pane" id="pane-rules" hidden>
       <div class="rules">
+        <div class="rule"><h3>Examen teórico</h3><p>10 preguntas al azar sobre señales y reglas, como el examen para sacar la licencia. Apruebas con 8 bien.</p><button class="btn" id="btn-quiz" type="button" style="margin-top:6px">Hacer el examen teórico</button></div>
         <div class="rule"><h3>Señales que vas a ver</h3><div class="signs" id="sign-list"></div></div>
         <div class="rule"><h3>Esquinas sin señales</h3><p>En Argentina, si una esquina no tiene PARE, Ceda el paso ni semáforo, tiene prioridad quien viene por tu derecha. Llega despacio, mira a la derecha y deja pasar.</p></div>
         <div class="rule"><h3>En la ruta</h3><p>Luces bajas siempre encendidas, también de día. Máximo 80 km/h en la mayoría de las rutas de dos carriles (en las rutas nacionales, hasta 110 km/h para autos). La doble línea amarilla prohíbe adelantar. Para adelantar: guiño izquierdo, mira que el carril contrario esté libre hasta lejos, pasa rápido y vuelve con el guiño derecho cuando veas al otro vehículo en el espejo de adentro. La banquina es solo para emergencias.</p></div>
@@ -1721,6 +1739,10 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     { title: "Maneja 3 km sin errores", hint: "Mantén tu carril, respeta los 80 km/h y la doble línea amarilla. Si te vas a la banquina, vuelve despacio sin frenar de golpe.", done: () => (S.routeClean || 0) >= 3000 },
   ];
   let MISSIONS = CITY_MISSIONS;
+  PARK_MISSIONS.push(
+    { title: "Examen de circuito: zigzag entre conos", hint: "Los 5 conos naranjas en fila, en el medio del estacionamiento. Entra desde el lado de la entrada y pasa en zigzag: uno por la derecha, el siguiente por la izquierda. En 1ª, despacio y sin tocar ninguno. Si tocas uno, vuelve a empezar.", done: () => S.slalomOk },
+    { title: "Examen de circuito: marcha atrás entre conos", hint: "El pasillo de conos a la izquierda de la entrada. Ponte adelante del pasillo, mirando hacia el fondo del estacionamiento, y retrocede derecho por adentro, de punta a punta, sin tocar los conos. Mira el espejo de adentro (M) y los laterales.", done: () => S.reverseOk },
+  );
   // the order to learn in: each step opens the next one
   const PATH = [
     { mode: "lesson", title: "Primera clase", until: 7 },
@@ -1728,16 +1750,19 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     { mode: "hill", title: "Subidas y bajadas", until: 4 },
     { mode: "parking", title: "Estacionamiento", until: 3 },
     { mode: "campo", title: "Ruta en el campo", until: 5 },
-    { mode: "city", title: "Examen final", until: 9 },
+    { theory: true, title: "Examen teórico" },
+    { mode: "parking", title: "Examen de circuito con conos", until: 5 },
+    { mode: "city", title: "Examen final en la calle", until: 9 },
   ];
   const MODE_NAMES = { lesson: "Primera clase", city: "Ciudad", hill: "Subidas y bajadas", parking: "Estacionamiento", campo: "Ruta en el campo" };
   let prog = { modes: {}, free: false, last: null };
   try { Object.assign(prog, JSON.parse(localStorage.getItem("pm-progress") || "{}")); } catch (err) {}
   const missionOf = m => (m === mode && S ? S.mission : prog.modes[m] ? prog.modes[m].mission : 0);
-  const stageDone = n => missionOf(PATH[n].mode) >= PATH[n].until;
+  const stageDone = n => PATH[n].theory ? !!prog.theoryPassed : missionOf(PATH[n].mode) >= PATH[n].until;
   const stageOpen = n => n === 0 || prog.free || stageDone(n - 1);
   const modeOpen = m => PATH.some((st, n) => st.mode === m && stageOpen(n));
-  const examOpen = () => prog.free || stageDone(4);
+  const examOpen = () => prog.free || stageDone(6);
+  const circuitOpen = () => prog.free || stageDone(5);
   function saveProgress() {
     if (!S) return;
     prog.modes[mode] = { mission: S.mission, score: S.score, counts: S.counts, dist: S.dist, bestClean: S.bestClean, licensed: S.licensed, log: S.log.slice(0, 40) };
@@ -1756,13 +1781,13 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       b.textContent = stageDone(n) ? "✓" : stageOpen(n) ? String(n + 1) : "🔒";
       b.className = (stageDone(n) ? "done" : "") + (n === cur ? " here" : "");
       b.title = `${n + 1}. ${st.title}`; b.disabled = !stageOpen(n);
-      b.addEventListener("click", () => { if (mode !== st.mode) setMode(st.mode); document.getElementById("road").focus(); });
+      b.addEventListener("click", () => { if (st.theory) { openQuiz(); return; } if (mode !== st.mode) setMode(st.mode); document.getElementById("road").focus(); });
       row.appendChild(b);
     });
     el.appendChild(row);
     const p = document.createElement("p");
     p.innerHTML = cur < PATH.length ? `Tu camino · paso ${cur + 1} de ${PATH.length}: <b></b>` : `<b>¡Completaste todo el camino!</b>`;
-    if (cur < PATH.length) p.querySelector("b").textContent = PATH[cur].title + (PATH[cur].mode !== mode ? ` (elígelo en Lugar o toca el ${cur + 1})` : "");
+    if (cur < PATH.length) p.querySelector("b").textContent = PATH[cur].title + (PATH[cur].theory ? ` (toca el ${cur + 1} o búscalo en la pestaña Reglas)` : PATH[cur].mode !== mode ? ` (elígelo en Lugar o toca el ${cur + 1})` : "");
     el.appendChild(p);
     // the place selector shows which places are still closed
     for (const o of document.getElementById("mode").options) { const open = modeOpen(o.value); o.disabled = !open; o.textContent = (open ? "" : "🔒 ") + MODE_NAMES[o.value]; }
@@ -1773,12 +1798,12 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     renderPath();
     MISSIONS.forEach((m, i) => {
       const li = document.createElement("li");
-      const locked = mode === "city" && i >= 6 && !examOpen();
+      const locked = (mode === "city" && i >= 6 && !examOpen()) || (mode === "parking" && i >= 3 && !circuitOpen());
       li.className = (i < S.mission ? "done" : i === S.mission && !locked ? "current" : "") + (locked ? " locked" : "");
       li.innerHTML = `<span class="n">${i < S.mission ? "✓" : i + 1}</span><span></span>`;
       const body = li.lastChild;
       body.textContent = m.title;
-      if (i === S.mission) { const h = document.createElement("span"); h.className = "hint"; h.textContent = locked ? "Se abre cuando termines Subidas y bajadas, Estacionamiento y Ruta en el campo (mira Tu camino, arriba)." : m.hint; body.appendChild(h); }
+      if (i === S.mission) { const h = document.createElement("span"); h.className = "hint"; h.textContent = locked ? (mode === "parking" ? "Se abre cuando apruebes el examen teórico (mira Tu camino, arriba)." : "Se abre cuando termines los pasos anteriores de Tu camino (arriba): Subidas, Estacionamiento, Ruta, el examen teórico y el de circuito.") : m.hint; body.appendChild(h); }
       missionsEl.appendChild(li);
     });
     if (S.mission >= MISSIONS.length) {
@@ -1889,6 +1914,88 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const card = document.getElementById("trip-card"); card.hidden = false; card.scrollTop = 0;
     document.getElementById("trip-ok").focus({ preventScroll: true });
   }
+  // ---------- theory exam (Argentina) ----------
+  const QUIZ = [
+    { q: "¿Qué tienes que hacer ante esta señal?", sign: "stop", a: ["Detenerte por completo antes de la línea, aunque no venga nadie", "Bajar la velocidad y pasar si no viene nadie", "Tocar bocina y cruzar"], why: "PARE es detención total, siempre." },
+    { q: "¿Qué indica esta señal?", sign: "ceda", a: ["Ceda el paso: reduce y deja pasar a los que vienen por la otra calle", "Prohibido el paso", "Detención obligatoria aunque no venga nadie"], why: "Con Ceda el paso no hace falta detenerse si no viene nadie." },
+    { q: "En una esquina sin señales ni semáforo, ¿quién tiene prioridad?", a: ["Quien viene por la derecha", "Quien viene por la izquierda", "El que va más rápido"], why: "En Argentina, en esquinas sin señalizar, tiene prioridad quien viene por tu derecha." },
+    { q: "En una rotonda, ¿quién tiene prioridad?", sign: "round", a: ["Los vehículos que ya circulan por la rotonda", "Los que quieren entrar", "El que viene por la derecha, siempre"], why: "Quien ya está circulando por la rotonda tiene prioridad sobre quien entra." },
+    { q: "¿Cuál es la velocidad máxima en calles de la ciudad (si no hay otra señal)?", a: ["40 km/h", "60 km/h", "80 km/h"], why: "En calles urbanas el máximo es 40 km/h; en avenidas, 60 km/h." },
+    { q: "¿Cuál es la velocidad máxima en avenidas (si no hay otra señal)?", a: ["60 km/h", "40 km/h", "80 km/h"], why: "En avenidas el máximo es 60 km/h." },
+    { q: "¿Qué indica esta señal?", sign: "school", a: ["Zona escolar: máximo 20 km/h y atención a los chicos", "Parada de colectivo", "Prohibido el paso de peatones"], why: "Cerca de escuelas se circula a 20 km/h como máximo." },
+    { q: "En la ruta, ¿cuándo tienen que ir encendidas las luces bajas?", a: ["Siempre, de día y de noche", "Solo de noche", "Solo con lluvia o niebla"], why: "En rutas las luces bajas son obligatorias todo el tiempo." },
+    { q: "¿Qué significa la doble línea amarilla en el medio de la ruta?", a: ["Prohibido adelantar", "Se puede adelantar con cuidado", "Zona de estacionamiento"], why: "La línea continua (doble amarilla) no se cruza: prohibido adelantar." },
+    { q: "¿Cómo se adelanta correctamente?", a: ["Por la izquierda, con guiño izquierdo, y volviendo con guiño derecho cuando el otro vehículo se ve en el espejo de adentro", "Por la derecha si hay lugar", "Por la izquierda sin guiño, rápido"], why: "Se adelanta por la izquierda señalizando, y se vuelve dejando distancia." },
+    { q: "Llegas a un paso a nivel y la barrera empieza a bajar. ¿Qué haces?", sign: "rail", a: ["Me detengo antes de la barrera y espero que pase el tren", "Acelero para pasar antes de que baje", "Paso despacio por el costado de la barrera"], why: "Con luces, campanas o barrera bajando, siempre te detienes: el tren no puede frenar." },
+    { q: "Hay autos parados después de las vías y no hay lugar del otro lado. ¿Qué haces?", a: ["Espero antes de las vías hasta que haya lugar para cruzarlas del todo", "Avanzo y espero sobre las vías", "Toco bocina para que avancen"], why: "Nunca hay que quedar detenido sobre las vías." },
+    { q: "Doblas a la derecha con luz verde y hay gente cruzando la calle a la que entras. ¿Quién tiene prioridad?", a: ["Los peatones", "Yo, porque tengo verde", "El que llegó primero"], why: "El peatón que cruza por la senda siempre tiene prioridad, también cuando doblas con verde." },
+    { q: "¿Cuánto alcohol en sangre se permite para manejar un auto particular en Argentina?", a: ["Cero (Alcohol Cero al volante)", "Hasta 0,5 gramos por litro", "Hasta 1 gramo por litro"], why: "Desde 2023 rige en todo el país la Ley de Alcohol Cero al volante." },
+    { q: "¿Quiénes tienen que usar cinturón de seguridad?", a: ["Todas las personas que viajan en el auto", "Solo quien maneja", "Solo los que van adelante"], why: "El cinturón es obligatorio para todos los ocupantes." },
+    { q: "¿Dónde viajan los chicos menores de 10 años?", a: ["En el asiento de atrás, con su sistema de retención", "Adelante, si usan cinturón", "Donde quieran"], why: "Los menores de 10 años viajan atrás, con la silla o el sistema adecuado a su tamaño." },
+    { q: "¿Qué documentos tienes que llevar al manejar?", a: ["Licencia, cédula del auto y comprobante del seguro", "Solo el DNI", "Solo la licencia"], why: "Licencia de conducir, cédula de identificación del vehículo y seguro obligatorio vigente (y la VTV donde corresponda)." },
+    { q: "¿Se puede usar el celular con la mano mientras manejas?", a: ["No, está prohibido", "Sí, si vas despacio", "Sí, en los semáforos"], why: "Está prohibido manipular el celular al manejar." },
+    { q: "El semáforo cambia a amarillo cuando estás llegando. ¿Qué haces?", a: ["Me detengo si puedo hacerlo con seguridad", "Acelero para pasar", "Toco bocina y cruzo"], why: "El amarillo indica que hay que detenerse, salvo que no se pueda hacer con seguridad." },
+    { q: "En una bajada larga y pronunciada, ¿cómo bajas?", a: ["Con una marcha puesta (por ejemplo 2ª) para que el motor frene", "En neutro, para ahorrar", "Con el embrague pisado todo el tiempo"], why: "Bajar en neutro está prohibido y es peligroso: los frenos se recalientan." },
+    { q: "¿Qué indica esta señal?", sign: "bump", a: ["Lomo de burro adelante: hay que pasarlo despacio", "Puente angosto", "Fin de la zona urbana"], why: "Es una advertencia: reduce la velocidad antes de llegar." },
+    { q: "¿Qué indica esta señal?", sign: "noLeft", a: ["Prohibido girar a la izquierda", "Obligatorio girar a la izquierda", "Curva peligrosa a la izquierda"], why: "Las señales redondas con borde rojo prohíben." },
+    { q: "¿Para qué se usa la banquina de la ruta?", a: ["Solo para emergencias", "Para adelantar por la derecha", "Para circular si vas despacio"], why: "No se circula por la banquina." },
+    { q: "Antes de entrar a un túnel, ¿qué haces?", a: ["Enciendo las luces bajas", "Toco bocina", "Apago las luces"], why: "En los túneles van las luces encendidas, aunque sea de día." },
+    { q: "¿Cuándo se puede usar la bocina en la ciudad?", a: ["Solo para evitar un peligro", "Para pedir que avancen en el semáforo", "Para saludar"], why: "La bocina es para advertir un peligro." },
+    { q: "Un colectivo detenido en la parada pone el guiño izquierdo para salir. ¿Qué es lo más seguro?", a: ["Dejarlo salir y mantener distancia", "Acelerar para pasarlo antes", "Tocar bocina"], why: "Lo seguro es dejarlo salir y no pasarlo justo cuando arranca." },
+  ];
+  let quiz = null;
+  const signImg = key => { const c = document.createElement("canvas"); c.width = c.height = 256; const ctx = c.getContext("2d"); if (key === "stop") ctx.drawImage(stopTex.image, 0, 0, 256, 256); else SIGN_DRAW[key](ctx, 256); return c.toDataURL(); };
+  function openQuiz() {
+    const pool = QUIZ.map((x, i) => i).sort(() => Math.random() - 0.5).slice(0, 10);
+    quiz = { pool, n: 0, ok: 0, answered: false };
+    S.paused = true; for (const k in keys) keys[k] = false; toastsEl.innerHTML = "";
+    document.getElementById("quiz-card").hidden = false;
+    showQuestion();
+  }
+  function showQuestion() {
+    const item = QUIZ[quiz.pool[quiz.n]], opts = document.getElementById("quiz-opts"), img = document.getElementById("quiz-img");
+    document.getElementById("quiz-eyebrow").textContent = `Examen teórico · pregunta ${quiz.n + 1} de ${quiz.pool.length} · ${quiz.ok} bien`;
+    document.getElementById("quiz-q").textContent = item.q;
+    if (item.sign) { img.src = signImg(item.sign); img.hidden = false; } else img.hidden = true;
+    opts.innerHTML = ""; document.getElementById("quiz-why").textContent = ""; document.getElementById("quiz-next").hidden = true; quiz.answered = false;
+    item.a.map((t, i) => ({ t, i })).sort(() => Math.random() - 0.5).forEach(({ t, i }) => {
+      const b = document.createElement("button"); b.type = "button"; b.textContent = t;
+      b.addEventListener("click", () => {
+        if (quiz.answered) return; quiz.answered = true;
+        const good = i === 0; if (good) quiz.ok++;
+        [...opts.children].forEach(x => { x.disabled = true; });
+        b.classList.add(good ? "right" : "wrong");
+        if (!good) [...opts.children].find(x => x.textContent === item.a[0]).classList.add("right");
+        document.getElementById("quiz-why").textContent = (good ? "¡Bien! " : "No. ") + item.why;
+        say((good ? "Bien. " : "No. ") + item.why);
+        const nx = document.getElementById("quiz-next"); nx.hidden = false; nx.firstChild.textContent = quiz.n + 1 < quiz.pool.length ? "Siguiente " : "Ver resultado "; nx.focus({ preventScroll: true });
+      });
+      opts.appendChild(b);
+    });
+    say(item.q);
+  }
+  function quizNext() {
+    if (!quiz || !quiz.answered) return;
+    quiz.n++;
+    if (quiz.n < quiz.pool.length) { showQuestion(); return; }
+    const passed = quiz.ok >= 8;
+    document.getElementById("quiz-eyebrow").textContent = "Examen teórico · resultado";
+    document.getElementById("quiz-q").textContent = passed ? `¡Aprobaste! ${quiz.ok} de 10 bien.` : `Esta vez no: ${quiz.ok} de 10 bien. Necesitas 8.`;
+    document.getElementById("quiz-img").hidden = true;
+    document.getElementById("quiz-opts").innerHTML = "";
+    document.getElementById("quiz-why").textContent = passed ? "Ahora sigue con el examen de circuito con conos, en Estacionamiento." : "Repasa la pestaña Reglas y vuelve a intentarlo: las preguntas cambian cada vez.";
+    say(document.getElementById("quiz-q").textContent);
+    if (passed && !prog.theoryPassed) { prog.theoryPassed = true; saveProgress(); toast("¡Aprobaste el examen teórico! Se abrió: Examen de circuito con conos.", "good", "theory-ok", 999); }
+    prog.theoryBest = Math.max(prog.theoryBest || 0, quiz.ok); saveProgress();
+    renderMissions();
+    const nx = document.getElementById("quiz-next"); nx.hidden = false; nx.firstChild.textContent = "Cerrar "; quiz.answered = true; quiz.done = true;
+  }
+  function closeQuiz() {
+    const card = document.getElementById("quiz-card");
+    if (card.hidden) return;
+    card.hidden = true; S.paused = false; quiz = null;
+    document.getElementById("road").focus();
+  }
   function closeTrip() {
     const card = document.getElementById("trip-card");
     if (card.hidden) return;
@@ -1919,6 +2026,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   }
   function checkMissions() {
     if (mode === "city" && S.mission >= 6 && !examOpen()) return;
+    if (mode === "parking" && S.mission >= 3 && !circuitOpen()) return;
     if (S.mission < MISSIONS.length && MISSIONS[S.mission].done()) {
       const before = PATH.map((st, n) => stageDone(n));
       award(50, "Misión cumplida: " + MISSIONS[S.mission].title);
@@ -1981,7 +2089,10 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target && e.target.tagName === "SELECT") return;
     const k = e.key.toLowerCase();
-    if (S.paused) { if (k === "enter" || k === "escape") { closeStall(); closeResult(); closeTrip(); e.preventDefault(); } return; }
+    if (S.paused) {
+      if (quiz) { if (k === "escape" || (k === "enter" && quiz.done)) closeQuiz(); else if (k === "enter") quizNext(); e.preventDefault(); return; }
+      if (k === "enter" || k === "escape") { closeStall(); closeResult(); closeTrip(); e.preventDefault(); } return;
+    }
     if (KEYMAP[k]) { keys[KEYMAP[k]] = true; e.preventDefault(); return; }
     if (e.repeat) return;
     if (k === "e") toggleEngine();
@@ -2029,6 +2140,9 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   document.getElementById("trip-x").addEventListener("click", closeTrip);
   document.getElementById("trip-restart").addEventListener("click", () => { document.getElementById("trip-card").hidden = true; setMode(mode); });
   document.getElementById("result-ok").addEventListener("click", closeResult);
+  document.getElementById("btn-quiz").addEventListener("click", () => { if (!S.paused) openQuiz(); });
+  document.getElementById("quiz-x").addEventListener("click", closeQuiz);
+  document.getElementById("quiz-next").addEventListener("click", () => { if (quiz && quiz.done) closeQuiz(); else quizNext(); });
   document.getElementById("result-x").addEventListener("click", closeResult);
   document.getElementById("result-retry").addEventListener("click", () => { closeResult(); startExam(); });
   const opts = { autoClutch: false, rain: false, night: false, voice: true, guide: true, sound: true, turnsOk: 0 };
@@ -2638,6 +2752,49 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   const targetMat = B({ color: 0xffd23d, transparent: true, opacity: 0.35, depthWrite: false });
   const rectMesh = r => { const m = new THREE.Mesh(new THREE.PlaneGeometry(r.x1 - r.x0, r.z1 - r.z0), targetMat); m.rotation.x = -Math.PI / 2; m.position.set((r.x0 + r.x1) / 2, 0.02, (r.z0 + r.z1) / 2); scene.add(m); return m; };
   const perpTarget = rectMesh(PERP_RECT), parTarget = rectMesh(PAR_RECT);
+  // cones for the circuit exam: a slalom line and a corridor to reverse through
+  const SLALOM = [-20, -30, -40, -50, -60].map(z => ({ x: 32, z })), CORRIDOR = { x: 16, z0: -48, z1: -24, half: 1.75 };
+  const cones = [];
+  {
+    const coneGeo = new THREE.ConeGeometry(0.22, 0.6, 12), bandGeo = new THREE.CylinderGeometry(0.12, 0.15, 0.1, 12), coneMat = L({ color: 0xff6a1a }), bandMat = L({ color: 0xf4f1ea });
+    const add = (x, z) => { const g = new THREE.Group(); const c = new THREE.Mesh(coneGeo, coneMat); c.position.y = 0.3; c.castShadow = true; g.add(c); const bnd = new THREE.Mesh(bandGeo, bandMat); bnd.position.y = 0.36; g.add(bnd); g.position.set(x, 0, z); g.visible = false; scene.add(g); cones.push({ x, z, x0: x, z0: z, obj: g, down: false }); };
+    for (const p of SLALOM) add(p.x, p.z);
+    for (let z = CORRIDOR.z0; z <= CORRIDOR.z1 + 0.01; z += 4) { add(CORRIDOR.x - CORRIDOR.half, z); add(CORRIDOR.x + CORRIDOR.half, z); }
+  }
+  function updateCones(dt) {
+    const show = mode === "parking" && S.mission >= 3;
+    for (const c of cones) c.obj.visible = show;
+    if (!show) return;
+    // touching a cone knocks it over: a fault, and the attempt starts again
+    for (const c of cones) {
+      if (c.down) { if (Math.hypot(c.x - S.x, c.z - S.z) > 12 && S.v === 0) { c.down = false; c.obj.rotation.set(0, 0, 0); c.obj.position.set(c.x0, 0, c.z0); } continue; }
+      const d = dirOf(S.th), r = rightOf(S.th), lx = c.x - S.x, lz = c.z - S.z;
+      if (Math.abs(lx * d.x + lz * d.z) < CAR_L / 2 + 0.2 && Math.abs(lx * r.x + lz * r.z) < CAR_W / 2 + 0.2) {
+        c.down = true; c.obj.rotation.z = Math.PI / 2 * (lx * r.x + lz * r.z > 0 ? 1 : -1); c.obj.position.y = 0.2;
+        infraction("Tocaste un cono", -10); S.slalom = null; S.rev = null;
+      }
+    }
+    // slalom: pass every cone, alternating sides, going forward
+    const inLane = Math.abs(S.x - 32) < 7 && S.z < -14 && S.z > -66;
+    if (!inLane) S.slalom = null;
+    else {
+      if (!S.slalom && S.z > -19 && S.v < 0) {} // reversing in: does not count
+      if (!S.slalom && S.z > -19 && S.z < -14 && S.v > 0) S.slalom = { n: 0, last: 0 };
+      if (S.slalom && S.v > 0) {
+        const sl = S.slalom, cz = SLALOM[sl.n] && SLALOM[sl.n].z;
+        if (cz != null && S.z < cz) {
+          const side = Math.sign(S.x - 32);
+          if (side === sl.last || side === 0) { S.slalom = null; tip("En el zigzag tienes que pasar cada cono por el lado contrario al anterior. Vuelve a empezar desde la entrada de la fila.", "slalom-side", 15); }
+          else { sl.last = side; sl.n++; if (sl.n === SLALOM.length) { S.slalomOk = true; award(30, "Zigzag entre conos sin tocar ninguno"); toast("¡Zigzag aprobado! (+30)", "good", "slalom-ok", 5); S.slalom = null; } }
+        }
+      }
+    }
+    // reversing straight through the corridor
+    const inCor = Math.abs(S.x - CORRIDOR.x) < CORRIDOR.half + 0.3 && S.z > CORRIDOR.z0 - 4 && S.z < CORRIDOR.z1 + 4;
+    if (!inCor) { if (S.rev && S.z > CORRIDOR.z1 + 2 && S.gear === "R") { S.reverseOk = true; award(30, "Marcha atrás entre conos sin tocar ninguno"); toast("¡Marcha atrás aprobada! (+30)", "good", "rev-ok", 5); } S.rev = null; }
+    else if (!S.rev && S.z < CORRIDOR.z0 + 1 && S.gear === "R" && Math.cos(S.th) > 0.9) S.rev = { t: 0 };
+    else if (S.rev && (S.gear !== "R" || Math.cos(S.th) < 0.9)) S.rev = null;
+  }
 
   // yellow dots on the road showing the line for the turn the blinker announces
   const guideMat = B({ color: 0xffd23d, transparent: true, opacity: 0.85, depthWrite: false });
@@ -4164,6 +4321,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     render3d();
     drawGlass(dt);
     updateCoach();
+    updateCones(dt);
     drawGps();
     const rpm = toRpm(S.we);
     drawGauge(tach, rpm / 1000, 8, 1, 6.5, "rpm × 1000", String(Math.round(rpm / 10) * 10));
