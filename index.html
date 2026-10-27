@@ -720,6 +720,39 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (!sg) return null;
     return segFeature(sg.axis, sg.line, sg.block) === "school" ? 20 : isAvenue(sg.line) ? 60 : 40;
   }
+  // meters from the front of the car to this block's speed bump, while it is still ahead
+  function bumpAhead() {
+    const sg = segAt(S.x, S.z);
+    if (!sg || segFeature(sg.axis, sg.line, sg.block) !== "bump") return null;
+    const dd = sg.axis === "NS" ? dirOf(S.th).z : dirOf(S.th).x;
+    if (Math.abs(dd) < 0.7) return null;
+    const t = (G / 2 - sg.s) * Math.sign(dd) - CAR_L / 2;
+    return t > -CAR_L ? t : null;
+  }
+  // the practice lot: its driveway opens on the right of the starting street
+  const LOT_ENTRY = { x: 0, z: -45 }, LOT_DOOR = { x: 5, z: -45 };
+  function lotWanted() {
+    if (mode !== "city" || inLot(S.x, S.z) || inRect(S.x, S.z, DRIVE)) return false;
+    return S.mission === 6 || S.mission === 7 || !!(S.exam && S.exam.phase === "park" && !S.exam.passed && !S.exam.failed);
+  }
+  function lotNav() {
+    if (!lotWanted()) return null;
+    const pts = [{ x: S.x, z: S.z }];
+    if (!(Math.abs(S.x) <= HALF && S.z < 0 && S.z > -G)) {
+      // along the streets: to the next corner, then to the starting street, then along it
+      const ap = approach(), ci = ap ? ap.i : Math.round(S.x / G), cj = ap ? ap.j : Math.round(S.z / G);
+      pts.push({ x: ci * G, z: cj * G });
+      if (ci !== 0) pts.push({ x: 0, z: cj * G });
+    }
+    pts.push(LOT_ENTRY, LOT_DOOR);
+    let dist = 0;
+    for (let k = 1; k < pts.length; k++) dist += Math.hypot(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z);
+    const d = dirOf(S.th), r = rightOf(S.th), dx = LOT_DOOR.x - S.x, dz = LOT_DOOR.z - S.z;
+    let text = `Estacionamiento (la P del GPS) · ${Math.round(dist)} m · sigue la línea amarilla`;
+    if (Math.abs(S.x) <= HALF && Math.abs(dz) < 60 && dx * d.x + dz * d.z > 0)
+      text = `Entrada al estacionamiento a tu ${dx * r.x + dz * r.z > 0 ? "derecha" : "izquierda"} · ${Math.round(Math.abs(dz))} m · pon el guiño`;
+    return { pts, dist, text };
+  }
   function lightState(i, j, axis) {
     const t = (S.t + hash2(j, i) * 26) % 26;
     if (axis === "NS") return t < 10 ? "green" : t < 13 ? "yellow" : "red";
@@ -1213,12 +1246,15 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const sg = segAt(S.x, S.z), feat = sg && segFeature(sg.axis, sg.line, sg.block), key = sg && sg.axis + sg.line + "," + sg.block;
     if (feat === "school") tip("Zona escolar: máximo 20 km/h y atención a los chicos que cruzan.", "school" + key, 60);
     if (sg && S.prevSeg && S.prevSeg.key === key && (S.prevSeg.s - G / 2) * (sg.s - G / 2) < 0 && feat === "bump") {
-      if (kmh > 20) { S.v *= 0.8; S.shake = 2.2; infraction(`Pasaste el lomo de burro a ${Math.round(kmh)} km/h`, -5); }
-      else { S.shake = Math.max(S.shake, 0.6); award(2, "Lomo de burro despacio"); }
+      if (kmh > 20) {
+        S.v *= 0.8; S.shake = 2.2; infraction(`Pasaste el lomo de burro a ${Math.round(kmh)} km/h`, -5);
+        tip("El auto saltó porque llegaste rápido. La próxima vez: al ver el cartel amarillo suelta el acelerador y frena suave hasta ir a menos de 20 km/h ANTES de llegar a la franja amarilla y negra.", "bump-fast", 30);
+      } else { S.shake = Math.max(S.shake, 0.6); award(2, "Lomo de burro despacio"); toast("Bien: pasaste el lomo de burro despacio (+2). Ya puedes volver a acelerar.", "good", "bump-ok", 10); }
     }
-    if (sg && feat === "bump") {
-      const toBump = (G / 2 - sg.s) * (sg.axis === "NS" ? dirOf(S.th).z : dirOf(S.th).x);
-      if (toBump > 5 && toBump < 35 && kmh > 20) tip("Lomo de burro adelante: baja a menos de 20 km/h.", "bump" + key, 20);
+    const tb = bumpAhead();
+    if (tb != null && tb > 0 && S.v > 0) {
+      if (tb > 18 && tb < 65) tip(`Lomo de burro en ${Math.round(tb)} m: es una loma de asfalto cruzada en la calle, pintada de amarillo y negro. 1) Suelta el acelerador. 2) Frena suave hasta ir a menos de 20 km/h (si vas en 3ª, baja a 2ª). 3) Pásalo despacio, sin frenar encima. 4) Después vuelve a acelerar.`, "bump" + key, 90);
+      else if (tb <= 18 && kmh > 22 && help) toast(`¡Frena! Lomo de burro en ${Math.round(tb)} m y vas a ${Math.round(kmh)} km/h.`, "bad", "bump-now", 4);
     }
     S.prevSeg = sg ? { key, s: sg.s } : null;
     if (kmh > S.limit + 4) {
@@ -1268,7 +1304,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     { title: "Respeta un PARE", hint: "Cada 90 m hay una esquina. El GPS marca en rojo las que tienen PARE. Detente por completo antes de la línea blanca y vuelve a arrancar en 1ª.", done: () => S.stopOk },
     { title: "Dobla a la derecha señalizando", hint: "Pon el señalizador derecho (X) unos 30 m antes de la esquina, baja a 2ª y menos de 20 km/h, y gira con → cuando tu auto llegue al cruce peatonal. Quédate en el carril derecho.", done: () => S.turned.right },
     { title: "Dobla a la izquierda señalizando", hint: "Señalizador izquierdo (Z), reduce, avanza hasta el centro de la intersección y gira con ← hasta quedar en el carril derecho de la otra calle.", done: () => S.turned.left },
-    { title: "Estaciona en el lugar marcado", hint: "Vuelve a la zona de práctica (el GPS la muestra; la entrada está en la calle de partida). Estaciona dentro del rectángulo amarillo, de frente o en reversa, y quédate sin moverte un segundo.", done: () => S.parkedPerp },
+    { title: "Estaciona en el lugar marcado", hint: "Ve al estacionamiento de práctica: en el GPS (abajo a la izquierda) es el rectángulo gris con la P, y una línea amarilla te marca el camino. La entrada está en la calle donde empezaste, del lado derecho, junto al cartel azul ESCUELA · PRÁCTICA y una columna amarilla. Adentro, estaciona en el rectángulo amarillo, de frente o en reversa, y no te muevas por un segundo.", done: () => S.parkedPerp },
     { title: "Estaciona en paralelo", hint: "Ponte al lado del auto de adelante, a 1 m, con las colas alineadas. En reversa gira todo a la derecha hasta quedar en 45°, endereza, y cuando tu frente pase la cola del auto de adelante gira todo a la izquierda.", done: () => S.parkedPar },
     { title: "Examen final", hint: "Sigue el GPS hasta los 3 puntos verdes (los ves en la calle como columnas verdes) y vuelve a estacionar en el lugar marcado. Apruebas con 2 infracciones o menos.", done: () => S.exam && S.exam.passed },
   ];
@@ -1324,7 +1360,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       if (Math.hypot(S.x - i * G, S.z - j * G) < 6) {
         ex.idx++;
         if (ex.idx < 3) toast(`Punto ${ex.idx} de 3 listo. Sigue al siguiente punto verde del GPS.`, "good", "cp" + ex.idx);
-        else { ex.phase = "park"; S.parkedPerp = false; toast("Puntos listos. Último paso: vuelve a la zona de práctica y estaciona en el lugar marcado.", "good", "cp-park"); }
+        else { ex.phase = "park"; S.parkedPerp = false; toast("Puntos listos. Último paso: vuelve al estacionamiento (la P del GPS, sigue la línea amarilla) y estaciona en el lugar marcado.", "good", "cp-park"); }
       }
     } else if (ex.phase === "park" && S.parkedPerp) { ex.passed = true; award(200, "Aprobaste el examen final"); S.licensed = true; showResult(true); }
   }
@@ -1725,6 +1761,9 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   skyline.position.y = 30; scene.add(skyline);
   const examMarker = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 6, 24, 1, true), new THREE.MeshBasicMaterial({ color: 0x46e86c, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false }));
   examMarker.visible = false; scene.add(examMarker);
+  // yellow column at the lot's driveway while you have to go park there
+  const lotMarker = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 6, 24, 1, true), new THREE.MeshBasicMaterial({ color: 0xffd23d, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false }));
+  lotMarker.layers.set(2); lotMarker.visible = false; scene.add(lotMarker);
   function applyWeather() {
     sky.material.map = opts.rain ? skyRainTex : skyTex; sky.material.needsUpdate = true;
     const c = opts.rain ? 0xaab0b5 : HORIZON;
@@ -1952,7 +1991,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       [SIGN_DRAW.ceda, "Ceda el paso", "Baja la velocidad y deja pasar a quien viene por la otra calle. Si no viene nadie, no hace falta detenerse."],
       [SIGN_DRAW.limit(40), "Velocidad máxima", "En calles 40 km/h, en avenidas 60 km/h (como en la Ciudad de Buenos Aires). Rige hasta la próxima señal."],
       [SIGN_DRAW.school, "Zona escolar", "Máximo 20 km/h y atención: pueden cruzar chicos en cualquier momento."],
-      [SIGN_DRAW.bump, "Lomo de burro", "Hay un reductor de velocidad adelante: pásalo a menos de 20 km/h."],
+      [SIGN_DRAW.bump, "Lomo de burro", "Adelante hay una loma de asfalto cruzada en la calle (franja amarilla y negra). Suelta el acelerador, frena hasta menos de 20 km/h antes de llegar y pásala despacio. Si la pasas rápido, el auto salta y se puede dañar."],
       [SIGN_DRAW.noLeft, "Prohibido girar a la izquierda", "En esa esquina solo puedes seguir derecho o doblar a la derecha."],
     ];
     for (const [draw, title, text] of items) {
@@ -2617,6 +2656,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const exm = S.exam, cp = exm && exm.phase === "route" && !exm.failed ? exm.cps[exm.idx] : null;
     examMarker.visible = !!cp;
     if (cp) { examMarker.position.set(cp[0] * G, 3, cp[1] * G); examMarker.rotation.y += 0.01; }
+    lotMarker.visible = lotWanted();
+    if (lotMarker.visible) lotMarker.position.set(LOT_DOOR.x, 3, LOT_DOOR.z);
     parTarget.visible = mode === "city" ? S.mission === 7 || S.mission >= MISSIONS.length : mode === "parking" && S.mission >= 2;
 
     const amp = S.shake;
@@ -2731,6 +2772,14 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         gctx.fillStyle = { stop: "#e2553f", light: "#f0a535", ceda: "#ffffff", none: "#7d8288" }[ctrlOf(i, j)];
         gctx.beginPath(); gctx.arc(X(i * G), Z(j * G), 3 * dpr, 0, Math.PI * 2); gctx.fill();
       }
+    gctx.fillStyle = "#cfd3d8"; gctx.font = `bold ${Math.round(16 * dpr)}px sans-serif`; gctx.textAlign = "center"; gctx.textBaseline = "middle";
+    gctx.fillText("P", X((LOT.x0 + LOT.x1) / 2), Z((LOT.z0 + LOT.z1) / 2));
+    const nav = lotNav();
+    if (nav) {
+      gctx.strokeStyle = "#ffd23d"; gctx.lineWidth = 3 * dpr; gctx.lineJoin = "round"; gctx.beginPath();
+      nav.pts.forEach((p, k) => k ? gctx.lineTo(X(p.x), Z(p.z)) : gctx.moveTo(X(p.x), Z(p.z))); gctx.stroke();
+      gctx.lineWidth = 2 * dpr; gctx.strokeRect(X(LOT.x0), Z(LOT.z0), (LOT.x1 - LOT.x0) * sc, (LOT.z1 - LOT.z0) * sc);
+    }
     gctx.fillStyle = "#d9d4c8";
     for (const c of traffic) { gctx.beginPath(); gctx.arc(X(c.x), Z(c.z), 1.8 * dpr, 0, Math.PI * 2); gctx.fill(); }
     if (S.exam && S.exam.phase === "route" && !S.exam.failed) {
@@ -2805,6 +2854,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (S.limit !== lastLimit) { lastLimit = S.limit; el("limit-sign").textContent = S.limit; }
     tickScoreStats();
     const chip = el("next-chip"), ap = help && mode !== "hill" ? approach() : null;
+    const setChip = (txt, col) => { if (chip.dataset.t !== txt) { chip.dataset.t = txt; chip.innerHTML = `<i style="background:${col}"></i>`; chip.appendChild(document.createTextNode(txt)); } chip.hidden = false; };
     if (mode === "hill") {
       const front = -S.z + CAR_L / 2, n = Math.max(0, Math.ceil((front - 0.01) / (HILL_P / 2))), dist = n * HILL_P / 2 - front;
       const grade = Math.round(-hillDz(S.z) * Math.cos(S.th) * 100);
@@ -2818,6 +2868,10 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       if (chip.dataset.t !== txt) { chip.dataset.t = txt; chip.innerHTML = '<i style="background:#46e86c"></i>'; chip.appendChild(document.createTextNode(txt)); }
       chip.hidden = false; return;
     }
+    const nav = lotNav();
+    if (nav) { setChip(nav.text, "#ffd23d"); return; }
+    const tb = help && mode === "city" ? bumpAhead() : null;
+    if (tb != null && tb > -2 && tb < 70) { setChip(`Lomo de burro · ${Math.max(0, Math.round(tb))} m · pásalo a menos de 20 km/h`, "#f2c230"); return; }
     if (ap && ap.dist > -1 && ap.dist < 120) {
       const cc = ctrlOf(ap.i, ap.j), st = cc === "light" ? lightState(ap.i, ap.j, ap.axis) : null;
       const col = cc === "stop" ? "#e2553f" : cc === "ceda" ? "#ffffff" : cc === "none" ? "#9a9fa6" : { red: "#ff3b24", yellow: "#ffbe2e", green: "#46e86c" }[st];
