@@ -593,6 +593,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         <label for="opt-autoclutch"><input type="checkbox" id="opt-autoclutch"><span>Embrague automático<small>Para empezar: el auto maneja el embrague por ti. Solo aceleras, frenas y cambias.</small></span></label>
         <label for="opt-voice"><input type="checkbox" id="opt-voice"><span>Instructor por voz<small>Los consejos se escuchan, así no sacas la vista de la calle.</small></span></label>
         <label for="opt-guide"><input type="checkbox" id="opt-guide"><span>Guía amarilla para doblar<small>Se apaga sola cuando ya doblaste bien 6 veces, como en la vida real.</small></span></label>
+        <label for="opt-night"><input type="checkbox" id="opt-night"><span>De noche<small>Se ve poco: enciende las luces bajas (K). Los peatones y las bicis cuestan más de ver.</small></span></label>
         <label for="opt-rain"><input type="checkbox" id="opt-rain"><span>Lluvia<small>Menos visibilidad, el auto tarda más en frenar y vas a necesitar el limpiaparabrisas (L).</small></span></label>
       </div>
       <p class="note">El estacionamiento de práctica es el rectángulo gris con la P en el GPS. Cuando te toca estacionar, una línea amarilla te marca el camino y una columna amarilla marca la entrada (a la derecha, a unos 30 m de donde partes).</p>
@@ -1231,6 +1232,10 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       if (S.t - S.mirrorT > 10) { infraction("Arrancaste sin mirar los espejos", -5); tip("Antes de salir de donde estabas estacionada, mira los espejos (V o clic en un espejo): puede venir un auto, una moto o una bici.", "mirror-start", 30); }
     }
     if (S.parkedStop && S.running && S.gear !== "N" && S.t - S.mirrorT > 10 && S.mission > 0) tip("Antes de salir, mira los espejos (V).", "mirror-pre", 40);
+    if (opts.night && !S.lights) {
+      if (S.running) tip("Es de noche: enciende las luces bajas con K. Sin luces no ves y, sobre todo, no te ven.", "night-lights", 30);
+      if (kmh > 10) { S.nightT = (S.nightT || 0) + dt; if (S.nightT > 5 && !S.nightFlag) { S.nightFlag = true; infraction("Manejaste de noche sin luces", -20); } }
+    }
     if (mode === "lesson") updateLesson(dt);
   }
   function updateLesson(dt) {
@@ -1847,7 +1852,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   document.getElementById("result-ok").addEventListener("click", closeResult);
   document.getElementById("result-x").addEventListener("click", closeResult);
   document.getElementById("result-retry").addEventListener("click", () => { closeResult(); startExam(); });
-  const opts = { autoClutch: false, rain: false, voice: true, guide: true, sound: true, turnsOk: 0 };
+  const opts = { autoClutch: false, rain: false, night: false, voice: true, guide: true, sound: true, turnsOk: 0 };
   try { const saved = JSON.parse(localStorage.getItem("pm-opts") || "{}"); Object.assign(opts, saved); } catch (err) {}
   const optAuto = document.getElementById("opt-autoclutch"), optRain = document.getElementById("opt-rain");
   optAuto.checked = opts.autoClutch; optRain.checked = opts.rain;
@@ -1865,6 +1870,9 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       toast("Ya doblaste bien 6 veces: desde ahora la guía amarilla no aparece, como en la vida real. Si la necesitas, actívala en Controles → Opciones.", "good", "guide-off", 999);
     }
   }
+  const optNight = document.getElementById("opt-night");
+  optNight.checked = opts.night;
+  optNight.addEventListener("change", () => { opts.night = optNight.checked; saveOpts(); applyWeather(); if (opts.night && !S.lights) tip("Es de noche: enciende las luces bajas con K.", "night-on", 5); document.getElementById("road").focus(); });
   optRain.addEventListener("change", () => { opts.rain = optRain.checked; saveOpts(); applyWeather(); if (opts.rain) tip("Está lloviendo: enciende el limpiaparabrisas (L) y frena antes, el auto tarda más en detenerse.", "rain", 30); document.getElementById("road").focus(); });
   function toggleWipers() { S.wipers = !S.wipers; document.getElementById("btn-wipers").setAttribute("aria-pressed", S.wipers); }
   document.getElementById("btn-wipers").addEventListener("click", toggleWipers);
@@ -2010,7 +2018,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   const HORIZON = 0xd3dde6;
   scene.background = new THREE.Color(HORIZON);
   scene.fog = new THREE.Fog(HORIZON, 90, 270);
-  scene.add(new THREE.HemisphereLight(0xdfeaf7, 0x5a5a48, 0.62));
+  const hemi = new THREE.HemisphereLight(0xdfeaf7, 0x5a5a48, 0.62); scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xfff0d8, 0.95);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
@@ -2055,6 +2063,15 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     }
   }, false);
   const skyTex = makeSky(false), skyRainTex = makeSky(true);
+  // night sky: dark blue, stars and the moon
+  const skyNightTex = canvasTex(1024, 512, (ctx, w, h) => {
+    const gr = ctx.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, "#03060d"); gr.addColorStop(0.45, "#0b1424"); gr.addColorStop(0.5, "#141d2c"); gr.addColorStop(1, "#141d2c");
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, w, h);
+    for (let n = 0; n < 380; n++) { const a = Math.random() * 0.6 + 0.15; ctx.fillStyle = `rgba(255,255,255,${a})`; ctx.fillRect(Math.random() * w, Math.random() * h * 0.42, 1, 1); }
+    const mg = ctx.createRadialGradient(780, 90, 0, 780, 90, 60); mg.addColorStop(0, "rgba(255,250,230,1)"); mg.addColorStop(0.25, "rgba(255,250,230,.95)"); mg.addColorStop(0.32, "rgba(200,210,230,.25)"); mg.addColorStop(1, "rgba(200,210,230,0)");
+    ctx.fillStyle = mg; ctx.fillRect(700, 10, 160, 160);
+  }, false);
+  const skyNightRainTex = canvasTex(64, 64, (ctx, w, h) => { const gr = ctx.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, "#07090d"); gr.addColorStop(1, "#151a21"); ctx.fillStyle = gr; ctx.fillRect(0, 0, w, h); }, false);
   const sky = new THREE.Mesh(new THREE.SphereGeometry(450, 24, 16), new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false, depthWrite: false }));
   scene.add(sky);
   // far skyline: a ring of building silhouettes beyond the fog, so the city doesn't end in a flat wall
@@ -2074,12 +2091,19 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   const lotMarker = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 6, 24, 1, true), new THREE.MeshBasicMaterial({ color: 0xffd23d, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false }));
   lotMarker.layers.set(2); lotMarker.visible = false; scene.add(lotMarker);
   function applyWeather() {
-    sky.material.map = opts.rain ? skyRainTex : skyTex; sky.material.needsUpdate = true;
-    const c = opts.rain ? 0xaab0b5 : HORIZON;
+    const night = opts.night, rain = opts.rain;
+    sky.material.map = night ? (rain ? skyNightRainTex : skyNightTex) : rain ? skyRainTex : skyTex; sky.material.needsUpdate = true;
+    const c = night ? (rain ? 0x0d1117 : 0x121a27) : rain ? 0xaab0b5 : HORIZON;
     scene.background.setHex(c); scene.fog.color.setHex(c);
-    scene.fog.near = opts.rain ? 40 : 90; scene.fog.far = opts.rain ? 170 : 270;
-    sun.intensity = opts.rain ? 0.45 : 0.95;
-    skyline.material.opacity = opts.rain ? 0.35 : 1;
+    scene.fog.near = night ? (rain ? 12 : 22) : rain ? 40 : 90; scene.fog.far = night ? (rain ? 90 : 130) : rain ? 170 : 270;
+    sun.intensity = night ? 0.12 : rain ? 0.45 : 0.95; sun.color.setHex(night ? 0x9fb4d8 : 0xfff0d8);
+    hemi.intensity = night ? 0.28 : 0.62;
+    skyline.material.opacity = night ? 0.5 : rain ? 0.35 : 1; skyline.material.color.setHex(night ? 0x2a3242 : 0xffffff);
+    // windows and shop fronts light up, tail lights glow, street lamps light the road
+    for (const m of facadeMats.concat(shopMats)) { m.emissive.setHex(night ? 0x3a3020 : 0x000000); m.emissiveMap = night ? m.map : null; m.needsUpdate = true; }
+    tailOff.color.setHex(night ? 0xb3281a : 0x7a1a12);
+    lampPoolMat.visible = night;
+    lampGlassMat.color.setHex(night ? 0xfff1c4 : 0xf3eedb);
   }
 
   // merges static pieces of a block into one mesh per material
@@ -2246,9 +2270,13 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   }
   const poleGeo = new THREE.CylinderGeometry(0.06, 0.08, 1, 8), poleMat = L({ color: 0x5f6469 });
   const lampHeadGeo = new THREE.BoxGeometry(0.7, 0.16, 0.35), lampGlassMat = B({ color: 0xf3eedb });
-  function addLamp(bd, x, z, th) {
+  const lampPoolMat = B({ map: canvasTex(128, 128, (ctx, w) => { const g = ctx.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); g.addColorStop(0, "rgba(255,214,150,.9)"); g.addColorStop(0.5, "rgba(255,200,130,.35)"); g.addColorStop(1, "rgba(255,200,130,0)"); ctx.fillStyle = g; ctx.fillRect(0, 0, w, w); }, false), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.75 });
+  lampPoolMat.visible = false;
+  const lampPoolGeo = new THREE.PlaneGeometry(13, 13); lampPoolGeo.rotateX(-Math.PI / 2);
+  function addLamp(bd, x, z, th, flatBd) {
     // th: direction the arm reaches (toward the road)
     const d = dirOf(th);
+    if (flatBd) flatBd.add(lampPoolGeo, lampPoolMat, x + d.x * 2.4, 0.03, z + d.z * 2.4);
     bd.add(poleGeo, poleMat, x, 3.6, z, 0, 1, 7.2, 1);
     bd.add(poleGeo, poleMat, x + d.x * 0.9, 7.1, z + d.z * 0.9, -th + Math.PI / 2, 1, 1.8, 1, Math.PI / 2);
     bd.add(lampHeadGeo, lampGlassMat, x + d.x * 1.8, 7.0, z + d.z * 1.8, -th + Math.PI / 2);
@@ -2545,7 +2573,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       for (let s = 12, n = 0; s < G - 12; s += 15, n++) {
         const x = ox + (vertical ? off : s), z = oz + (vertical ? s : off), hh = hash2(i * 13 + side * 7 + n, j * 11);
         const toRoad = [Math.PI * 1.5, Math.PI / 2, 0, Math.PI][side];
-        if (n % 2 === 0) addLamp(solid, x, z, toRoad);
+        if (n % 2 === 0) addLamp(solid, x, z, toRoad, flat);
         else if (hh < 0.75) addTree(solid, x, z, hh);
         else solid.add(binGeo, binMat, x, 0.6, z);
       }
@@ -3259,6 +3287,20 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     }
   }
 
+  // low beams: a pool of light on the road ahead (cheap, and it works on every surface)
+  const beamTex = (() => {
+    const c = document.createElement("canvas"); c.width = 128; c.height = 256; const ctx = c.getContext("2d"), img = ctx.createImageData(128, 256);
+    for (let y = 0; y < 256; y++) for (let x = 0; x < 128; x++) {
+      const t = 1 - y / 255, near = Math.min(1, t * 6), far = Math.pow(1 - t, 0.8), wdt = 0.18 + t * 0.55, dx = (x - 63.5) / 64;
+      const a = near * far * Math.exp(-(dx * dx) / (wdt * wdt * 0.5)), i = (y * 128 + x) * 4;
+      img.data[i] = 255; img.data[i + 1] = 244; img.data[i + 2] = 214; img.data[i + 3] = Math.round(255 * Math.min(1, a * 1.1));
+    }
+    ctx.putImageData(img, 0, 0);
+    return new THREE.CanvasTexture(c);
+  })();
+  const beamGeo = new THREE.PlaneGeometry(10, 40); beamGeo.rotateX(Math.PI / 2); beamGeo.translate(0, 0, 21.5);
+  const beam = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ map: beamTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.85, side: THREE.DoubleSide, fog: false }));
+  const beamRoot = new THREE.Group(); beamRoot.add(beam); beam.layers.set(2); beamRoot.visible = false; scene.add(beamRoot);
   // own car: only visible in the side mirrors
   const myCar = makeCarMesh(L({ color: 0xc65a2a }));
   myCar.traverse(o => { o.layers.set(1); o.castShadow = false; });
@@ -3289,6 +3331,11 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     ground.position.set(Math.round(S.x / 16) * 16, -0.06, Math.round(S.z / 16) * 16);
     sun.position.set(S.x + 50, 90, S.z + 35); sun.target.position.set(S.x, 0, S.z); sun.target.updateMatrixWorld();
     placeCar(myCar, S.x, S.z, S.th); myCar.position.y = heightAt(S.x, S.z);
+    beamRoot.visible = opts.night && S.lights;
+    if (beamRoot.visible) {
+      const dd = dirOf(S.th), h0 = heightAt(S.x, S.z), h1 = heightAt(S.x + dd.x * 20, S.z + dd.z * 20);
+      placeCar(beamRoot, S.x, S.z, S.th); beamRoot.position.y = h0 + 0.04; beam.rotation.x = -Math.atan2(h1 - h0, 20);
+    }
     updateGuide();
     perpTarget.visible = mode === "city" ? S.mission === 6 || S.mission >= MISSIONS.length || (S.exam && S.exam.phase === "park" && !S.exam.passed) : mode === "parking" && (S.mission <= 1 || S.mission >= MISSIONS.length);
     const exm = S.exam, cp = exm && exm.phase === "route" && !exm.failed ? exm.cps[exm.idx] : null;
