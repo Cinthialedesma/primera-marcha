@@ -206,6 +206,14 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 .missions li.current { background: var(--panel-2); color: var(--ink); }
 .missions li.current .n { border-color: var(--amber); color: var(--amber); }
 .missions li.locked { opacity: .55; }
+.missions li > span:last-child { display: block; min-width: 0; }
+.msteps { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: .86rem; }
+.missions .msteps li { display: block; position: relative; padding: 0 0 0 20px; border-radius: 0; background: none; color: var(--ink); }
+.msteps li::before { content: ""; position: absolute; left: 2px; top: .38em; width: 10px; height: 10px; border: 1.5px solid var(--muted); border-radius: 3px; }
+.missions .msteps li.ok { color: var(--muted); text-decoration: line-through; background: none; }
+.msteps li.ok::before { content: "✓"; border-color: var(--green); background: var(--green); color: #0f1a10; font-size: 9px; line-height: 10px; text-align: center; font-weight: 700; }
+.missions details.more { margin-top: 6px; font-size: .8rem; color: var(--muted); }
+.missions details.more summary { cursor: pointer; color: var(--amber); }
 .path { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; background: var(--panel-2); border-radius: 8px; }
 .path .steps { display: flex; gap: 4px; }
 .path .steps button { flex: 1; min-width: 0; height: 28px; border-radius: 6px; border: 1px solid var(--line); background: #16181b; color: var(--muted); font: inherit; font-size: .78rem; cursor: pointer; padding: 0; }
@@ -965,7 +973,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       score: 0, cleanDist: 0, bestClean: 0, trafficLevel: 0,
       mission: 0, counts: { infr: 0, stall: 0, grind: 0, crash: 0 }, log: [], hist: [], paused: false,
       trip: { logStart: 0, t0: 0, dist0: 0, score0: 0, maxKmh: 0 },
-      lights: false, belt: false, beltFlag: false, mirrorT: -99, parkedStop: true, biteT: 0, fwd1: 0, lessonStops: 0, moved: false, rev: 0, l2: false,
+      stepDone: {}, lights: false, belt: false, beltFlag: false, mirrorT: -99, parkedStop: true, biteT: 0, fwd1: 0, lessonStops: 0, moved: false, rev: 0, l2: false,
       hs: null, dh: null, launchRolled: false, lastRoll: -9, parkedFront: false, parkedBack: false,
     }, mode === "campo" ? (() => { const p = routePoint(5, LANE); return { x: p.x, z: p.z, th: p.th, limit: ROUTE_LIMIT }; })() : START[mode]);
   }
@@ -1773,6 +1781,42 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     { title: "Examen de circuito: zigzag entre conos", hint: "Los 5 conos naranjas en fila, en el medio del estacionamiento. Entra desde el lado de la entrada y pasa en zigzag: uno por la derecha, el siguiente por la izquierda. En 1ª, despacio y sin tocar ninguno. Si tocas uno, vuelve a empezar.", done: () => S.slalomOk },
     { title: "Examen de circuito: marcha atrás entre conos", hint: "El pasillo de conos a la izquierda de la entrada. Ponte adelante del pasillo, mirando hacia el fondo del estacionamiento, y retrocede derecho por adentro, de punta a punta, sin tocar los conos. Mira el espejo de adentro (M) y los laterales.", done: () => S.reverseOk },
   );
+
+  // ---------- each mission split into short steps that get crossed off as you do them ----------
+  {
+    const e = () => S.gear === "N" ? 0 : engage(S.clutch), kmh = () => Math.abs(S.v) * 3.6, rpm = () => toRpm(S.we);
+    const mirrorNow = () => S.t - S.mirrorT < 8 && S.mirrorT >= 0;
+    const prep = [["Abróchate el cinturón (C)", () => S.belt], ["Mira los espejos (V o clic en un espejo)", () => S.mirrorT >= 0]];
+    LESSON_MISSIONS[0].steps = prep.concat([["Freno de mano puesto: luz roja (P) en el tablero", () => S.hand], ["Palanca en neutro (N)", () => S.gear === "N"]]);
+    LESSON_MISSIONS[1].steps = [["Pisa el embrague a fondo (A o Espacio) y mantenlo", () => S.clutch > 0.9], ["Pulsa E para encender", () => S.crank > 0 || S.running], ["El motor quedó encendido, en unas 850 rpm", () => S.running]];
+    LESSON_MISSIONS[2].steps = [["Con el embrague a fondo, pon 1ª (tecla 1)", () => S.gear === "1"], ["Baja el freno de mano (Q)", () => !S.hand], ["Suelta A despacio hasta que el pedal se ponga verde (Roce)", () => e() > 0.03 && S.running], ["Mantén W para dejar el pie quieto ahí 2 segundos", () => S.biteT >= 1]];
+    LESSON_MISSIONS[3].steps = [["Acelera un poco, hasta unas 1.500 rpm (D)", () => S.gas > 0.1 && rpm() > 1250], ["Termina de soltar el embrague de a poco", () => S.clutch < BITE_FULL && S.running], ["Avanza derecho 10 metros", () => S.fwd1 >= 10]];
+    LESSON_MISSIONS[4].steps = [["Suelta el acelerador", () => S.gas < 0.05 && Math.abs(S.v) > 0.5], ["Pisa el embrague a fondo", () => S.clutch > 0.9 && Math.abs(S.v) > 0.3], ["Frena suave (↓) hasta parar", () => S.lessonStops >= 1], ["Ya detenida, pon neutro (N)", () => S.v === 0 && S.gear === "N"]];
+    LESSON_MISSIONS[5].steps = [["Detenida y con el embrague a fondo", () => S.v === 0 && S.clutch > 0.9], ["Pon reversa (R)", () => S.gear === "R"], ["Mira el espejo de atrás (M lo agranda)", () => mirrorNow()], ["Suelta el embrague hasta el punto de roce", () => S.gear === "R" && S.v < -0.2], ["Retrocede 5 metros", () => S.rev >= 5]];
+    LESSON_MISSIONS[6].steps = [["Sal en 1ª", () => S.gear === "1" && S.v > 1], ["Llega a unos 12 km/h", () => S.gear === "1" && kmh() > 10], ["Embrague a fondo y pon 2ª", () => S.gear === "2"], ["Suelta el embrague y anda en 2ª", () => S.l2], ["Frena un poco, embrague y vuelve a 1ª", () => S.l2 && S.gear === "1"]];
+    CITY_MISSIONS[0].steps = prep.concat([["Pisa el embrague a fondo (A o Espacio)", () => S.clutch > 0.9 || S.running], ["Pulsa E para encender", () => S.running]]);
+    CITY_MISSIONS[1].steps = [["Embrague a fondo y pon 1ª", () => S.gear === "1"], ["Baja el freno de mano (Q)", () => !S.hand], ["Acelera hasta unas 1.500 rpm", () => rpm() > 1250 && S.gas > 0.1], ["Suelta el embrague hasta el punto de roce", () => e() > 0.03 && S.running], ["Termina de soltar y pasa los 8 km/h", () => kmh() > 8 && S.clutch < BITE_FULL]];
+    CITY_MISSIONS[2].steps = [["En 1ª llega a unos 15 km/h", () => S.gear === "1" && kmh() > 14], ["Suelta el acelerador y pisa el embrague a fondo", () => S.clutch > 0.9 && S.v > 2], ["Pon 2ª", () => S.gear === "2"], ["Suelta el embrague y acelera hasta 18 km/h", () => S.gear === "2" && kmh() > 18 && S.clutch < BITE_FULL]];
+    const apC = c => { const ap = approach(); return ap && ctrlOf(ap.i, ap.j) === c && ap.dist < 40; };
+    CITY_MISSIONS[3].steps = [["Busca una esquina con PARE (punto rojo en el GPS)", () => apC("stop")], ["Frena y detente del todo antes de la línea blanca", () => apC("stop") && S.v === 0], ["Vuelve a salir en 1ª y cruza", () => S.stopOk]];
+    const turnSteps = (side, key) => [[`Pon el guiño ${side === "right" ? "derecho (X)" : "izquierdo (Z)"} antes de la esquina`, () => S.blink === side], ["Mira el espejo (V)", () => S.blink === side && mirrorNow()], ["Baja a menos de 20 km/h", () => S.blink === side && kmh() < 20 && S.v > 0.5], [`Dobla a la ${side === "right" ? "derecha" : "izquierda"} siguiendo la guía amarilla`, () => S.turned[side]]];
+    CITY_MISSIONS[4].steps = turnSteps("right"); CITY_MISSIONS[5].steps = turnSteps("left");
+    CITY_MISSIONS[6].steps = [["Ve al estacionamiento (la P del GPS)", () => inLot(S.x, S.z)], ["Entra al rectángulo amarillo", () => inRect(S.x, S.z, PERP_RECT, 0.5)], ["Detente adentro un segundo", () => S.parkedPerp]];
+    CITY_MISSIONS[8].steps = [["Punto 1 del GPS", () => S.exam && (S.exam.idx >= 1 || S.exam.passed)], ["Punto 2", () => S.exam && (S.exam.idx >= 2 || S.exam.passed)], ["Punto 3", () => S.exam && (S.exam.idx >= 3 || S.exam.passed)], ["Vuelve a estacionar en el lugar marcado", () => S.exam && S.exam.passed]];
+    HILL_MISSIONS[0].steps = [["Embrague a fondo y pon 1ª", () => S.gear === "1"], ["Acelera hasta unas 2.000 rpm", () => rpm() > 1700 && S.gas > 0.15], ["Suelta el embrague hasta que haga fuerza (tiembla)", () => e() > 0.08 && S.running], ["Ahí, baja el freno de mano (Q)", () => !S.hand && S.running], ["Sube sin irte para atrás", () => S.hillLaunchOk]];
+    HILL_MISSIONS[1].steps = [["Al llegar al PARE, frena hasta detenerte", () => S.v === 0 && S.hs && S.hs.uphill && S.hs.stopped], ["Pisa el embrague antes de parar", () => S.v === 0 && S.clutch > 0.6], ["Sube el freno de mano (Q)", () => S.hillStopOk || (S.v === 0 && S.hand)]];
+    CAMPO_MISSIONS[0].steps = prep.concat([["Enciende las luces bajas (K)", () => S.lights], ["Enciende el motor y sal en 1ª", () => S.running && S.v > 2]]);
+    CAMPO_MISSIONS[1].steps = [["2ª a unos 20 km/h", () => S.gear === "2"], ["3ª a unos 35 km/h", () => S.gear === "3"], ["4ª a unos 55 km/h", () => S.gear === "4"], ["5ª y llega a 75–80 km/h", () => S.gear === "5" && kmh() >= 75]];
+    CAMPO_MISSIONS[3].steps = [["Espera una zona con línea blanca discontinua", () => routeCars.some(c => c.kind === "tractor") && !noPass(S.routeU ?? 0)], ["Mira el espejo y pon el guiño izquierdo (Z)", () => S.blink === "left"], ["Pásate al otro carril y adelanta", () => routeCars.some(c => c.passedBy)], ["Vuelve con el guiño derecho (X)", () => S.passedTractor]];
+    RIDE_MISSIONS[0].steps = [["Busca a tu pasajero (punto azul en el GPS)", () => (ride && ride.state !== "pickup") || S.rides > 0], ["Detente junto al cordón y espera que suba", () => (ride && (ride.state === "riding" || ride.state === "done")) || S.rides > 0], ["Llévalo a su destino y detente junto al cordón", () => S.rides > 0]];
+  }
+  function updateSteps() {
+    const m = MISSIONS[S.mission];
+    if (!m || !m.steps || S.paused) return;
+    let changed = false;
+    m.steps.forEach(([, ok], n) => { const k = S.mission + "-" + n; if (!S.stepDone[k]) { let v = false; try { v = !!ok(); } catch (err) {} if (v) { S.stepDone[k] = true; changed = true; } } });
+    if (changed) renderMissions();
+  }
   // the order to learn in: each step opens the next one
   const PATH = [
     { mode: "lesson", title: "Primera clase", until: 7 },
@@ -1833,7 +1877,13 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       li.innerHTML = `<span class="n">${i < S.mission ? "✓" : i + 1}</span><span></span>`;
       const body = li.lastChild;
       body.textContent = m.title;
-      if (i === S.mission) { const h = document.createElement("span"); h.className = "hint"; h.textContent = locked ? (mode === "parking" ? "Se abre cuando apruebes el examen teórico (mira Tu camino, arriba)." : "Se abre cuando termines los pasos anteriores de Tu camino (arriba): Subidas, Estacionamiento, Ruta, el examen teórico y el de circuito.") : m.hint; body.appendChild(h); }
+      if (i === S.mission && m.steps && !locked) {
+        // the steps, crossed off as they are done; the long explanation stays under "Más ayuda"
+        const ul = document.createElement("ul"); ul.className = "msteps";
+        m.steps.forEach(([t], n) => { const li2 = document.createElement("li"); li2.textContent = t; if (S.stepDone[S.mission + "-" + n]) li2.className = "ok"; ul.appendChild(li2); });
+        body.appendChild(ul);
+        const det = document.createElement("details"); det.className = "more"; det.innerHTML = "<summary>Más ayuda</summary>"; const h = document.createElement("span"); h.className = "hint"; h.textContent = m.hint; det.appendChild(h); body.appendChild(det);
+      } else if (i === S.mission) { const h = document.createElement("span"); h.className = "hint"; h.textContent = locked ? (mode === "parking" ? "Se abre cuando apruebes el examen teórico (mira Tu camino, arriba)." : "Se abre cuando termines los pasos anteriores de Tu camino (arriba): Subidas, Estacionamiento, Ruta, el examen teórico y el de circuito.") : m.hint; body.appendChild(h); }
       missionsEl.appendChild(li);
     });
     if (S.mission >= MISSIONS.length) {
@@ -2067,7 +2117,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       renderMissions();
       // a step of the path finished: say what opens now
       PATH.forEach((st, n) => { if (!before[n] && stageDone(n)) toast(n + 1 < PATH.length ? `¡Completaste "${st.title}"! Se abrió: ${PATH[n + 1].title}. Tócalo en Tu camino, en la pestaña Misiones.` : "¡Completaste todo el camino!", "good", "stage" + n, 999); });
-      if (S.mission < MISSIONS.length) tip("Siguiente: " + MISSIONS[S.mission].title + ". " + MISSIONS[S.mission].hint, "next" + S.mission, 999);
+      if (S.mission < MISSIONS.length) { const nx = MISSIONS[S.mission]; tip(nx.steps ? `Siguiente: ${nx.title}. Primer paso: ${nx.steps[0][0]}. Los pasos se tachan solos en la pestaña Misiones.` : "Siguiente: " + nx.title + ". " + nx.hint, "next" + S.mission, 999); }
     }
   }
 
@@ -4545,6 +4595,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     updateLights();
     checkRules(dt);
     checkMissions();
+    updateSteps();
     updateRide(dt);
     updateExam();
     S.trip.maxKmh = Math.max(S.trip.maxKmh, Math.abs(S.v) * 3.6);
