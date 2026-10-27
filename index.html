@@ -145,6 +145,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   touch-action: none; user-select: none; -webkit-user-select: none;
 }
 .pedal.held { border-color: var(--amber); }
+.pedal.bite-on { border-color: var(--green); box-shadow: 0 0 0 2px rgba(115,194,122,.35); }
+.pedal.bite-on .name { color: var(--green); }
 .pedal .bar {
   position: relative; width: 26px; height: 92px; background: #111315; border-radius: 4px; overflow: hidden;
   border: 1px solid var(--line);
@@ -552,7 +554,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
           <span class="key">↑</span><span class="name">Acelerador</span>
         </button>
       </div>
-      <p class="caption">Rueda del mouse sobre la calle: control fino del embrague (arriba suelta, abajo pisa). La franja rayada es el punto de roce.</p>
+      <p class="caption">W deja el pie del embrague quieto. Rueda del mouse: control fino (arriba suelta, abajo pisa). El pedal se pone verde en el punto de roce.</p>
     </div>
 
     <div class="shifter">
@@ -598,7 +600,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         <span class="key">↑</span><span>Acelerar</span>
         <span class="key">↓</span><span>Frenar</span>
         <span class="key">← →</span><span>Volante</span>
-        <span class="key">Espacio</span><span>Embrague (mantener = pisar)</span>
+        <span class="key">Espacio</span><span>Embrague (mantener = pisar; al soltar, el pie sube despacio)</span>
+        <span class="key">W</span><span>Dejar el pie del embrague quieto donde está (para quedarte en el punto de roce)</span>
         <span class="key">1 2 3 4 5 R N</span><span>Cambios (o la palanca con el mouse)</span>
         <span class="key">E</span><span>Encender / apagar</span>
       </div>
@@ -619,6 +622,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       <div class="options">
         <label for="opt-autoclutch"><input type="checkbox" id="opt-autoclutch"><span>Embrague automático<small>Para empezar: el auto maneja el embrague por ti. Solo aceleras, frenas y cambias.</small></span></label>
         <label for="opt-voice"><input type="checkbox" id="opt-voice"><span>Instructor por voz<small>Los consejos se escuchan, así no sacas la vista de la calle.</small></span></label>
+        <label for="opt-bite"><input type="checkbox" id="opt-bite"><span>Ayuda para el punto de roce<small>Como un instructor: al soltar despacio, el pedal se frena un momento en el punto de roce para que aceleres.</small></span></label>
         <label for="opt-guide"><input type="checkbox" id="opt-guide"><span>Guía amarilla para doblar<small>Se apaga sola cuando ya doblaste bien 6 veces, como en la vida real.</small></span></label>
         <label for="opt-free"><input type="checkbox" id="opt-free"><span>Todo desbloqueado<small>Si ya sabes manejar: puedes elegir cualquier lugar sin seguir el camino.</small></span></label>
         <label for="opt-night"><input type="checkbox" id="opt-night"><span>De noche<small>Se ve poco: enciende las luces bajas (K). Los peatones y las bicis cuestan más de ver.</small></span></label>
@@ -1190,8 +1194,16 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       const target = S.gear === "N" || S.shiftT > 0 ? 1 : Math.abs(S.v) > 4 && rpm > 1100 ? 0 : BITE_TOP - grab * (BITE_TOP - BITE_FULL + 0.05);
       S.clutch += clamp(target - S.clutch, -3 * dt, 6 * dt);
       S.clutchManual = false;
-    } else if (held("clutch")) { S.clutch = Math.min(1, S.clutch + 4 * dt); S.clutchManual = false; }
-    else if (!S.clutchManual) S.clutch = Math.max(0, S.clutch - 0.25 * dt);
+    } else if (held("clutch")) { S.clutch = Math.min(1, S.clutch + 4 * dt); S.clutchManual = false; if (S.clutch > BITE_TOP) S.biteHeld = 0; }
+    else if (held("hold")) { S.clutchManual = false; } // W: the foot stays still where it is
+    else if (!S.clutchManual) {
+      const e = S.gear === "N" ? 0 : engage(S.clutch), moving = Math.abs(S.v) > 3;
+      // like an instructor in the first lessons: the foot pauses at the bite point for a moment
+      if (help && opts.biteHelp && !moving && S.running && S.gear !== "N" && e > 0.03 && (S.biteHeld || 0) < 2.2) {
+        if (!S.biteHeld) tip("¡Punto de roce! El auto tiembla y las rpm bajan un poco. Acelera un poco (D) y sigue soltando de a poco. Para quedarte quieta acá, mantén W.", "bite-assist", 8);
+        S.biteHeld = (S.biteHeld || 0) + dt;
+      } else S.clutch = Math.max(0, S.clutch - (moving ? 1.2 : 0.25) * dt); // after a shift, already moving, the foot comes up faster
+    }
     S.brake = held("brake") ? Math.min(1, S.brake + 2 * dt) : Math.max(0, S.brake - 4 * dt);
     S.gas = held("gas") ? Math.min(1, S.gas + 1.2 * dt) : Math.max(0, S.gas - 2.5 * dt);
     const steerIn = (held("right") ? 1 : 0) - (held("left") ? 1 : 0);
@@ -1725,7 +1737,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   const LESSON_MISSIONS = [
     { title: "Prepárate antes de encender", hint: "Lo primero, siempre: abróchate el cinturón (C), mira los espejos (V o clic en un espejo), fíjate que el freno de mano esté puesto (luz roja (P) del tablero) y que la palanca esté en el medio, en neutro (N).", done: () => S.belt && S.mirrorT >= 0 && S.hand && S.gear === "N" },
     { title: "Enciende el motor", hint: "Pisa el embrague a fondo y mantenlo (Espacio o A). Pulsa E. Escucha el motor: en reposo queda en unas 850 rpm (la aguja de la izquierda, un poco antes del 1).", done: () => S.running },
-    { title: "Encuentra el punto de roce", hint: "Con el embrague a fondo pon 1ª (tecla 1) y baja el freno de mano (Q). Sin acelerar, suelta el embrague MUY despacio con la rueda del mouse (hacia arriba). Cuando las rpm bajen un poco y el auto tiemble o empiece a moverse, ese es el punto de roce: déjalo quieto ahí 2 segundos. Si se mueve mucho, vuelve a pisar un poco (rueda hacia abajo).", done: () => S.biteT >= 2 },
+    { title: "Encuentra el punto de roce", hint: "Con el embrague a fondo pon 1ª (tecla 1) y baja el freno de mano (Q). Sin acelerar, suelta A: el pedal sube solo, despacio. Cuando el pedal de embrague se ponga verde (dice Roce), las rpm bajan un poco y el auto tiembla o empieza a moverse: ese es el punto de roce. Mantén W para dejar el pie quieto ahí 2 segundos. Si se mueve mucho, vuelve a pisar un poco con A.", done: () => S.biteT >= 2 },
     { title: "Avanza 10 metros en 1ª", hint: "Desde el punto de roce acelera un poco, hasta unas 1.500 rpm, y termina de soltar el embrague de a poco. Mantén el acelerador suave y avanza derecho 10 metros.", done: () => S.fwd1 >= 10 },
     { title: "Detente sin que se apague", hint: "Suelta el acelerador. Pisa el embrague a fondo y después frena suave (↓) hasta que el auto pare. Con el embrague pisado el motor no se apaga. Ya detenida, pon neutro (N).", done: () => S.lessonStops >= 1 },
     { title: "Retrocede 5 metros", hint: "Detenida, con el embrague a fondo pon reversa (R). Mira el espejo de atrás (M lo agranda). Sin acelerar, suelta el embrague hasta el punto de roce y deja que el auto retroceda despacio.", done: () => S.rev >= 5 },
@@ -2084,7 +2096,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   }));
 
   // ---------- input ----------
-  const KEYMAP = { a: "clutch", " ": "clutch", s: "brake", arrowdown: "brake", d: "gas", arrowup: "gas", arrowleft: "left", arrowright: "right" };
+  const KEYMAP = { w: "hold", a: "clutch", " ": "clutch", s: "brake", arrowdown: "brake", d: "gas", arrowup: "gas", arrowleft: "left", arrowright: "right" };
   window.addEventListener("keydown", e => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target && e.target.tagName === "SELECT") return;
@@ -2145,7 +2157,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   document.getElementById("quiz-next").addEventListener("click", () => { if (quiz && quiz.done) closeQuiz(); else quizNext(); });
   document.getElementById("result-x").addEventListener("click", closeResult);
   document.getElementById("result-retry").addEventListener("click", () => { closeResult(); startExam(); });
-  const opts = { autoClutch: false, rain: false, night: false, voice: true, guide: true, sound: true, turnsOk: 0 };
+  const opts = { biteHelp: true, autoClutch: false, rain: false, night: false, voice: true, guide: true, sound: true, turnsOk: 0 };
   try { const saved = JSON.parse(localStorage.getItem("pm-opts") || "{}"); Object.assign(opts, saved); } catch (err) {}
   const optAuto = document.getElementById("opt-autoclutch"), optRain = document.getElementById("opt-rain");
   optAuto.checked = opts.autoClutch; optRain.checked = opts.rain;
@@ -2153,6 +2165,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   optAuto.addEventListener("change", () => { opts.autoClutch = optAuto.checked; saveOpts(); toast(opts.autoClutch ? "Embrague automático activado: solo acelera, frena y cambia." : "Embrague manual: ahora lo manejas tú (Espacio o A)."); document.getElementById("road").focus(); });
   const optVoice = document.getElementById("opt-voice"), optGuide = document.getElementById("opt-guide");
   optVoice.checked = opts.voice; optGuide.checked = opts.guide;
+  const optBite = document.getElementById("opt-bite"); optBite.checked = opts.biteHelp;
+  optBite.addEventListener("change", () => { opts.biteHelp = optBite.checked; saveOpts(); document.getElementById("road").focus(); });
   optVoice.addEventListener("change", () => { opts.voice = optVoice.checked; saveOpts(); if (!opts.voice && "speechSynthesis" in window) speechSynthesis.cancel(); else say("Instructor por voz activado."); document.getElementById("road").focus(); });
   optGuide.addEventListener("change", () => { opts.guide = optGuide.checked; opts.turnsOk = 0; saveOpts(); document.getElementById("road").focus(); });
   // the yellow line is for learning: after 6 good turns it goes away, like the training wheels of a bike
@@ -4207,6 +4221,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   const gearTexts = svg.querySelectorAll("text[data-gear]");
   let lastLimit = null;
   function updateDom() {
+    { const e = S.gear === "N" ? 0 : engage(S.clutch), on = S.running && e > 0.03 && e < 0.6 && Math.abs(S.v) < 4; fills.clutch.b.classList.toggle("bite-on", on); const nm = fills.clutch.b.querySelector(".name"); const t = on ? "Roce" : "Embrague"; if (nm.textContent !== t) nm.textContent = t; }
     for (const p of ["clutch", "brake", "gas"]) { fills[p].f.style.height = (S[p] * 100).toFixed(1) + "%"; fills[p].b.classList.toggle("held", held(p) || (p === "clutch" && S.clutchManual)); }
     el("gear-big").textContent = S.gear;
     el("lamp-engine").className = "lamp" + (S.running ? " on green" : "");
