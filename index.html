@@ -135,6 +135,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 }
 .lamp.on { color: #1b1407; background: var(--amber); border-color: var(--amber); }
 .lamp.on.red { background: var(--red); border-color: var(--red); color: #fff; }
+.lamp.on.beam { background: #3f8fe0; border-color: #3f8fe0; color: #fff; }
 .lamp.on.green { background: var(--green); border-color: var(--green); color: #0f1a10; }
 
 .pedals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
@@ -398,6 +399,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
           <option value="city">Ciudad</option>
           <option value="hill">Subidas y bajadas</option>
           <option value="parking">Estacionamiento</option>
+          <option value="campo">Ruta en el campo</option>
         </select>
       </label>
       <label class="sel" for="traffic">Tránsito
@@ -503,6 +505,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         <div class="lights">
           <span class="lamp" id="lamp-engine">MOTOR</span>
           <span class="lamp" id="lamp-hand">(P)</span>
+          <span class="lamp" id="lamp-lights" title="Luces bajas">LUCES</span>
         </div>
       </div>
       <canvas id="speedo" aria-label="Velocímetro"></canvas>
@@ -579,6 +582,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         <span class="key">H</span><span>Bocina</span>
         <span class="key">L</span><span>Limpiaparabrisas</span>
         <span class="key">C</span><span>Cinturón de seguridad</span>
+        <span class="key">K</span><span>Luces bajas (en ruta, siempre encendidas)</span>
         <span class="key">V</span><span>Mirar los espejos (antes de arrancar y de doblar)</span>
         <span class="key">M</span><span>Agrandar el espejo (o clic en un espejo)</span>
         <span class="key">Rueda</span><span>Embrague fino con la rueda del mouse</span>
@@ -597,6 +601,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       <div class="rules">
         <div class="rule"><h3>Señales que vas a ver</h3><div class="signs" id="sign-list"></div></div>
         <div class="rule"><h3>Esquinas sin señales</h3><p>En Argentina, si una esquina no tiene PARE, Ceda el paso ni semáforo, tiene prioridad quien viene por tu derecha. Llega despacio, mira a la derecha y deja pasar.</p></div>
+        <div class="rule"><h3>En la ruta</h3><p>Luces bajas siempre encendidas, también de día. Máximo 80 km/h en la mayoría de las rutas de dos carriles (en las rutas nacionales, hasta 110 km/h para autos). La doble línea amarilla prohíbe adelantar. Para adelantar: guiño izquierdo, mira que el carril contrario esté libre hasta lejos, pasa rápido y vuelve con el guiño derecho cuando veas al otro vehículo en el espejo de adentro. La banquina es solo para emergencias.</p></div>
         <div class="rule"><h3>Rotondas</h3><p>Tiene prioridad quien ya está circulando por la rotonda. Llega despacio (2ª, menos de 20 km/h), cede el paso a los que vienen por tu izquierda y entra girando a la derecha: se circula siempre con la isleta a tu izquierda. Antes de tu salida pon el guiño derecho.</p></div>
         <div class="rule"><h3>Peatones</h3><p>En la senda peatonal el peatón siempre tiene prioridad, también cuando doblas con luz verde: la gente que cruza la calle a la que entras pasa primero. Ojo con quien cruza mirando el celular, con los chicos y con quien cruza por la mitad de la cuadra: aunque crucen mal, tienes que frenar. A las personas mayores espéralas sin tocar bocina.</p></div>
         <div class="rule"><h3>Señal PARE / ALTO</h3><p>Detención total antes de la línea blanca, aunque no venga nadie. Mira a ambos lados y avanza cuando sea seguro. Bajar a 5 km/h no cuenta.</p></div>
@@ -663,6 +668,64 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   const HILL_A = 6, HILL_P = 300, HILL_CH = 60;
   const hillH = z => HILL_A * Math.sin(2 * Math.PI * (-z) / HILL_P);
   const hillDz = z => -HILL_A * 2 * Math.PI / HILL_P * Math.cos(2 * Math.PI * (-z) / HILL_P);
+  // ---------- country road (Ruta): a two-lane road with curves, shoulders and fields ----------
+  // the road is long straights joined by curves: each curve turns the heading smoothly, and they alternate sides
+  const SHOULDER = 2.6, FENCE = 12, ROUTE_LIMIT = 80, SHARP_K = 0.005;
+  const ROUTE_CURVES = [];
+  {
+    let c = 450, h0 = 0;
+    for (let n = 0; n < 60; n++) {
+      const side = n % 2 === 0 ? 1 : -1, h1 = side * (0.25 + hash(n * 7.7 + 1.3) * 0.4), a = h1 - h0;
+      const len = 80 + 90 * Math.abs(a) + hash(n * 3.1 + 0.4) * 40;
+      if (n) c += len / 2;
+      ROUTE_CURVES.push({ c, len, a });
+      h0 = h1;
+      c += len / 2 + 250 + hash(n * 5.3 + 2.1) * 420;
+    }
+  }
+  const sstep = x => x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x);
+  function routeHeading(u) {
+    let th = 0, dth = 0;
+    for (const cv of ROUTE_CURVES) {
+      const x = (u - (cv.c - cv.len / 2)) / cv.len;
+      if (x >= 1) th += cv.a;
+      else if (x > 0) { th += cv.a * sstep(x); dth += cv.a * 6 * x * (1 - x) / cv.len; }
+      else break;
+    }
+    return { th, dth };
+  }
+  // the center line, heading and curvature, tabulated once every meter
+  const ROUTE_N = 30000, ROUTE_X = new Float32Array(ROUTE_N + 1), ROUTE_TH = new Float32Array(ROUTE_N + 1), ROUTE_K = new Float32Array(ROUTE_N + 1);
+  for (let k = 0; k <= ROUTE_N; k++) { const hd = routeHeading(k); ROUTE_TH[k] = hd.th; ROUTE_K[k] = hd.dth * Math.cos(hd.th); if (k) ROUTE_X[k] = ROUTE_X[k - 1] + Math.tan(routeHeading(k - 0.5).th); }
+  const tab = (T, u) => { if (u <= 0) return T === ROUTE_X ? 0 : T === ROUTE_TH ? 0 : 0; if (u >= ROUTE_N) return T[ROUTE_N]; const k = Math.floor(u), f = u - k; return T[k] + (T[k + 1] - T[k]) * f; };
+  const ROUTE_XC = u => tab(ROUTE_X, u);
+  const routeInfo = u => ({ x: tab(ROUTE_X, u), th: tab(ROUTE_TH, u), k: tab(ROUTE_K, u) });
+  // where a point is on the road: how far along (u) and how far to the right of the center line (off)
+  function routeLocal(px, pz) {
+    // a few steps toward the closest point of the center line
+    let u = -pz;
+    for (let n = 0; n < 4; n++) { const ri = routeInfo(u); u += (px - ri.x) * Math.sin(ri.th) * Math.cos(ri.th) - (pz + u) * Math.cos(ri.th) * Math.cos(ri.th); }
+    const ri = routeInfo(u);
+    return { u, off: (px - ri.x) * Math.cos(ri.th) + (pz + u) * Math.sin(ri.th), ri };
+  }
+  const routePoint = (u, off) => { const ri = routeInfo(u); return { x: ri.x + Math.cos(ri.th) * off, z: -u + Math.sin(ri.th) * off, th: ri.th }; };
+  // no passing where a sharp curve is near: the double yellow line
+  const noPassCache = new Map();
+  function noPass(u) {
+    const key = Math.round(u / 3);
+    if (noPassCache.has(key)) return noPassCache.get(key);
+    let r = false;
+    for (let w = key * 3 - 60; w <= key * 3 + 110; w += 6) if (Math.abs(routeInfo(w).k) > 0.0045) { r = true; break; }
+    if (noPassCache.size > 4000) noPassCache.clear();
+    noPassCache.set(key, r);
+    return r;
+  }
+  // the next sharp curve ahead: distance to where it starts and which way it goes
+  function curveAhead(u, range = 220) {
+    if (Math.abs(routeInfo(u).k) > SHARP_K) return null;
+    for (let w = u + 5; w < u + range; w += 5) { const k = routeInfo(w).k; if (Math.abs(k) > SHARP_K) return { dist: w - u, dir: k > 0 ? "right" : "left" }; }
+    return null;
+  }
   const LEVELS = [[0, "Aprendiz"], [150, "Principiante"], [400, "Intermedia"], [800, "Canchera"]];
 
   const toRpm = w => w * 60 / (2 * Math.PI);
@@ -689,14 +752,14 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const dx = Math.abs(x - Math.round(x / G) * G), dz = Math.abs(z - Math.round(z / G) * G);
     return dx <= HALF || dz <= HALF;
   }
-  const inLot = (x, z) => inRect(x, z, LOT);
+  const inLot = (x, z) => mode !== "campo" && inRect(x, z, LOT);
   const CORNER_R = 5; // street corners are rounded, as in real cities
   const ZONE = HALF + CORNER_R + 3;
   function inCornerArc(x, z) {
     const ax = Math.abs(x - Math.round(x / G) * G), az = Math.abs(z - Math.round(z / G) * G), e = HALF + CORNER_R;
     return ax > HALF && ax < e && az > HALF && az < e && Math.hypot(ax - e, az - e) > CORNER_R;
   }
-  const drivable = (x, z) => mode === "hill" ? Math.abs(x) <= HALF : (onRoad(x, z) || inCornerArc(x, z) || inLot(x, z) || inRect(x, z, DRIVE)) && !inIsle(x, z);
+  const drivable = (x, z) => mode === "campo" ? Math.abs(routeLocal(x, z).off) <= HALF + SHOULDER : mode === "hill" ? Math.abs(x) <= HALF : (onRoad(x, z) || inCornerArc(x, z) || inLot(x, z) || inRect(x, z, DRIVE)) && !inIsle(x, z);
   function corners(x, z, th, hl = CAR_L / 2, hw = CAR_W / 2) {
     const d = dirOf(th), r = rightOf(th), out = [];
     for (const a of [hl, -hl]) for (const b of [hw, -hw]) out.push([x + d.x * a + r.x * b, z + d.z * a + r.z * b]);
@@ -813,9 +876,9 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       score: 0, cleanDist: 0, bestClean: 0, trafficLevel: 0,
       mission: 0, counts: { infr: 0, stall: 0, grind: 0, crash: 0 }, log: [], hist: [], paused: false,
       trip: { logStart: 0, t0: 0, dist0: 0, score0: 0, maxKmh: 0 },
-      belt: false, beltFlag: false, mirrorT: -99, parkedStop: true, biteT: 0, fwd1: 0, lessonStops: 0, moved: false, rev: 0, l2: false,
+      lights: false, belt: false, beltFlag: false, mirrorT: -99, parkedStop: true, biteT: 0, fwd1: 0, lessonStops: 0, moved: false, rev: 0, l2: false,
       hs: null, dh: null, launchRolled: false, lastRoll: -9, parkedFront: false, parkedBack: false,
-    }, START[mode]);
+    }, mode === "campo" ? (() => { const p = routePoint(5, LANE); return { x: p.x, z: p.z, th: p.th, limit: ROUTE_LIMIT }; })() : START[mode]);
   }
   S = freshState();
   let help = true;
@@ -1022,7 +1085,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     S.we = Math.max(0, S.we + (Te - Tc) / IE * dt);
 
     const Fd = Tc * ratio / R * EFF;
-    const hold = S.brake * (opts.rain ? 6500 : 9500) + (S.hand ? 5200 : 0) + 160;
+    const hold = S.brake * (opts.rain ? 6500 : 9500) + (S.hand ? 5200 : 0) + 160 + (mode === "campo" ? [0, 500, 2200][S.surf || 0] : 0);
     // on a slope gravity pulls the car downhill: this is what makes hill starts hard
     const Fx = Fd + (mode === "hill" ? -M * 9.81 * hillDz(S.z) * dirOf(S.th).z : 0);
     if (Math.abs(S.v) < 0.03) {
@@ -1072,9 +1135,9 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       const t = g.path[k], ang = Math.atan2(t.x - rx, -(t.z - rz)), alpha = wrap(ang - S.th), ld = Math.max(1, Math.hypot(t.x - rx, t.z - rz));
       const want = clamp(Math.atan2(2 * WHEELBASE * Math.sin(alpha), ld), -MAX_STEER, MAX_STEER);
       S.steer += clamp(want - S.steer, -1.0 * dt, 1.0 * dt);
-    } else if (steerIn) S.steer = clamp(S.steer + steerIn * 1.0 * dt, -MAX_STEER, MAX_STEER);
+    } else if (steerIn) S.steer = clamp(S.steer + steerIn * (1.0 - 0.78 * clamp((Math.abs(S.v) - 8) / 14, 0, 1)) * dt, -MAX_STEER, MAX_STEER);
     else {
-      const back = Math.min(0.8, Math.abs(S.v) * 0.2) * dt;
+      const fast = clamp((Math.abs(S.v) - 8) / 14, 0, 1), back = (Math.min(0.8, Math.abs(S.v) * 0.2) * (1 - fast) + 0.05 * fast) * dt;
       S.steer = Math.abs(S.steer) <= back ? 0 : S.steer - Math.sign(S.steer) * back;
     }
   }
@@ -1090,9 +1153,11 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 
   function onCurb(x, z) {
     if (mode === "hill") return Math.abs(x) <= HALF + CURB_BAND;
+    if (mode === "campo") return routeSoft(x, z);
     const dx = Math.abs(x - Math.round(x / G) * G), dz = Math.abs(z - Math.round(z / G) * G);
     return dx <= HALF + CURB_BAND || dz <= HALF + CURB_BAND;
   }
+  const routeSoft = (x, z) => Math.abs(routeLocal(x, z).off) <= FENCE - 0.3;
   const badCorners = p => corners(p.x, p.z, p.th).filter(([x, z]) => !drivable(x, z) && !onCurb(x, z)).length;
   const curbCorners = p => corners(p.x, p.z, p.th, 1.3, 0.78).filter(([x, z]) => !drivable(x, z) && onCurb(x, z)).length;
   function collide(prev) {
@@ -1102,7 +1167,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const worse = o => overlap(me, o) && (!overlap(prev, o) || Math.hypot(o.x - S.x, o.z - S.z) < Math.hypot(o.x - prev.x, o.z - prev.z));
     if (badCorners(me) > badCorners(prev)) hit = "curb";
     else {
-      for (const o of parked) if (Math.hypot(o.x - S.x, o.z - S.z) < 6 && worse(o)) { hit = "parked"; break; }
+      if (mode !== "campo") for (const o of parked) if (Math.hypot(o.x - S.x, o.z - S.z) < 6 && worse(o)) { hit = "parked"; break; }
+      if (!hit && mode === "campo") for (const c of routeCars) if (Math.hypot(c.x - S.x, c.z - S.z) < 7 && worse(c)) { hit = c.lane < 0 ? "front" : "car"; other = c; break; }
       if (!hit) for (const c of traffic) if (Math.hypot(c.x - S.x, c.z - S.z) < 6 && worse(c)) { hit = "car"; other = c; break; }
       if (!hit && Math.abs(S.v) > 0.3) for (const pd of peds) {
         const d = dirOf(S.th), r = rightOf(S.th), lx = pd.x - S.x, lz = pd.z - S.z;
@@ -1111,7 +1177,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     }
     if (!hit) {
       // only the moment a wheel climbs the curb gives a bump; once up, or while getting off, the car moves freely
-      if (curbCorners(me) > curbCorners(prev) && S.v * S.v > 0.04) {
+      if (mode !== "campo" && curbCorners(me) > curbCorners(prev) && S.v * S.v > 0.04) {
         S.lastCurbT = S.t; S.v *= 0.8; S.shake = Math.max(S.shake, 0.8);
         if (S.t - S.lastCurb > 4 && corners(S.x, S.z, S.th, 1.3, 0.78).some(([x, z]) => inIsle(x, z))) { S.lastCurb = S.t; infraction("Te subiste a la isleta de la rotonda", -10); tip("En la rotonda gira de a poco, con la isleta a tu izquierda y a un metro de distancia. Sigue la línea amarilla.", "isle-tip", 25); }
         else if (S.t - S.lastCurb > 4) { S.lastCurb = S.t; infraction("Te subiste al cordón de la vereda", -10); tip("Para doblar sin tocar el cordón, sigue la guía amarilla y empieza a girar cuando te lo indique.", "curb-tip", 25); }
@@ -1125,6 +1191,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (S.t - S.lastHit > 2) {
       if (hit === "ped") { S.counts.crash++; infraction("Atropellaste a un peatón", -100); tip("Frente a una senda peatonal, el peatón siempre tiene prioridad: ve despacio y detente si alguien está cruzando o por cruzar.", "ped-hit", 10); }
       else if (hit === "car") { S.counts.crash++; infraction("Chocaste con otro auto", -30); }
+      else if (hit === "front") { S.counts.crash++; infraction("Choque frontal con un auto que venía de frente", -100); tip("Nunca adelantes si no ves con claridad que el carril contrario está libre hasta lejos.", "frontal", 10); }
+      else if (mode === "campo") infraction(speed > 8 ? "Chocaste contra el alambrado" : "Rozaste el alambrado");
       else if (hit === "parked") { S.counts.crash++; infraction(speed > 3 ? "Chocaste un auto estacionado" : "Tocaste un auto estacionado", speed > 3 ? -30 : -20); }
       else infraction(speed > 8 ? "Chocaste contra una pared" : "Rozaste una pared");
       tip("Para despegarte: embrague a fondo, reversa (R) y retrocede despacio, o gira el volante hacia el otro lado y sal en 1ª.", "unstuck", 20);
@@ -1177,6 +1245,82 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (S.v === 0) S.moved = false;
     if (S.mission === 5 && S.running && S.gear === "R" && S.v < 0) S.rev -= S.v * dt;
     if (S.mission === 6 && S.running && S.gear === "2" && S.v * 3.6 > 10) S.l2 = true;
+  }
+  function checkRoute(dt) {
+    const kmh = Math.abs(S.v) * 3.6, rl = routeLocal(S.x, S.z), u = rl.u, off = rl.off, ao = Math.abs(off);
+    const fwd = Math.cos(S.th - rl.ri.th) > 0.5 && S.v > 0;
+    S.routeOff = off; S.routeU = u;
+    S.surf = ao <= HALF ? 0 : ao <= HALF + SHOULDER ? 1 : 2;
+    if (S.surf === 1 && kmh > 5) S.shake = Math.max(S.shake, 0.5 * Math.min(1, kmh / 40));
+    if (S.surf === 2 && kmh > 3) S.shake = Math.max(S.shake, 1.1 * Math.min(1, kmh / 30));
+    S.limit = ROUTE_LIMIT;
+    if (kmh > S.limit + 4) { S.overT += dt; if (S.overT > 1.5 && !S.speeding) { S.speeding = true; infraction(`Exceso de velocidad: ${Math.round(kmh)} km/h en zona de ${S.limit}`); } }
+    else if (kmh <= S.limit) { S.overT = 0; S.speeding = false; }
+    // low beams are mandatory on Argentine roads, also by day
+    if (!S.lights && S.running) tip("En ruta las luces bajas van siempre encendidas, también de día: enciéndelas con K.", "lights-route", 40);
+    if (!S.lights && kmh > 20) { S.noLightT = (S.noLightT || 0) + dt; if (S.noLightT > 25 && !S.lightsFlag) { S.lightsFlag = true; infraction("Circulaste en ruta sin las luces bajas encendidas", -10); } }
+    // shoulder and leaving the road
+    if (S.surf === 1 && kmh > 15) {
+      S.shoulderT = (S.shoulderT || 0) + dt;
+      tip("Estás en la banquina (el ripio del costado). Suelta el acelerador, no frenes de golpe y vuelve despacio al asfalto con un toque suave del volante.", "shoulder", 20);
+      if (S.shoulderT > 3 && !S.shoulderFlag) { S.shoulderFlag = true; infraction("Circulaste por la banquina", -10); }
+    } else if (S.surf === 0) { S.shoulderT = 0; S.shoulderFlag = false; }
+    if (S.surf === 2 && kmh > 5 && !S.offFlag) { S.offFlag = true; infraction("Te saliste de la ruta", -20); tip("Te saliste al pasto. Frena suave, vuelve despacio a la banquina y después al asfalto.", "offroad", 20); }
+    if (S.surf < 2) S.offFlag = false;
+    if (S.blink === "left") S.lastLeftT = S.t;
+    if (S.blink === "right") S.lastRightT = S.t;
+    // overtaking: left blinker, a clear road ahead, no double yellow line, and the right blinker to come back
+    const left = off < -0.25 && fwd, right = off > 0.35;
+    const slowAhead = routeCars.find(c => c.lane > 0 && c.u - u > -2 && c.u - u < 45);
+    if (left && !S.pass && kmh > 5) {
+      S.pass = { t0: S.t, overtook: null, clean: true, oncoming: false, flagged: false };
+      if (S.t - (S.lastLeftT ?? -99) > 3) { S.pass.clean = false; infraction("Te pasaste al carril contrario sin poner el guiño izquierdo", -10); }
+      if (noPass(u)) { S.pass.clean = false; infraction("Adelantaste donde hay doble línea amarilla", -30); tip("La doble línea amarilla prohíbe adelantar: antes y después de las curvas no se ve si viene alguien de frente.", "nopass", 20); }
+    }
+    if (S.pass) {
+      const p = S.pass;
+      if (left) {
+        const danger = routeCars.find(c => c.lane < 0 && c.u - u > 0 && c.u - u < 110);
+        if (danger && !p.oncoming) { p.oncoming = true; p.clean = false; infraction("Adelantaste con un auto viniendo de frente", -30); }
+        for (const c of routeCars) if (c.lane > 0 && !c.passedBy && c.u < u - CAR_L) { c.passedBy = true; p.overtook = c; }
+        if (S.t - p.t0 > 12 && !p.overtook && !slowAhead && !p.flagged) { p.flagged = true; p.clean = false; infraction("Vas por el carril contrario"); }
+      }
+      if (right) {
+        if (p.overtook) {
+          const gap = u - p.overtook.u;
+          if (S.t - (S.lastRightT ?? -99) > 3) { p.clean = false; infraction("Volviste a tu carril sin poner el guiño derecho", -5); }
+          if (gap < 9) { p.clean = false; infraction("Volviste a tu carril muy cerca del vehículo que adelantaste", -10); tip("Vuelve a tu carril recién cuando veas en el espejo de adentro las dos luces delanteras del vehículo que adelantaste.", "cutin", 20); }
+          if (p.clean) {
+            award(15, p.overtook.kind === "tractor" ? "Adelantaste al tractor correctamente" : "Adelantaste correctamente");
+            toast("Bien adelantado (+15). Ahora apaga el guiño.", "good", "passok" + S.t, 1);
+            if (p.overtook.kind === "tractor") S.passedTractor = true;
+          }
+        }
+        S.pass = null;
+      }
+    }
+    // curves: slow down before them, stay in your lane while in them
+    const k = routeInfo(u).k, sharp = Math.abs(k) > SHARP_K;
+    const ca = curveAhead(u);
+    if (ca && ca.dist < 170 && ca.dist > 60 && kmh > 65 && fwd) tip(`Curva peligrosa a la ${ca.dir === "right" ? "derecha" : "izquierda"} en ${Math.round(ca.dist)} m: frena ahora, en la recta, hasta unos 60 km/h. Adentro de la curva no se frena fuerte.`, "curve" + Math.round(u / 100), 30);
+    if (sharp && fwd && !S.curve) S.curve = { max: kmh, inLane: true };
+    if (S.curve) {
+      S.curve.max = Math.max(S.curve.max, kmh);
+      if (off < -0.3 || ao > HALF) S.curve.inLane = false;
+      if (!sharp && Math.abs(k) < 0.004) {
+        if (S.curve.inLane && S.curve.max <= 82) { S.curvesOk = (S.curvesOk || 0) + 1; award(5, "Curva bien tomada"); }
+        else if (!S.curve.inLane) tip("En la curva te abriste de tu carril. Baja más la velocidad antes de entrar y gira el volante de a poquito.", "curve-bad", 20);
+        S.curve = null;
+      }
+    }
+    if (S.cleanDist >= 400) { S.bestClean = Math.max(S.bestClean, 400); S.cleanDist -= 400; S.routeClean = (S.routeClean || 0) + 400; award(10, "400 m sin errores"); }
+    S.bestClean = Math.max(S.bestClean, Math.round(S.cleanDist));
+    const rpm = toRpm(S.we), e = S.gear === "N" ? 0 : engage(S.clutch), g = +S.gear;
+    if (!S.running && S.gas > 0.4) tip("El motor está apagado: embrague a fondo (A) y pulsa E.", "off", 12);
+    if (S.hand && S.v > 2) toast("Vas con el freno de mano puesto.", "bad", "hand-moving", 8);
+    if (g >= 1 && g <= 4 && rpm > 3300 && e > 0.9 && S.gas > 0.2) tip(`Puedes pasar a ${g + 1}ª.`, "up" + g, 25);
+    if (g >= 2 && rpm < 1200 && e > 0.9 && S.v > 0.5) tip(`El motor va muy bajo de vueltas: baja a ${g - 1}ª.`, "down" + g, 15);
+    if (slowAhead && slowAhead.kind === "tractor" && slowAhead.u - u < 40 && slowAhead.u - u > 8 && !left) tip(noPass(u) ? "Un tractor adelante. Hay doble línea amarilla: espera detrás, a distancia, hasta que la línea sea discontinua." : "Para adelantar al tractor: mira el espejo, pon el guiño izquierdo (Z), fíjate que no venga nadie de frente, pásate al otro carril y acelera. Vuelve con el guiño derecho (X) cuando lo veas en el espejo de adentro.", "tractor" + (noPass(u) ? "np" : "ok"), 25);
   }
   function checkHill(dt) {
     const kmh = Math.abs(S.v) * 3.6, u = -S.z, north = Math.cos(S.th) > 0.7, half = HILL_P / 2;
@@ -1236,6 +1380,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   function checkRules(dt) {
     checkCommon(dt);
     if (mode === "hill") { checkHill(dt); return; }
+    if (mode === "campo") { checkRoute(dt); return; }
     const kmh = Math.abs(S.v) * 3.6;
     const ap = approach();
     if (ap && ap.dist > 0 && ap.dist < 15) {
@@ -1440,6 +1585,13 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     { title: "Retrocede 5 metros", hint: "Detenida, con el embrague a fondo pon reversa (R). Mira el espejo de atrás (M lo agranda). Sin acelerar, suelta el embrague hasta el punto de roce y deja que el auto retroceda despacio.", done: () => S.rev >= 5 },
     { title: "Pasa a 2ª y vuelve a 1ª", hint: "Sal en 1ª, acelera hasta unos 12 km/h, suelta el acelerador, embrague a fondo, 2ª y suelta. Después frena un poco, embrague a fondo y vuelve a 1ª. Si te quedas sin lugar, dobla para usar el largo del estacionamiento.", done: () => S.l2 && S.gear === "1" && S.running && S.v > 0.5 },
   ];
+  const CAMPO_MISSIONS = [
+    { title: "Prepárate para la ruta", hint: "Cinturón (C), espejos (V) y, antes de salir, las luces bajas (K): en las rutas argentinas son obligatorias de día y de noche. Después enciende el motor y arranca en 1ª.", done: () => S.belt && S.mirrorT >= 0 && S.lights && S.running && S.v > 2 },
+    { title: "Llega a 80 km/h en 5ª", hint: "Pasa los cambios de a uno: 2ª a unos 20 km/h, 3ª a 35, 4ª a 55 y 5ª a 70. En la ruta el límite es 80 km/h.", done: () => S.gear === "5" && S.v * 3.6 >= 75 },
+    { title: "Toma 3 curvas sin salirte de tu carril", hint: "El cartel amarillo avisa la curva. Frena en la recta, antes de entrar, hasta unos 60 km/h. Adentro de la curva gira de a poquito y mantente a la derecha de la línea del medio.", done: () => (S.curvesOk || 0) >= 3 },
+    { title: "Adelanta al tractor", hint: "Espera una zona con línea blanca discontinua. Mira el espejo, guiño izquierdo (Z), fíjate que no venga nadie de frente, pásate al carril contrario y acelera. Vuelve con el guiño derecho (X) cuando veas el tractor en el espejo de adentro.", done: () => !!S.passedTractor },
+    { title: "Maneja 3 km sin errores", hint: "Mantén tu carril, respeta los 80 km/h y la doble línea amarilla. Si te vas a la banquina, vuelve despacio sin frenar de golpe.", done: () => (S.routeClean || 0) >= 3000 },
+  ];
   let MISSIONS = CITY_MISSIONS;
   const missionsEl = document.getElementById("missions");
   function renderMissions() {
@@ -1458,6 +1610,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       li.className = "current";
       li.innerHTML = mode === "city"
         ? `<span class="n">★</span><span>¡Aprobaste el examen! Ya tienes tu licencia de práctica. Sigue manejando con tránsito, con lluvia o sin ayudas para subir tu puntaje.</span>`
+        : mode === "campo" ? `<span class="n">★</span><span>¡Completaste la ruta! Prueba con más tránsito o con lluvia.</span>`
         : mode === "lesson" ? `<span class="n">★</span><span>¡Terminaste la primera clase! Ya sabes lo básico del embrague. Ahora elige Ciudad en Lugar, arriba.</span>`
         : `<span class="n">★</span><span>Completaste las misiones de este lugar. Prueba otro en el selector Lugar, arriba.</span>`;
       missionsEl.appendChild(li);
@@ -1508,6 +1661,9 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     [/lomo de burro/, "Cuando veas el cartel amarillo de lomo de burro, baja a menos de 20 km/h."],
     [/cinturón/, "Lo primero al subir al auto: el cinturón (C)."],
     [/espejo/, "Mira los espejos (V) antes de arrancar y antes de cada giro."],
+    [/banquina|saliste de la ruta/, "Si una rueda se va a la banquina, suelta el acelerador y vuelve despacio: nunca un volantazo ni un frenazo."],
+    [/[Aa]delant|carril contrario sin|doble línea/, "Para adelantar: línea discontinua, guiño izquierdo, mirar que no venga nadie, y volver con el guiño derecho."],
+    [/luces bajas/, "En ruta, luces bajas siempre encendidas (K)."],
     [/punto muerto/, "En las bajadas deja una marcha puesta (2ª) para que el motor frene."],
   ];
   const tripKey = t => t.startsWith("Exceso de velocidad") ? "Exceso de velocidad" : t.startsWith("Pasaste el lomo de burro") ? "Pasaste el lomo de burro rápido" : t.replace(/\s*\(\+?-?\d+\)$/, "");
@@ -1651,6 +1807,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     else if (k === "m") toggleMirror("rear");
     else if (k === "c") { S.belt = !S.belt; if (S.belt) toast("Cinturón abrochado.", "", "belt-on", 2); }
     else if (k === "v") lookMirrors();
+    else if (k === "k") { S.lights = !S.lights; toast(S.lights ? "Luces bajas encendidas." : "Luces apagadas.", "", "lights" + S.lights, 1); }
     else if (k === "h") honk(true);
     else if (k === "l") toggleWipers();
     else if ("12345".includes(k) && k.length === 1) shiftTo(k);
@@ -2282,7 +2439,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (Math.hypot(S.x - g.bx, S.z - g.bz) > 45 || (g.cued && bi > g.exitI + 25)) { S.guide = null; guideDots.forEach(m => { m.visible = false; }); }
   }
   function updateGuide() {
-    if (mode === "hill") { S.guide = null; guideDots.forEach(m => { m.visible = false; }); return; }
+    if (mode === "hill" || mode === "campo") { S.guide = null; guideDots.forEach(m => { m.visible = false; }); return; }
     // the blinker switches off by itself after the turn, so keep the guide until the turn is finished
     if (!help || !opts.guide || (!S.blink && !(S.guide && (S.guide.cued || S.guide.round)))) {
       S.guide = null;
@@ -2471,6 +2628,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   function disposeGroup(g) { g.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
   function updateCells() {
     if (mode === "hill") { updateHill(); return; }
+    if (mode === "campo") { updateRoute(); return; }
     const ci = Math.floor(S.x / G), cj = Math.floor(S.z / G);
     for (const [key, g] of cells) {
       const [i, j] = key.split(",").map(Number);
@@ -2543,24 +2701,174 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     for (const [c, g] of hillChunks) if (c < cu - 2 || c > cu + 5) { hillRoot.remove(g); disposeGroup(g); hillChunks.delete(c); }
     for (let c = cu - 2; c <= cu + 5; c++) if (!hillChunks.has(c)) { hillChunks.set(c, buildHillChunk(c)); if (c > cu + 1) return; }
   }
+  // ---- country road ----
+  const routeRoot = new THREE.Group(); routeRoot.visible = false; scene.add(routeRoot);
+  const routeChunks = new Map(), ROUTE_CH = 60;
+  const gravelMat = L({ map: canvasTex(128, 128, (ctx, w, h) => noise(ctx, w, h, "#8d8170", 0.35, 6000)) });
+  const yellowLineMat = L({ color: 0xe8b62a });
+  const fieldMats = [
+    canvasTex(128, 128, (ctx, w, h) => { noise(ctx, w, h, "#c8a24a", 0.18, 3000); ctx.fillStyle = "rgba(120,90,30,.35)"; for (let x = 0; x < w; x += 8) ctx.fillRect(x, 0, 3, h); }),
+    canvasTex(128, 128, (ctx, w, h) => { noise(ctx, w, h, "#4f7a32", 0.2, 3000); ctx.fillStyle = "rgba(30,50,20,.45)"; for (let x = 0; x < w; x += 10) ctx.fillRect(x, 0, 4, h); }),
+    canvasTex(128, 128, (ctx, w, h) => noise(ctx, w, h, "#6f8a45", 0.25, 4000)),
+    canvasTex(128, 128, (ctx, w, h) => { noise(ctx, w, h, "#7a5a3a", 0.2, 3000); ctx.fillStyle = "rgba(60,40,20,.4)"; for (let x = 0; x < w; x += 12) ctx.fillRect(x, 0, 5, h); }),
+  ].map(t => L({ map: t }));
+  const fenceMat = L({ color: 0x6b5a45 }), wireMat = L({ color: 0x8a8a8a });
+  const poplarGeo = new THREE.ConeGeometry(1.3, 10, 7), poplarMat = L({ color: 0x3f5f2c });
+  const houseMat = L({ color: 0xe9e4d8 }), roofTileMat = L({ color: 0x9a4a32 }), siloMat = L({ color: 0xb8bcc0 });
+  const houseRoofGeo = new THREE.ConeGeometry(6.2, 2.4, 4); houseRoofGeo.rotateY(Math.PI / 4);
+  const siloGeo = new THREE.CylinderGeometry(2.2, 2.2, 11, 16), siloTopGeo = new THREE.ConeGeometry(2.3, 1.4, 16);
+  SIGN_DRAW.curveR = SIGN_DRAW.warn(ctx => { ctx.lineWidth = 14; ctx.strokeStyle = "#111"; ctx.beginPath(); ctx.moveTo(-14, 42); ctx.lineTo(-14, 0); ctx.quadraticCurveTo(-14, -26, 12, -26); ctx.stroke(); ctx.beginPath(); ctx.moveTo(34, -26); ctx.lineTo(8, -46); ctx.lineTo(8, -6); ctx.closePath(); ctx.fill(); }, "CURVA");
+  SIGN_DRAW.curveL = SIGN_DRAW.warn(ctx => { ctx.lineWidth = 14; ctx.strokeStyle = "#111"; ctx.beginPath(); ctx.moveTo(14, 42); ctx.lineTo(14, 0); ctx.quadraticCurveTo(14, -26, -12, -26); ctx.stroke(); ctx.beginPath(); ctx.moveTo(-34, -26); ctx.lineTo(-8, -46); ctx.lineTo(-8, -6); ctx.closePath(); ctx.fill(); }, "CURVA");
+  const curveRMat = signMat(SIGN_DRAW.curveR), curveLMat = signMat(SIGN_DRAW.curveL), limit80Mat = signMat(SIGN_DRAW.limit(80));
+  const kmMats = new Map();
+  const kmMat = n => { if (!kmMats.has(n)) kmMats.set(n, L({ map: canvasTex(128, 128, (ctx, w) => { ctx.fillStyle = "#f4f1ea"; ctx.fillRect(0, 0, w, w); ctx.fillStyle = "#16181b"; ctx.font = "bold 30px 'Saira Semi Condensed', Arial"; ctx.textAlign = "center"; ctx.fillText("KM", w / 2, 44); ctx.font = "bold 46px 'Saira Semi Condensed', Arial"; ctx.fillText(String(n), w / 2, 98); }, false) })); return kmMats.get(n); };
+  const kmGeo = new THREE.BoxGeometry(0.35, 0.8, 0.12);
+  // a strip that follows the road between two side offsets
+  function ribbon(u0, u1, o0, o1, y, step = 3, vs = 6, us = null) {
+    const n = Math.max(1, Math.ceil((u1 - u0) / step)), pos = [], uv = [], nor = [];
+    const P = [];
+    for (let k = 0; k <= n; k++) { const u = u0 + (u1 - u0) * k / n; P.push([routePoint(u, o0), routePoint(u, o1), u]); }
+    for (let k = 0; k < n; k++) {
+      const [a0, a1, ua] = P[k], [b0, b1, ub] = P[k + 1], w = us || Math.abs(o1 - o0);
+      for (const [p, uu, vv] of [[a0, 0, ua], [a1, 1, ua], [b0, 0, ub], [a1, 1, ua], [b1, 1, ub], [b0, 0, ub]]) { pos.push(p.x, y, p.z); uv.push(uu * w / vs, vv / vs); nor.push(0, 1, 0); }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+    return g;
+  }
+  function buildRouteChunk(c) {
+    const grp = new THREE.Group(), flat = makeBuilder(), solid = makeBuilder(), u0 = c * ROUTE_CH, u1 = u0 + ROUTE_CH;
+    const add = (g, m, b) => { b.add(g, m, 0, 0, 0); g.dispose(); };
+    add(ribbon(u0, u1, -HALF, HALF, 0.0, 3, 7), boxMat, flat);
+    for (const sd of [-1, 1]) {
+      add(ribbon(u0, u1, sd < 0 ? -HALF - SHOULDER : HALF, sd < 0 ? -HALF : HALF + SHOULDER, -0.01, 3, 4), gravelMat, flat);
+      add(ribbon(u0, u1, sd * (HALF - 0.25), sd * (HALF - 0.12), 0.012, 3), paintMat, flat);
+      // fields beyond the fence, a different crop on each side and every few hundred meters
+      const fm = fieldMats[Math.floor(hash2(Math.floor(c / 4), sd) * fieldMats.length)];
+      add(ribbon(u0, u1, sd < 0 ? -90 : FENCE + 1, sd < 0 ? -FENCE - 1 : 90, -0.03, 6, 6, 77), fm, flat);
+      // wire fence
+      for (let u = Math.ceil(u0 / 5) * 5; u < u1; u += 5) {
+        const p = routePoint(u, sd * FENCE), q = routePoint(u + 5, sd * FENCE), ry = Math.atan2(q.x - p.x, q.z - p.z);
+        solid.add(poleGeo, fenceMat, p.x, 0.6, p.z, 0, 1.4, 1.2, 1.4);
+        for (const y of [0.55, 0.95]) solid.add(kmGeo, wireMat, (p.x + q.x) / 2, y, (p.z + q.z) / 2, ry, 0.06, 0.03, 5 / 0.12);
+      }
+      // a row of poplars as a windbreak in some places
+      if (hash2(c, sd * 3) < 0.35) for (let u = u0 + 3; u < u1; u += 6) { const p = routePoint(u, sd * (FENCE + 4)); solid.add(trunkGeo, trunkMat, p.x, 1.3, p.z); solid.add(poplarGeo, poplarMat, p.x, 7, p.z, 0, 1, 1 + hash(u) * 0.3, 1); }
+      // a farmhouse and a silo now and then
+      if (hash2(c * 7, sd) < 0.12) {
+        const p = routePoint(u0 + 30, sd * 45), ry = routeInfo(u0 + 30).th;
+        solid.add(new THREE.BoxGeometry(9, 3.2, 7), houseMat, p.x, 1.6, p.z, -ry);
+        solid.add(houseRoofGeo, roofTileMat, p.x, 4.4, p.z, -ry, 1, 1, 0.8);
+        const s2 = routePoint(u0 + 42, sd * 52); solid.add(siloGeo, siloMat, s2.x, 5.5, s2.z); solid.add(siloTopGeo, siloMat, s2.x, 11.7, s2.z);
+      }
+    }
+    // center line: dashed white where passing is allowed, double yellow where it is not
+    for (let u = u0; u < u1; u += 3) {
+      if (noPass(u + 1.5)) { add(ribbon(u, u + 3, -0.22, -0.1, 0.013, 3), yellowLineMat, flat); add(ribbon(u, u + 3, 0.1, 0.22, 0.013, 3), yellowLineMat, flat); }
+      else if (((u % 12) + 12) % 12 < 4.5) add(ribbon(u, u + 3, -0.07, 0.07, 0.013, 3), paintMat, flat);
+    }
+    // signs on the right side for your direction: speed limit, curve warnings and the kilometer posts
+    const sign = (u, mat, off = HALF + SHOULDER + 0.8) => { const p = routePoint(u, off), th = routeInfo(u).th, d = dirOf(th); solid.add(poleGeo, poleMat, p.x, 1.2, p.z, 0, 1, 2.4, 1); solid.add(signGeo, mat, p.x - d.x * 0.05, 2.4, p.z - d.z * 0.05, -th); };
+    for (let u = Math.ceil(u0 / 5) * 5; u < u1; u += 5) {
+      if (((u % 1000) + 1000) % 1000 === 50) sign(u, limit80Mat);
+      if (((u % 1000) + 1000) % 1000 === 0 && u > 0) { const p = routePoint(u, HALF + SHOULDER + 0.6), th = routeInfo(u).th; solid.add(kmGeo, kmMat(u / 1000), p.x, 0.4, p.z, -th); }
+      if (Math.abs(routeInfo(u + 150).k) > SHARP_K && Math.abs(routeInfo(u + 145).k) <= SHARP_K) sign(u, routeInfo(u + 150).k > 0 ? curveRMat : curveLMat);
+    }
+    flat.build(grp, false, true); solid.build(grp, true, true);
+    routeRoot.add(grp);
+    return grp;
+  }
+  function updateRoute() {
+    const cu = Math.floor(S.routeU != null ? S.routeU / ROUTE_CH : -S.z / ROUTE_CH);
+    for (const [c, g] of routeChunks) if (c < cu - 3 || c > cu + 6) { routeRoot.remove(g); disposeGroup(g); routeChunks.delete(c); }
+    for (let c = cu - 3; c <= cu + 6; c++) if (!routeChunks.has(c)) { routeChunks.set(c, buildRouteChunk(c)); if (c > cu + 1) return; }
+  }
+  // ---- vehicles on the road: oncoming cars, and slow ones to overtake (a tractor, a truck) ----
+  const routeCars = [];
+  const tractorBody = L({ color: 0x2f7a3a }), tractorWheel = L({ color: 0x1a1a1a }), beaconMat = B({ color: 0xffa020 }), truckMat = L({ color: 0xd8d4c8 });
+  function makeTractor() {
+    const g = new THREE.Group(), part = (geo, mat, x, y, z, rz = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.z = rz; m.castShadow = true; g.add(m); };
+    part(new THREE.BoxGeometry(1.5, 1.0, 2.6), tractorBody, 0, 1.1, 0.4);
+    part(new THREE.BoxGeometry(1.3, 1.2, 1.2), glassMat, 0, 2.2, -0.5);
+    part(new THREE.BoxGeometry(1.5, 0.12, 1.4), tractorBody, 0, 2.85, -0.5);
+    for (const sx of [-1, 1]) { part(new THREE.CylinderGeometry(0.85, 0.85, 0.5, 16), tractorWheel, sx * 0.95, 0.85, -0.8, Math.PI / 2); part(new THREE.CylinderGeometry(0.45, 0.45, 0.35, 12), tractorWheel, sx * 0.85, 0.45, 1.3, Math.PI / 2); }
+    part(new THREE.BoxGeometry(0.2, 0.15, 0.2), beaconMat, 0, 3.0, -0.5);
+    g.tail = { material: null };
+    return g;
+  }
+  function makeTruck() {
+    const g = makeCarMesh(L({ color: 0x8a2f2f })); g.scale.set(1.25, 1.5, 1.6);
+    const box = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.6, 3.2), truckMat); box.position.set(0, 1.9, -0.7); box.castShadow = true; g.add(box);
+    return g;
+  }
+  function routeTarget() {
+    const m = trafficSel.value;
+    return m === "off" ? 0 : m === "low" ? 2 : m === "high" ? 5 : S.score >= 400 ? 4 : 2;
+  }
+  function spawnRouteCar(kind, u, lane, kmhV) {
+    const c = { kind, u, lane, v: kmhV / 3.6, vmax: kmhV / 3.6, passedBy: false, flashed: false };
+    c.obj = kind === "tractor" ? makeTractor() : kind === "truck" ? makeTruck() : makeCarMesh(carBodyMats[Math.floor(Math.random() * carBodyMats.length)]);
+    scene.add(c.obj); routeCars.push(c);
+    return c;
+  }
+  function updateRouteCars(dt) {
+    if (mode !== "campo") return;
+    const pu = S.routeU ?? -S.z, poff = S.routeOff ?? LANE;
+    const oncoming = routeCars.filter(c => c.lane < 0).length;
+    if (oncoming < routeTarget() && Math.random() < dt * 0.5) {
+      const u = pu + 260 + Math.random() * 120;
+      if (!routeCars.some(c => c.lane < 0 && Math.abs(c.u - u) < 40)) spawnRouteCar(Math.random() < 0.15 ? "truck" : "car", u, -1, 70 + Math.random() * 20);
+    }
+    // the first slow vehicle to overtake comes when you already drive well on the road; then every so often
+    if (!routeCars.some(c => c.lane > 0) && S.dist > (S.nextSlowAt ?? 600) && trafficSel.value !== "off") {
+      S.nextSlowAt = S.dist + 900 + Math.random() * 600;
+      const kind = !S.passedTractor || Math.random() < 0.6 ? "tractor" : "truck";
+      spawnRouteCar(kind, pu + 230, 1, kind === "tractor" ? 24 : 50);
+    }
+    for (let n = routeCars.length - 1; n >= 0; n--) {
+      const c = routeCars[n];
+      let vT = c.vmax;
+      if (c.lane > 0) {
+        // keeps distance from you if you are in front, in its lane
+        const gap = pu - c.u - CAR_L - 1;
+        if (gap > 0 && gap < 30 && poff > 0) vT = Math.min(vT, Math.max(0, S.v) + gap * 0.2 - 1);
+      } else {
+        // the oncoming driver brakes and flashes the lights if you are in its lane
+        const gap = c.u - pu;
+        if (gap > 0 && gap < 140 && poff < -0.3) {
+          vT = Math.max(0, vT - 8);
+          if (!c.flashed && gap < 110) { c.flashed = true; toast("¡El auto que viene de frente te hace luces! Vuelve ya a tu carril.", "bad", "flash" + n, 3); honk(); }
+        }
+      }
+      c.v += clamp(vT - c.v, -6 * dt, 2 * dt); c.v = Math.max(0, c.v);
+      c.u += c.lane > 0 ? c.v * dt : -c.v * dt;
+      const p = routePoint(c.u, c.lane * LANE);
+      c.x = p.x; c.z = p.z; c.th = p.th + (c.lane < 0 ? Math.PI : 0);
+      placeCar(c.obj, c.x, c.z, c.th);
+      if (c.lane < 0 ? c.u < pu - 120 : Math.abs(c.u - pu) > 450) { scene.remove(c.obj); routeCars.splice(n, 1); }
+    }
+  }
   function setMode(m) {
     mode = m;
     for (const pd of peds) removePed(pd);
     peds.length = 0;
-    MISSIONS = m === "hill" ? HILL_MISSIONS : m === "parking" ? PARK_MISSIONS : m === "lesson" ? LESSON_MISSIONS : CITY_MISSIONS;
+    MISSIONS = m === "campo" ? CAMPO_MISSIONS : m === "hill" ? HILL_MISSIONS : m === "parking" ? PARK_MISSIONS : m === "lesson" ? LESSON_MISSIONS : CITY_MISSIONS;
     for (const c of traffic) removeCar(c);
     traffic.length = 0;
     for (const [, g] of cells) { scene.remove(g); disposeGroup(g); }
     cells.clear(); lightSets.clear();
     for (const [, g] of hillChunks) { hillRoot.remove(g); disposeGroup(g); }
     hillChunks.clear();
-    const city = m !== "hill";
-    lot.visible = city; ground.visible = city; hillRoot.visible = !city;
+    for (const [, g] of routeChunks) { routeRoot.remove(g); disposeGroup(g); }
+    routeChunks.clear();
+    for (const c of routeCars) scene.remove(c.obj);
+    routeCars.length = 0;
+    lot.visible = m !== "hill" && m !== "campo"; ground.visible = m !== "hill"; hillRoot.visible = m === "hill"; routeRoot.visible = m === "campo"; skyline.visible = m !== "campo";
     S = freshState(); knob.x = 100; knob.y = 100; toastsEl.innerHTML = "";
     document.getElementById("stall-card").hidden = true; document.getElementById("result-card").hidden = true; document.getElementById("trip-card").hidden = true;
     document.getElementById("mode").value = m;
     renderMissions(); renderScore();
-    const intro = { lesson: "Primera clase: un estacionamiento sin tránsito para aprender el embrague paso a paso. Sigue la pestaña Misiones.", city: "Ciudad: misiones de manejo y examen final.", hill: "Subidas y bajadas: empiezas parada en una subida con el freno de mano puesto. Practica arrancar sin irte para atrás.", parking: "Estacionamiento: practica estacionar de frente, de culata y en paralelo. Ve despacio, solo con el punto de roce." };
+    const intro = { campo: "Ruta en el campo: dos carriles, curvas, banquina y autos de frente. Luces bajas siempre encendidas (K) y máximo 80 km/h.", lesson: "Primera clase: un estacionamiento sin tránsito para aprender el embrague paso a paso. Sigue la pestaña Misiones.", city: "Ciudad: misiones de manejo y examen final.", hill: "Subidas y bajadas: empiezas parada en una subida con el freno de mano puesto. Practica arrancar sin irte para atrás.", parking: "Estacionamiento: practica estacionar de frente, de culata y en paralelo. Ve despacio, solo con el punto de roce." };
     toast(intro[m], "tip", "intro" + m + S.t, 1);
   }
   function updateLights() {
@@ -3081,6 +3389,18 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     gctx.setTransform(1, 0, 0, 1, 0, 0);
     gctx.fillStyle = "#2c3a2a"; gctx.fillRect(0, 0, w, h);
     const X = x => w / 2 + (x - S.x) * sc, Z = z => h / 2 + (z - S.z) * sc;
+    if (mode === "campo") {
+      const u = S.routeU ?? -S.z;
+      for (const [col, wd] of [["#6b6e72", 7], ["#e8b62a", 0.6]]) {
+        gctx.strokeStyle = col; gctx.lineWidth = wd * sc; gctx.beginPath();
+        for (let w = u - 150; w <= u + 150; w += 6) { const p = routePoint(w, 0); w === u - 150 ? gctx.moveTo(X(p.x), Z(p.z)) : gctx.lineTo(X(p.x), Z(p.z)); }
+        gctx.stroke();
+      }
+      for (const c of routeCars) { gctx.fillStyle = c.kind === "tractor" ? "#f0a535" : "#d9d4c8"; gctx.beginPath(); gctx.arc(X(c.x), Z(c.z), (c.kind === "tractor" ? 2.8 : 1.8) * dpr, 0, Math.PI * 2); gctx.fill(); }
+      gctx.translate(w / 2, h / 2); gctx.rotate(S.th);
+      gctx.fillStyle = "#4fc3f7"; gctx.beginPath(); gctx.moveTo(0, -8 * dpr); gctx.lineTo(5 * dpr, 6 * dpr); gctx.lineTo(-5 * dpr, 6 * dpr); gctx.closePath(); gctx.fill();
+      return;
+    }
     if (mode === "hill") {
       gctx.fillStyle = "#6b6e72"; gctx.fillRect(X(-HALF), 0, 7 * sc, h);
       for (let n = Math.max(0, Math.floor((-S.z - 140) / (HILL_P / 2))); n * HILL_P / 2 < -S.z + 140; n++) {
@@ -3170,6 +3490,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     el("lamp-engine").className = "lamp" + (S.running ? " on green" : "");
     el("lamp-hand").className = "lamp" + (S.hand ? " on red" : "");
     el("lamp-belt").className = "lamp" + (S.belt ? "" : " on red");
+    el("lamp-lights").className = "lamp" + (S.lights ? " on beam" : "");
     const blinkOn = Math.floor(S.t * 3) % 2 === 0;
     el("lamp-left").className = "lamp blink" + (S.blink === "left" && blinkOn ? " on" : "");
     el("lamp-right").className = "lamp blink" + (S.blink === "right" && blinkOn ? " on" : "");
@@ -3184,8 +3505,14 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     knobDot.setAttribute("cx", knob.x); knobDot.setAttribute("cy", knob.y);
     if (S.limit !== lastLimit) { lastLimit = S.limit; el("limit-sign").textContent = S.limit; }
     tickScoreStats();
-    const chip = el("next-chip"), ap = help && mode !== "hill" ? approach() : null;
+    const chip = el("next-chip"), ap = help && mode !== "hill" && mode !== "campo" ? approach() : null;
     const setChip = (txt, col) => { if (chip.dataset.t !== txt) { chip.dataset.t = txt; chip.innerHTML = `<i style="background:${col}"></i>`; chip.appendChild(document.createTextNode(txt)); } chip.hidden = false; };
+    if (mode === "campo") {
+      const u = S.routeU ?? -S.z, ca = help ? curveAhead(u, 250) : null, slow = help && routeCars.find(c => c.lane > 0 && c.u - u > 0 && c.u - u < 220);
+      const txt = ca ? `Curva a la ${ca.dir === "right" ? "derecha" : "izquierda"} en ${Math.round(ca.dist)} m · baja a 60 km/h` : slow ? `${slow.kind === "tractor" ? "Tractor" : "Camión"} adelante · ${Math.round(slow.u - u)} m${noPass(u) ? " · doble línea: no adelantar" : ""}` : help && noPass(u) ? "Doble línea amarilla: prohibido adelantar" : "";
+      if (txt) setChip(txt, ca ? "#f2c230" : slow ? "#f0a535" : "#e8b62a"); else chip.hidden = true;
+      return;
+    }
     if (mode === "hill") {
       const front = -S.z + CAR_L / 2, n = Math.max(0, Math.ceil((front - 0.01) / (HILL_P / 2))), dist = n * HILL_P / 2 - front;
       const grade = Math.round(-hillDz(S.z) * Math.cos(S.th) * 100);
@@ -3247,6 +3574,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     S.hist.push({ t: S.t, rpm: toRpm(S.we), clutch: S.clutch, e: S.gear === "N" ? 0 : engage(S.clutch), gas: S.gas, v: Math.abs(S.v), brake: S.brake });
     while (S.hist.length && S.hist[0].t < S.t - 4.5) S.hist.shift();
     updateTraffic(dt);
+    updateRouteCars(dt);
     updatePeds(dt);
     collide(prev);
     updateCells();
