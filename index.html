@@ -923,7 +923,6 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   const LOT_ENTRY = { x: 0, z: -45 }, LOT_DOOR = { x: 5, z: -45 };
   function lotWanted() {
     if (mode !== "city" || inLot(S.x, S.z) || inRect(S.x, S.z, DRIVE)) return false;
-    if (!examOpen()) return false;
     return S.mission === 6 || S.mission === 7 || !!(S.exam && S.exam.phase === "park" && !S.exam.passed && !S.exam.failed);
   }
   function lotNav() {
@@ -1872,7 +1871,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     renderPath();
     MISSIONS.forEach((m, i) => {
       const li = document.createElement("li");
-      const locked = (mode === "city" && i >= 6 && !examOpen()) || (mode === "parking" && i >= 3 && !circuitOpen());
+      const locked = (mode === "city" && i >= 8 && !examOpen()) || (mode === "parking" && i >= 3 && !circuitOpen());
       li.className = (i < S.mission ? "done" : i === S.mission && !locked ? "current" : "") + (locked ? " locked" : "");
       li.innerHTML = `<span class="n">${i < S.mission ? "✓" : i + 1}</span><span></span>`;
       const body = li.lastChild;
@@ -1883,7 +1882,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         m.steps.forEach(([t], n) => { const li2 = document.createElement("li"); li2.textContent = t; if (S.stepDone[S.mission + "-" + n]) li2.className = "ok"; ul.appendChild(li2); });
         body.appendChild(ul);
         const det = document.createElement("details"); det.className = "more"; det.innerHTML = "<summary>Más ayuda</summary>"; const h = document.createElement("span"); h.className = "hint"; h.textContent = m.hint; det.appendChild(h); body.appendChild(det);
-      } else if (i === S.mission) { const h = document.createElement("span"); h.className = "hint"; h.textContent = locked ? (mode === "parking" ? "Se abre cuando apruebes el examen teórico (mira Tu camino, arriba)." : "Se abre cuando termines los pasos anteriores de Tu camino (arriba): Subidas, Estacionamiento, Ruta, el examen teórico y el de circuito.") : m.hint; body.appendChild(h); }
+      } else if (i === S.mission) { const h = document.createElement("span"); h.className = "hint"; h.textContent = locked ? (mode === "parking" ? "Se abre cuando apruebes el examen teórico (mira Tu camino, arriba)." : "El examen final se abre cuando termines los pasos anteriores de Tu camino (arriba): Subidas, Estacionamiento, Ruta, el examen teórico y el de circuito.") : m.hint; body.appendChild(h); }
       missionsEl.appendChild(li);
     });
     if (S.mission >= MISSIONS.length) {
@@ -2106,7 +2105,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     document.getElementById("road").focus();
   }
   function checkMissions() {
-    if (mode === "city" && S.mission >= 6 && !examOpen()) return;
+    if (mode === "city" && S.mission >= 8 && !examOpen()) return;
     if (mode === "parking" && S.mission >= 3 && !circuitOpen()) return;
     if (S.mission < MISSIONS.length && MISSIONS[S.mission].done()) {
       const before = PATH.map((st, n) => stageDone(n));
