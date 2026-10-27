@@ -2229,11 +2229,21 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   const trafficSel = document.getElementById("traffic");
   trafficSel.addEventListener("change", () => document.getElementById("road").focus());
   // start this place over from the beginning: first mission, score at zero (the other places keep their progress)
-  twoStep(document.getElementById("btn-reset"), () => S.mission > 0 || S.score !== 0, () => {
-    delete prog.modes[mode];
+  // one click starts this place over; a message offers to undo it for a few seconds, in case it was a mistake
+  document.getElementById("btn-reset").addEventListener("click", () => {
+    if (S && S.t > 0.5) saveProgress();
+    const m = mode, backup = prog.modes[m] ? JSON.parse(JSON.stringify(prog.modes[m])) : null;
+    delete prog.modes[m];
     try { localStorage.setItem("pm-progress", JSON.stringify(prog)); } catch (err) {}
-    S = null; setMode(mode);
-    toast(`Empezaste de nuevo: ${MODE_NAMES[mode]}, desde la primera misión.`, "", "reset", 1);
+    S = null; setMode(m);
+    const d = document.createElement("div"); d.className = "toast good";
+    d.textContent = `Empezaste de nuevo: ${MODE_NAMES[m]}, desde la primera misión. `;
+    if (backup && (backup.mission || backup.score)) {
+      const u = document.createElement("button"); u.type = "button"; u.className = "btn"; u.textContent = "Deshacer"; u.style.marginLeft = "6px";
+      u.addEventListener("click", ev => { ev.stopPropagation(); prog.modes[m] = backup; try { localStorage.setItem("pm-progress", JSON.stringify(prog)); } catch (err) {} S = null; setMode(m); d.remove(); toast("Listo, recuperaste tu progreso.", "good", "undo", 1); });
+      d.appendChild(u);
+    }
+    toastsEl.prepend(d); setTimeout(() => d.remove(), 10000);
   });
   // after clicking any button the keyboard goes back to the car: otherwise Space (the clutch) would press that button again
   document.addEventListener("click", e => { const b = e.target.closest && e.target.closest("button"); if (b && !b.closest(".stall-card")) setTimeout(() => road.focus({ preventScroll: true }), 0); });
