@@ -431,7 +431,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       <button class="btn" id="btn-help" aria-pressed="true">Ayudas</button>
       <button class="btn" id="btn-sound" aria-pressed="false">Sonido</button>
       <button class="btn" id="btn-trip">Terminar viaje</button>
-      <button class="btn" id="btn-reset" title="Vuelve al punto de partida de este lugar. Tus misiones y tu puntaje se mantienen.">Reiniciar</button>
+      <button class="btn" id="btn-reset" title="Empieza este lugar de nuevo, desde la primera misión. Los otros lugares no cambian.">Reiniciar</button>
     </div>
   </header>
 
@@ -2197,7 +2197,14 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   helpBtn.addEventListener("click", () => { help = !help; helpBtn.setAttribute("aria-pressed", help); });
   const trafficSel = document.getElementById("traffic");
   trafficSel.addEventListener("change", () => document.getElementById("road").focus());
-  document.getElementById("btn-reset").addEventListener("click", () => { setMode(mode); toast("Volviste al punto de partida. Tus misiones y tu puntaje se mantienen.", "", "reset", 1); });
+  // start this place over from the beginning: first mission, score at zero (the other places keep their progress)
+  document.getElementById("btn-reset").addEventListener("click", () => {
+    if (S.mission > 0 && !confirm(`¿Empezar de nuevo "${MODE_NAMES[mode]}" desde la primera misión? Se borran las misiones y el puntaje de este lugar (los otros lugares no cambian).`)) return;
+    delete prog.modes[mode];
+    try { localStorage.setItem("pm-progress", JSON.stringify(prog)); } catch (err) {}
+    S = null; setMode(mode);
+    toast(`Empezaste de nuevo: ${MODE_NAMES[mode]}, desde la primera misión.`, "", "reset", 1);
+  });
   // after clicking any button the keyboard goes back to the car: otherwise Space (the clutch) would press that button again
   document.addEventListener("click", e => { const b = e.target.closest && e.target.closest("button"); if (b && !b.closest(".stall-card")) setTimeout(() => road.focus({ preventScroll: true }), 0); });
   document.getElementById("mode").addEventListener("change", e => { setMode(e.target.value); document.getElementById("road").focus(); });
