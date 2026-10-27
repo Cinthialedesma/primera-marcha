@@ -603,6 +603,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         <div class="rule"><h3>Señales que vas a ver</h3><div class="signs" id="sign-list"></div></div>
         <div class="rule"><h3>Esquinas sin señales</h3><p>En Argentina, si una esquina no tiene PARE, Ceda el paso ni semáforo, tiene prioridad quien viene por tu derecha. Llega despacio, mira a la derecha y deja pasar.</p></div>
         <div class="rule"><h3>En la ruta</h3><p>Luces bajas siempre encendidas, también de día. Máximo 80 km/h en la mayoría de las rutas de dos carriles (en las rutas nacionales, hasta 110 km/h para autos). La doble línea amarilla prohíbe adelantar. Para adelantar: guiño izquierdo, mira que el carril contrario esté libre hasta lejos, pasa rápido y vuelve con el guiño derecho cuando veas al otro vehículo en el espejo de adentro. La banquina es solo para emergencias.</p></div>
+        <div class="rule"><h3>Pasos a nivel y túneles</h3><p>Antes de las vías baja la velocidad, mira a los dos lados y escucha. Si hay luces rojas, campanas o la barrera está bajando, te detienes antes de la barrera: el tren no puede frenar. Nunca te detengas sobre las vías. En los pasos sin barrera de la ruta hay PARE: detención total. En los túneles, luces encendidas y sin detenerte.</p></div>
+        <div class="rule"><h3>Escuelas</h3><p>Cerca de una escuela, máximo 20 km/h: los chicos de guardapolvo blanco pueden cruzar en cualquier momento, sobre todo a la entrada y a la salida.</p></div>
         <div class="rule"><h3>Rotondas</h3><p>Tiene prioridad quien ya está circulando por la rotonda. Llega despacio (2ª, menos de 20 km/h), cede el paso a los que vienen por tu izquierda y entra girando a la derecha: se circula siempre con la isleta a tu izquierda. Antes de tu salida pon el guiño derecho.</p></div>
         <div class="rule"><h3>Peatones</h3><p>En la senda peatonal el peatón siempre tiene prioridad, también cuando doblas con luz verde: la gente que cruza la calle a la que entras pasa primero. Ojo con quien cruza mirando el celular, con los chicos y con quien cruza por la mitad de la cuadra: aunque crucen mal, tienes que frenar. A las personas mayores espéralas sin tocar bocina.</p></div>
         <div class="rule"><h3>Señal PARE / ALTO</h3><p>Detención total antes de la línea blanca, aunque no venga nadie. Mira a ambos lados y avanza cuando sea seguro. Bajar a 5 km/h no cuenta.</p></div>
@@ -709,6 +711,13 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const ri = routeInfo(u);
     return { u, off: (px - ri.x) * Math.cos(ri.th) + (pz + u) * Math.sin(ri.th), ri };
   }
+  // railway crossings on the country road, on straight stretches
+  const RURAL_LINES = [];
+  for (const base of [1500, 4000, 6500, 9000, 11500, 14000, 16500, 19000, 21500, 24000]) {
+    let u = base; while (u < base + 900 && [-60, -30, 0, 30, 60].some(o => Math.abs(routeInfo(u + o).k) > 0.0006)) u += 10;
+    const ri = routeInfo(u);
+    RURAL_LINES.push({ key: "r" + base, uR: u, x0: ri.x, z0: -u, dx: Math.cos(ri.th), dz: Math.sin(ri.th) });
+  }
   const routePoint = (u, off) => { const ri = routeInfo(u); return { x: ri.x + Math.cos(ri.th) * off, z: -u + Math.sin(ri.th) * off, th: ri.th }; };
   // no passing where a sharp curve is near: the double yellow line
   const noPassCache = new Map();
@@ -796,11 +805,38 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     return { pts, th2 };
   }
   const isAvenue = line => ((line % 3) + 3) % 3 === 1;
+  // ---------- railway: a line across the city every five blocks (west-east) ----------
+  const isRailRow = j => ((j % 5) + 5) % 5 === 3;
+  const railZ = j => j * G + G / 2;
+  const TUNNEL_D = 4, TUNNEL_FLAT = 5, TUNNEL_RAMP = 35;
+  function tunnelDepth(t) { t = Math.abs(t); return t < TUNNEL_FLAT ? TUNNEL_D : t < TUNNEL_FLAT + TUNNEL_RAMP ? TUNNEL_D * (1 + Math.cos(Math.PI * (t - TUNNEL_FLAT) / TUNNEL_RAMP)) / 2 : 0; }
+  // avenues pass under the tracks (paso bajo nivel); the other streets cross them with barriers (paso a nivel)
+  function cityHeight(x, z) {
+    const i = Math.round(x / G);
+    if (Math.abs(x - i * G) > HALF + 0.05 || !isAvenue(i)) return 0;
+    const j = Math.floor(z / G);
+    return isRailRow(j) ? -tunnelDepth(z - railZ(j)) : 0;
+  }
+  const cityLines = new Map();
+  function cityLine(j) { if (!cityLines.has(j)) cityLines.set(j, { key: "c" + j, x0: 0, z0: railZ(j), dx: 1, dz: 0, city: true }); return cityLines.get(j); }
+  const trains = [];
+  // is a train coming to (or passing over) this crossing? lead: seconds of warning before it arrives
+  function trainNear(L, sCross, lead = 18) {
+    for (const tr of trains) {
+      if (tr.L !== L) continue;
+      const ahead = (sCross - tr.s) * tr.dir, tailPast = (tr.s - tr.dir * tr.len - sCross) * tr.dir;
+      if (ahead > 0 && ahead < tr.v * lead) return { tr, eta: ahead / tr.v };
+      if (ahead <= 0 && tailPast <= tr.v * 3) return { tr, eta: 0 };
+    }
+    return null;
+  }
+
   // left turn forbidden for this approach (only at some traffic lights)
   const noLeft = (i, j, k) => ctrlOf(i, j) === "light" && hash2(i * 5 + k, j * 3 + 1) < 0.3;
   // what each block of street has: a school zone or a speed bump in the middle
   function segFeature(axis, line, block) {
     if (axis === "NS" && line === 0 && block === -1) return null; // the first street stays simple
+    if (axis === "NS" && isRailRow(block)) return null; // the tracks cross there
     const h = axis === "NS" ? hash2(line * 7 + 3, block * 11 + 1) : hash2(line * 13 + 5, block * 3 + 2);
     return h < 0.12 ? "school" : h < 0.26 ? "bump" : null;
   }
@@ -865,7 +901,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   let S;
   let mode = "city";
   const START = { city: { x: LANE, z: -14, th: 0 }, hill: { x: LANE, z: 25, th: 0 }, parking: { x: 22, z: -40, th: Math.PI / 2, limit: 20 }, lesson: { x: 22, z: -40, th: Math.PI / 2, limit: 20 } };
-  const heightAt = (x, z) => mode === "hill" ? hillH(z) : 0;
+  const heightAt = (x, z) => mode === "hill" ? hillH(z) : mode === "campo" ? 0 : cityHeight(x, z);
   function freshState() {
     return Object.assign({
       t: 0, x: LANE, z: -14, th: 0, v: 0, dist: 0, steer: 0,
@@ -1088,7 +1124,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const Fd = Tc * ratio / R * EFF;
     const hold = S.brake * (opts.rain ? 6500 : 9500) + (S.hand ? 5200 : 0) + 160 + (mode === "campo" ? [0, 500, 2200][S.surf || 0] : 0);
     // on a slope gravity pulls the car downhill: this is what makes hill starts hard
-    const Fx = Fd + (mode === "hill" ? -M * 9.81 * hillDz(S.z) * dirOf(S.th).z : 0);
+    const dS = dirOf(S.th), slope = heightAt(S.x + dS.x * 0.5, S.z + dS.z * 0.5) - heightAt(S.x - dS.x * 0.5, S.z - dS.z * 0.5);
+    const Fx = Fd - M * 9.81 * slope;
     if (Math.abs(S.v) < 0.03) {
       if (Math.abs(Fx) <= hold) S.v = 0;
       else S.v += (Fx - Math.sign(Fx) * hold) / M * dt;
@@ -1155,6 +1192,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   function onCurb(x, z) {
     if (mode === "hill") return Math.abs(x) <= HALF + CURB_BAND;
     if (mode === "campo") return routeSoft(x, z);
+    { const ci = Math.round(x / G) * G; if (Math.abs(x - ci) > HALF && cityHeight(ci, z) < -0.3) return false; } // the walls of a tunnel
     const dx = Math.abs(x - Math.round(x / G) * G), dz = Math.abs(z - Math.round(z / G) * G);
     return dx <= HALF + CURB_BAND || dz <= HALF + CURB_BAND;
   }
@@ -1168,7 +1206,9 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const worse = o => overlap(me, o) && (!overlap(prev, o) || Math.hypot(o.x - S.x, o.z - S.z) < Math.hypot(o.x - prev.x, o.z - prev.z));
     if (badCorners(me) > badCorners(prev)) hit = "curb";
     else {
-      if (mode !== "campo") for (const o of parked) if (Math.hypot(o.x - S.x, o.z - S.z) < 6 && worse(o)) { hit = "parked"; break; }
+      const trh = trainHits(me);
+      if (trh) { hit = "train"; other = null; if (!trh.hitPlayer) { trh.hitPlayer = true; S.lastHit = -9; } else S.lastHit = S.t; }
+      if (!hit && mode !== "campo") for (const o of parked) if (Math.hypot(o.x - S.x, o.z - S.z) < 6 && worse(o)) { hit = "parked"; break; }
       if (!hit && mode === "campo") for (const c of routeCars) if (Math.hypot(c.x - S.x, c.z - S.z) < 7 && worse(c)) { hit = c.lane < 0 ? "front" : "car"; other = c; break; }
       if (!hit) for (const c of traffic) if (Math.hypot(c.x - S.x, c.z - S.z) < 6 && worse(c)) { hit = "car"; other = c; break; }
       if (!hit && Math.abs(S.v) > 0.3) for (const pd of peds) {
@@ -1190,7 +1230,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     S.v = 0;
     if (other) { other.v = 0; other.hitT = 2.5; }
     if (S.t - S.lastHit > 2) {
-      if (hit === "ped") { S.counts.crash++; infraction("Atropellaste a un peatón", -100); tip("Frente a una senda peatonal, el peatón siempre tiene prioridad: ve despacio y detente si alguien está cruzando o por cruzar.", "ped-hit", 10); }
+      if (hit === "train") { S.counts.crash++; infraction("Te chocó el tren", -200); tip("El tren no puede frenar: necesita cientos de metros. En un paso a nivel, si hay luces, campanas o barreras bajando, siempre te detienes.", "train-hit", 10); }
+      else if (hit === "ped") { S.counts.crash++; infraction("Atropellaste a un peatón", -100); tip("Frente a una senda peatonal, el peatón siempre tiene prioridad: ve despacio y detente si alguien está cruzando o por cruzar.", "ped-hit", 10); }
       else if (hit === "car") { S.counts.crash++; infraction("Chocaste con otro auto", -30); }
       else if (hit === "front") { S.counts.crash++; infraction("Choque frontal con un auto que venía de frente", -100); tip("Nunca adelantes si no ves con claridad que el carril contrario está libre hasta lejos.", "frontal", 10); }
       else if (mode === "campo") infraction(speed > 8 ? "Chocaste contra el alambrado" : "Rozaste el alambrado");
@@ -1251,6 +1292,55 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (S.mission === 5 && S.running && S.gear === "R" && S.v < 0) S.rev -= S.v * dt;
     if (S.mission === 6 && S.running && S.gear === "2" && S.v * 3.6 > 10) S.l2 = true;
   }
+  // level crossings and tunnels in the city
+  function checkRail(dt) {
+    const sg = segAt(S.x, S.z);
+    if (!sg || sg.axis !== "NS" || !isRailRow(sg.block)) { S.railKey = null; return; }
+    const kmh = Math.abs(S.v) * 3.6, zr = railZ(sg.block), key = sg.line + "," + sg.block, under = isAvenue(sg.line);
+    const L = cityLine(sg.block), rel = S.z - zr, toward = -Math.sign(rel) * dirOf(S.th).z * Math.sign(S.v || 1) > 0.5;
+    const dist = Math.abs(rel) - CAR_L / 2;
+    if (S.railKey !== key) { S.railKey = key; S.railPrev = rel; S.railWait = false; S.onTrackT = 0; S.trackFlag = false; S.tunnelFlag = false; }
+    if (under) {
+      if (toward && dist > 15 && dist < 70 && S.v > 2) tip("Túnel bajo las vías adelante: enciende las luces (K), mantén tu carril y no te detengas adentro. Es una bajada y después una subida: en la subida quizás tengas que bajar un cambio.", "tunnel" + key, 60);
+      if (Math.abs(rel) < 6 && !S.lights && !S.tunnelFlag && Math.abs(S.v) > 1) { S.tunnelFlag = true; infraction("Pasaste por el túnel sin luces", -10); }
+    } else {
+      const near = trainNear(L, sg.line * G, 18);
+      if (toward && dist > 12 && dist < 70 && S.v > 2) {
+        if (near) toast(`¡Paso a nivel con las barreras bajando! Frena antes de la barrera (${Math.round(dist)} m).`, "bad", "rail-closed" + key, 6);
+        else tip("Paso a nivel adelante: baja la velocidad y mira a los dos lados. Si suenan las campanas y se encienden las luces rojas, detente antes de la barrera. Nunca te quedes parada sobre las vías.", "rail" + key, 60);
+      }
+      if (near && toward && dist > 2 && dist < 25 && S.v === 0) S.railWait = true;
+      // the moment the car crosses the tracks
+      if (S.railPrev != null && Math.sign(S.railPrev) !== Math.sign(rel) && Math.abs(S.x - sg.line * G) <= HALF + 1) {
+        if (trainNear(L, sg.line * G, 14)) infraction("Cruzaste el paso a nivel con las barreras bajas", -50);
+        else if (kmh > 30) infraction(`Cruzaste las vías muy rápido (${Math.round(kmh)} km/h)`, -10);
+        else award(S.railWait ? 10 : 5, S.railWait ? "Esperaste que pase el tren" : "Cruzaste las vías con precaución");
+        S.railWait = false;
+      }
+      // never stop on the tracks
+      if (Math.abs(rel) < 1.2 + CAR_L / 2 && S.v === 0 && Math.abs(S.x - sg.line * G) <= HALF + 1) {
+        S.onTrackT += dt;
+        if (S.onTrackT > 1.5 && !S.trackFlag) { S.trackFlag = true; infraction("Te detuviste sobre las vías", -30); tip("Nunca te detengas sobre las vías: si adelante hay autos parados, espera antes de la barrera hasta que haya lugar del otro lado.", "ontrack", 20); }
+      } else S.onTrackT = 0;
+    }
+    S.railPrev = rel;
+  }
+  // the crossings on the country road have no barriers: PARE, look both ways, listen
+  function checkRouteRail(u, fwd, kmh) {
+    for (const L of RURAL_LINES) {
+      const rel = u - L.uR;
+      if (fwd && rel > -170 && rel < -40) tip(`Paso a nivel sin barreras en ${Math.round(-rel)} m: tiene PARE. Detente antes de la cruz de San Andrés, mira a los dos lados y escucha. Cruza recién cuando esté libre.`, "rural" + L.key, 60);
+      if (fwd && rel > -16 && rel < -2) L.minV = Math.min(L.minV ?? Infinity, Math.abs(S.v));
+      if (L.prevRel != null && L.prevRel < 0 && rel >= 0 && fwd) {
+        if (trainNear(L, 0, 12)) infraction("Cruzaste las vías con el tren cerca", -50);
+        else if ((L.minV ?? Infinity) > 1.5 / 3.6) infraction("No te detuviste en el PARE del paso a nivel", -30);
+        else award(L.waited ? 15 : 10, L.waited ? "Esperaste que pase el tren en el paso a nivel" : "Te detuviste en el paso a nivel y miraste");
+        L.minV = Infinity; L.waited = false;
+      }
+      if (fwd && rel > -16 && rel < -2 && S.v === 0 && trainNear(L, 0, 25)) L.waited = true;
+      L.prevRel = rel;
+    }
+  }
   function checkRoute(dt) {
     const kmh = Math.abs(S.v) * 3.6, rl = routeLocal(S.x, S.z), u = rl.u, off = rl.off, ao = Math.abs(off);
     const fwd = Math.cos(S.th - rl.ri.th) > 0.5 && S.v > 0;
@@ -1259,6 +1349,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (S.surf === 1 && kmh > 5) S.shake = Math.max(S.shake, 0.5 * Math.min(1, kmh / 40));
     if (S.surf === 2 && kmh > 3) S.shake = Math.max(S.shake, 1.1 * Math.min(1, kmh / 30));
     S.limit = ROUTE_LIMIT;
+    checkRouteRail(u, Math.cos(S.th - rl.ri.th) > 0.5, kmh);
     if (kmh > S.limit + 4) { S.overT += dt; if (S.overT > 1.5 && !S.speeding) { S.speeding = true; infraction(`Exceso de velocidad: ${Math.round(kmh)} km/h en zona de ${S.limit}`); } }
     else if (kmh <= S.limit) { S.overT = 0; S.speeding = false; }
     // low beams are mandatory on Argentine roads, also by day
@@ -1386,6 +1477,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     checkCommon(dt);
     if (mode === "hill") { checkHill(dt); return; }
     if (mode === "campo") { checkRoute(dt); return; }
+    checkRail(dt);
     const kmh = Math.abs(S.v) * 3.6;
     const ap = approach();
     if (ap && ap.dist > 0 && ap.dist < 15) {
@@ -1669,6 +1761,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     [/banquina|saliste de la ruta/, "Si una rueda se va a la banquina, suelta el acelerador y vuelve despacio: nunca un volantazo ni un frenazo."],
     [/[Aa]delant|carril contrario sin|doble línea/, "Para adelantar: línea discontinua, guiño izquierdo, mirar que no venga nadie, y volver con el guiño derecho."],
     [/luces bajas/, "En ruta, luces bajas siempre encendidas (K)."],
+    [/tren|vías|paso a nivel/, "En los pasos a nivel: baja la velocidad, mira y escucha. Con luces, campanas o barreras bajas te detienes, y nunca quedes parada sobre las vías."],
+    [/túnel/, "Antes de entrar a un túnel enciende las luces (K)."],
     [/punto muerto/, "En las bajadas deja una marcha puesta (2ª) para que el motor frene."],
   ];
   const tripKey = t => t.startsWith("Exceso de velocidad") ? "Exceso de velocidad" : t.startsWith("Pasaste el lomo de burro") ? "Pasaste el lomo de burro rápido" : t.replace(/\s*\(\+?-?\d+\)$/, "");
@@ -2333,6 +2427,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       [SIGN_DRAW.limit(40), "Velocidad máxima", "En calles 40 km/h, en avenidas 60 km/h (como en la Ciudad de Buenos Aires). Rige hasta la próxima señal."],
       [SIGN_DRAW.school, "Zona escolar", "Máximo 20 km/h y atención: pueden cruzar chicos en cualquier momento."],
       [SIGN_DRAW.bump, "Lomo de burro", "Adelante hay una loma de asfalto cruzada en la calle (franja amarilla y negra). Suelta el acelerador, frena hasta menos de 20 km/h antes de llegar y pásala despacio. Si la pasas rápido, el auto salta y se puede dañar."],
+      [SIGN_DRAW.rail, "Paso a nivel", "Hay vías adelante: baja la velocidad, mira, escucha y respeta las barreras y las luces."],
       [SIGN_DRAW.round, "Rotonda", "Los que ya circulan tienen prioridad. Entra girando a la derecha, rodea la isleta dejándola a tu izquierda y pon el guiño derecho antes de salir."],
       [SIGN_DRAW.noLeft, "Prohibido girar a la izquierda", "En esa esquina solo puedes seguir derecho o doblar a la derecha."],
     ];
@@ -2387,7 +2482,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     g.tail = g.children[4];
     return g;
   }
-  const placeCar = (g, x, z, th) => { g.position.set(x, 0, z); g.rotation.y = Math.PI - th; return g; };
+  const placeCar = (g, x, z, th) => { g.position.set(x, heightAt(x, z), z); g.rotation.y = Math.PI - th; return g; };
 
   // ---- practice lot ----
   const lot = new THREE.Group();
@@ -2526,10 +2621,12 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const g = new THREE.ExtrudeGeometry(sh, { depth: 0.16, bevelEnabled: false, curveSegments: 12 });
     g.rotateX(Math.PI / 2); g.translate(0, 0.16, 0); return g;
   })();
+  const blockGrassMat = L({ map: canvasTex(128, 128, (ctx, w, h) => noise(ctx, w, h, "#5b7243", 0.25, 5000)) });
   const cells = new Map(), lightSets = new Map();
   function buildCell(i, j) {
     const grp = new THREE.Group(), flat = makeBuilder(), solid = makeBuilder(), ox = i * G, oz = j * G;
-    flat.add(roadGeoNS, roadMat, ox, 0, oz + G / 2);
+    if (isRailRow(j) && isAvenue(i)) { const tg = tunnelRoadGeo(ox, oz); flat.add(tg, roadMat, 0, 0, 0); tg.dispose(); }
+    else flat.add(roadGeoNS, roadMat, ox, 0, oz + G / 2);
     flat.add(roadGeoEW, roadMat, ox + G / 2, 0, oz);
     flat.add(boxGeo, boxMat, ox, 0.001, oz);
     for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
@@ -2537,6 +2634,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       solid.add(cornerCurbGeo, curbMat, ox, 0, oz, 0, sx, 1, sz);
     }
     const isLot = i === 0 && j === -1, inner = G - 2 * HALF;
+    { const gp = new THREE.PlaneGeometry(G - 2 * HALF - 2 * WALK + 0.4, G - 2 * HALF - 2 * WALK + 0.4); gp.rotateX(-Math.PI / 2); const uv = gp.attributes.uv; for (let n = 0; n < uv.count; n++) uv.setXY(n, uv.getX(n) * 16, uv.getY(n) * 16); flat.add(gp, blockGrassMat, ox + G / 2, -0.02, oz + G / 2); gp.dispose(); }
     const ws = (w, d, x, z) => { const g = boxUV(w, 0.15, d, 2, 2); flat.add(g, walkMat, x, 0.075, z); g.dispose(); };
     const curb = (w, d, x, z) => solid.add(new THREE.BoxGeometry(w, 0.16, d), curbMat, x, 0.08, z);
     if (isLot) {
@@ -2553,8 +2651,20 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       if (isLot && side !== 1) continue;
       let s = a0 + (side >= 2 ? depth : 0), n = 0;
       const end = a1 - (side >= 2 ? depth : 0);
+      // room left free: the tracks cross the block, or a school in the middle of the block
+      const reserve = [], ryS = [-Math.PI / 2, Math.PI / 2, Math.PI, 0][side];
+      if (isRailRow(j) && side < 2) reserve.push([G / 2 - 8, G / 2 + 8]);
+      const feat = [segFeature("NS", i, j), segFeature("NS", i + 1, j), segFeature("EW", j, i), segFeature("EW", j + 1, i)][side];
+      if (feat === "school" && !isLot) {
+        reserve.push([G / 2 - 13, G / 2 + 13]);
+        const sx = side === 0 ? a0 + 6 : side === 1 ? a1 - 6 : G / 2, sz = side < 2 ? G / 2 : side === 2 ? a0 + 6 : a1 - 6;
+        addSchool(solid, ox + sx, oz + sz, ryS, 1 + Math.floor(hash2(i * 3 + side, j * 5) * 40) * 7 % 300);
+      }
       while (s < end - 5) {
-        const h = hash2(i * 4 + side, j * 9 + n++), w = Math.min(end - s, 9 + h * 9);
+        const h = hash2(i * 4 + side, j * 9 + n++);
+        let w = Math.min(end - s, 9 + h * 9);
+        const rv = reserve.find(([r0, r1]) => s + w > r0 && s < r1);
+        if (rv) { if (s >= rv[0] - 4) { s = rv[1]; continue; } w = rv[0] - s; }
         const floors = 1 + Math.floor(hash2(j * 5 + n, i * 3 + side) * 6);
         const mid = s + w / 2;
         // front faces the street: west side -x, east +x, north side -z, south +z
@@ -2571,6 +2681,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     for (const [side, off, vertical] of along) {
       if (isLot && side === 0) continue;
       for (let s = 12, n = 0; s < G - 12; s += 15, n++) {
+        if (vertical && isRailRow(j) && Math.abs(s - G / 2) < 8) continue;
         const x = ox + (vertical ? off : s), z = oz + (vertical ? s : off), hh = hash2(i * 13 + side * 7 + n, j * 11);
         const toRoad = [Math.PI * 1.5, Math.PI / 2, 0, Math.PI][side];
         if (n % 2 === 0) addLamp(solid, x, z, toRoad, flat);
@@ -2648,10 +2759,200 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       }
       if (feat === "bump") solid.add(bumpGeo, bumpMat, axis === "NS" ? ox : ox + G / 2, 0.045, axis === "NS" ? oz + G / 2 : oz, axis === "NS" ? 0 : Math.PI / 2);
     }
+    if (isRailRow(j)) buildCityRail(grp, flat, solid, i, j, ox, oz);
     flat.build(grp, false, true);
     solid.build(grp, true, true);
     scene.add(grp);
     return grp;
+  }
+  // ---- railway: tracks, crossings, tunnels and trains ----
+  const sleeperMat = L({ color: 0x4a3a2c }), railMat = L({ color: 0x8f949a }), ballastMat = L({ map: canvasTex(128, 128, (ctx, w, h) => noise(ctx, w, h, "#7d7468", 0.4, 7000)) });
+  const concreteMat = L({ color: 0xa29d92 }), panelMat = L({ color: 0x6e6a64 });
+  const stripeMat = L({ map: canvasTex(128, 16, (ctx, w, h) => { for (let x = 0; x < w; x += 32) { ctx.fillStyle = "#d42a1e"; ctx.fillRect(x, 0, 16, h); ctx.fillStyle = "#f4f1ea"; ctx.fillRect(x + 16, 0, 16, h); } }) });
+  const crossMat = signMat((ctx, w) => { ctx.translate(w / 2, w / 2); for (const a of [Math.PI / 4, -Math.PI / 4]) { ctx.save(); ctx.rotate(a); ctx.fillStyle = "#c8261d"; ctx.fillRect(-122, -20, 244, 40); ctx.fillStyle = "#f4f1ea"; ctx.fillRect(-116, -14, 232, 28); ctx.restore(); } });
+  SIGN_DRAW.rail = SIGN_DRAW.warn(ctx => { ctx.fillRect(-46, 6, 92, 7); for (let x = -40; x <= 40; x += 16) ctx.fillRect(x, -30, 5, 40); ctx.fillRect(-46, -26, 92, 6); }, "PASO A NIVEL");
+  const railWarnMat = signMat(SIGN_DRAW.rail);
+  const tunnelSignMat = L({ map: canvasTex(256, 128, (ctx, w, h) => { ctx.fillStyle = "#1f4f8a"; ctx.fillRect(0, 0, w, h); ctx.strokeStyle = "#fff"; ctx.lineWidth = 6; ctx.strokeRect(6, 6, w - 12, h - 12); ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.font = "bold 40px 'Saira Semi Condensed', Arial"; ctx.fillText("TÚNEL", w / 2, 52); ctx.font = "bold 26px 'Saira Semi Condensed', Arial"; ctx.fillText("ENCIENDA LAS LUCES", w / 2, 96); }, false) });
+  const tunnelSignGeo = new THREE.PlaneGeometry(1.6, 0.8), tunnelLampMat = B({ color: 0xffe2a8 }), tunnelLampGeo = new THREE.BoxGeometry(0.1, 0.18, 0.9);
+  const railBarGeo = new THREE.BoxGeometry(0.09, 0.13, 1), sleeperGeo = new THREE.BoxGeometry(0.25, 0.1, 2.4), lampRedGeo = new THREE.CircleGeometry(0.11, 14);
+  const railSets = new Map(), ruralSets = new Map();
+  // a strip of track between two points along a line (direction dx, dz), at height y
+  function addTrack(bd, x0, z0, dx, dz, len, y, sleepers, ballast) {
+    const ry = Math.atan2(dx, dz), cx = x0 + dx * len / 2, cz = z0 + dz * len / 2, nx = dz, nz = -dx;
+    if (ballast) bd.add(new THREE.BoxGeometry(3.6, 0.16, len), ballastMat, cx, y - 0.08, cz, ry);
+    for (const o of [-0.72, 0.72]) bd.add(railBarGeo, railMat, cx + nx * o, y + 0.065, cz + nz * o, ry, 1, 1, len);
+    if (sleepers) for (let t = 0.3; t < len; t += 0.65) bd.add(sleeperGeo, sleeperMat, x0 + dx * t, y + 0.02, z0 + dz * t, ry + Math.PI / 2);
+  }
+  // barrier arm pivoting at (x, z), pointing toward (ax, az)
+  function makeArm(x, z, ax, az, len) {
+    const pivot = new THREE.Group(); pivot.position.set(x, 1.05, z);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(len, 0.12, 0.1), stripeMat); arm.position.x = len / 2; arm.castShadow = true; pivot.add(arm);
+    pivot.down = 0; pivot.up = Math.PI / 2 * 0.92; pivot.rotation.z = pivot.up;
+    return pivot;
+  }
+  function lampPair(bd, x, z, th, y) {
+    const mats = [B({ color: 0x3a1410 }), B({ color: 0x3a1410 })], d = dirOf(th), r = rightOf(th);
+    [-0.26, 0.26].forEach((o, k) => bd.add(lampRedGeo, mats[k], x + r.x * o - d.x * 0.08, y, z + r.z * o - d.z * 0.08, -th));
+    return mats;
+  }
+  function buildCityRail(grp, flat, solid, i, j, ox, oz) {
+    const zr = oz + G / 2, under = isAvenue(i);
+    // ballast and sleepers inside the block, rails all along
+    addTrack(solid, ox + HALF + WALK, zr, 1, 0, G - 2 * (HALF + WALK), 0.16, true, true);
+    for (const [x0, x1, y] of [[ox, ox + HALF, 0.015], [ox + HALF, ox + HALF + WALK, 0.16], [ox + G - HALF - WALK, ox + G - HALF, 0.16], [ox + G - HALF, ox + G, 0.015]]) {
+      for (const o of [-0.72, 0.72]) solid.add(railBarGeo, railMat, (x0 + x1) / 2, y + 0.03, zr + o, Math.PI / 2, 1, 0.5, x1 - x0);
+    }
+    if (!under) {
+      flat.add(new THREE.BoxGeometry(2 * HALF, 0.02, 3.4), panelMat, ox, 0.01, zr);
+      const set = { i, j, x: ox, arms: [], lamps: [] };
+      // one barrier, lights and cross on the right of each approach
+      for (const [k, sx, sz] of [[0, 1, 1], [2, -1, -1]]) {
+        const th = k * Math.PI / 2, px = ox + sx * (HALF + 0.7), pz = zr + sz * 5.5;
+        solid.add(poleGeo, poleMat, px, 1.6, pz, 0, 1.4, 3.2, 1.4);
+        const d = dirOf(th);
+        solid.add(signGeo, crossMat, px - d.x * 0.06, 3.05, pz - d.z * 0.06, -th, 1.3, 1.3, 1.3);
+        set.lamps.push(lampPair(solid, px, pz, th, 2.3));
+        const arm = makeArm(px, pz, -sx, 0, HALF + 0.4); arm.rotation.y = sx > 0 ? Math.PI : 0;
+        grp.add(arm); set.arms.push(arm);
+        const [wx, wz] = rel(ox, zr, th, -40, HALF + 0.7);
+        solid.add(poleGeo, poleMat, wx, 1.2, wz, 0, 1, 2.4, 1); solid.add(signGeo, railWarnMat, wx - d.x * 0.05, 2.4, wz - d.z * 0.05, -th);
+      }
+      railSets.set(i + "," + j, set);
+    } else {
+      // the avenue goes down under the tracks: walls, the bridge on top, lamps inside
+      const segs = 80, z0 = zr - TUNNEL_FLAT - TUNNEL_RAMP, z1 = zr + TUNNEL_FLAT + TUNNEL_RAMP;
+      for (const sx of [-1, 1]) {
+        const pos = [], nor = [], uv = [], x = ox + sx * HALF;
+        for (let k = 0; k < segs; k++) {
+          const za = z0 + (z1 - z0) * k / segs, zb = z0 + (z1 - z0) * (k + 1) / segs, ya = -tunnelDepth(za - zr), yb = -tunnelDepth(zb - zr);
+          const quad = sx < 0 ? [[x, ya, za], [x, 0.16, za], [x, yb, zb], [x, 0.16, za], [x, 0.16, zb], [x, yb, zb]] : [[x, ya, za], [x, yb, zb], [x, 0.16, za], [x, 0.16, za], [x, yb, zb], [x, 0.16, zb]];
+          for (const q of quad) { pos.push(...q); nor.push(-sx, 0, 0); uv.push(q[2] / 4, q[1] / 4); }
+        }
+        const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+        solid.add(g, concreteMat, 0, 0, 0); g.dispose();
+        // railing on the edge of the sidewalk
+        for (let z = z0 + 6; z < z1 - 6; z += 2) solid.add(poleGeo, poleMat, ox + sx * (HALF + 0.12), 0.6, z, 0, 0.6, 0.9, 0.6);
+        solid.add(new THREE.BoxGeometry(0.06, 0.06, z1 - z0 - 12), poleMat, ox + sx * (HALF + 0.12), 1.05, (z0 + z1) / 2);
+        for (let z = zr - 4; z <= zr + 4; z += 2.6) solid.add(tunnelLampGeo, tunnelLampMat, ox + sx * (HALF - 0.06), -2.0, z);
+      }
+      solid.add(new THREE.BoxGeometry(2 * (HALF + WALK) + 0.4, 0.9, 9), concreteMat, ox, -0.29, zr);
+      for (const [k, sz] of [[0, 1], [2, -1]]) {
+        const th = k * Math.PI / 2, d = dirOf(th), [px, pz] = rel(ox, zr, th, -41, HALF + 0.7);
+        solid.add(poleGeo, poleMat, px, 1.3, pz, 0, 1, 2.6, 1); solid.add(tunnelSignGeo, tunnelSignMat, px - d.x * 0.05, 2.5, pz - d.z * 0.05, -th);
+      }
+    }
+  }
+  // the road strip that dips under the tracks
+  function tunnelRoadGeo(ox, oz) {
+    const g = new THREE.PlaneGeometry(7, SEG, 1, 90); g.rotateX(-Math.PI / 2); g.translate(ox, 0, oz + G / 2);
+    const pos = g.attributes.position, uv = g.attributes.uv, zr = oz + G / 2;
+    for (let k = 0; k < pos.count; k++) { pos.setY(k, -tunnelDepth(pos.getZ(k) - zr)); uv.setY(k, uv.getY(k) * SEG / 9); }
+    g.computeVertexNormals();
+    return g;
+  }
+  // ---- school buildings: guardapolvos, the flag and the sign ----
+  const schoolSignMats = new Map();
+  const schoolSignMat = n => { if (!schoolSignMats.has(n)) schoolSignMats.set(n, L({ map: canvasTex(512, 96, (ctx, w, h) => { ctx.fillStyle = "#f4f1ea"; ctx.fillRect(0, 0, w, h); ctx.strokeStyle = "#1f4f8a"; ctx.lineWidth = 6; ctx.strokeRect(4, 4, w - 8, h - 8); ctx.fillStyle = "#1f4f8a"; ctx.font = "bold 46px 'Saira Semi Condensed', Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(`ESCUELA N° ${n}`, w / 2, h / 2 + 2); }, false) })); return schoolSignMats.get(n); };
+  const schoolFront = L({ map: canvasTex(512, 160, (ctx, w, h) => {
+    noise(ctx, w, h, "#e6dcc4", 0.08, 2500);
+    for (let f = 0; f < 2; f++) for (let b = 0; b < 8; b++) { if (f === 0 && (b === 3 || b === 4)) continue; const x = 14 + b * 62, y = 14 + f * 74; ctx.fillStyle = "#2f4a5c"; ctx.fillRect(x, y, 46, 50); ctx.strokeStyle = "#3f6a3f"; ctx.lineWidth = 4; ctx.strokeRect(x, y, 46, 50); ctx.beginPath(); ctx.moveTo(x + 23, y); ctx.lineTo(x + 23, y + 50); ctx.stroke(); }
+    ctx.fillStyle = "#3f6a3f"; ctx.fillRect(200, 92, 112, 68); ctx.fillStyle = "#2a2622"; ctx.fillRect(208, 100, 46, 60); ctx.fillRect(258, 100, 46, 60);
+  }) });
+  const schoolWall = L({ color: 0xe6dcc4 });
+  const flagMat = L({ map: canvasTex(96, 64, (ctx, w, h) => { ctx.fillStyle = "#74acdf"; ctx.fillRect(0, 0, w, h); ctx.fillStyle = "#fff"; ctx.fillRect(0, h / 3, w, h / 3); ctx.fillStyle = "#f6b40e"; ctx.beginPath(); ctx.arc(w / 2, h / 2, 6, 0, Math.PI * 2); ctx.fill(); }, false) });
+  const flagGeo = new THREE.PlaneGeometry(1.8, 1.2);
+  function addSchool(bd, x, z, ry, n) {
+    const f = { x: Math.sin(ry), z: Math.cos(ry) }, r = { x: Math.cos(ry), z: -Math.sin(ry) }, W = 25, D = 12, H = 7.6;
+    bd.add(new THREE.BoxGeometry(W, H, D), [schoolWall, schoolWall, roofMat, roofMat, schoolFront, schoolWall], x, H / 2, z, ry);
+    bd.add(corniceGeo, corniceMat, x, H + 0.25, z, ry, (W + 0.5) / 10, 1, (D + 0.5) / 10);
+    bd.add(new THREE.PlaneGeometry(5.2, 1), schoolSignMat(n), x + f.x * (D / 2 + 0.03), 3.4, z + f.z * (D / 2 + 0.03), ry);
+    const px = x + f.x * (D / 2 + 1.6) + r.x * (W / 2 - 1.5), pz = z + f.z * (D / 2 + 1.6) + r.z * (W / 2 - 1.5);
+    bd.add(poleGeo, poleMat, px, 4.5, pz, 0, 0.8, 9, 0.8);
+    bd.add(flagGeo, flagMat, px + r.x * 0.92, 8.3, pz + r.z * 0.92, ry);
+  }
+  // ---- trains ----
+  const locoMats = [L({ color: 0x2f5f9a }), L({ color: 0xd06a2a })], coachMat = L({ color: 0xbfc3c7 }), wagonMat = L({ color: 0x6a4a3a }), bogieMat = L({ color: 0x1b1b1b });
+  const coachWinMat = L({ map: canvasTex(256, 64, (ctx, w, h) => { ctx.fillStyle = "#bfc3c7"; ctx.fillRect(0, 0, w, h); ctx.fillStyle = "#2a3440"; for (let x = 10; x < w - 20; x += 30) ctx.fillRect(x, 14, 20, 22); ctx.fillStyle = "#c8261d"; ctx.fillRect(0, 44, w, 6); }) });
+  function makeTrain(freight) {
+    const g = new THREE.Group(), add = (geo, mat, z, y) => { const m = new THREE.Mesh(geo, mat); m.position.set(0, y, z); m.castShadow = true; g.add(m); };
+    const locoL = 17, carL = freight ? 14 : 20, n = freight ? 8 : 3;
+    add(new THREE.BoxGeometry(3, 3.4, locoL), locoMats[freight ? 1 : 0], -locoL / 2, 2.3);
+    add(new THREE.BoxGeometry(2.6, 0.6, locoL - 1), bogieMat, -locoL / 2, 0.55);
+    add(new THREE.BoxGeometry(0.5, 0.25, 0.05), headMat, -0.01, 3.4);
+    let z = -locoL - 1;
+    for (let k = 0; k < n; k++) {
+      if (freight) add(new THREE.BoxGeometry(2.9, 2.6, carL), wagonMat, z - carL / 2, 1.95);
+      else add(new THREE.BoxGeometry(3, 3.2, carL), [coachWinMat, coachWinMat, coachMat, coachMat, coachMat, coachMat], z - carL / 2, 2.2);
+      add(new THREE.BoxGeometry(2.6, 0.6, carL - 1), bogieMat, z - carL / 2, 0.55);
+      z -= carL + 1;
+    }
+    g.len = -z;
+    return g;
+  }
+  function spawnTrain(L, s, dir, v, freight) {
+    const obj = makeTrain(freight), tr = { L, s, dir, v, len: obj.len, obj, horned: false, hitPlayer: false };
+    scene.add(obj); trains.push(tr);
+    return tr;
+  }
+  function removeTrain(n) { scene.remove(trains[n].obj); disposeGroup(trains[n].obj); trains.splice(n, 1); }
+  function trainHorn() {
+    if (!audio || !audio.on) return;
+    try { const ac = audio.ac, g = ac.createGain(); g.gain.value = 0.05; g.connect(ac.destination); for (const f of [185, 233]) { const o = ac.createOscillator(); o.type = "sawtooth"; o.frequency.value = f; o.connect(g); o.start(); o.stop(ac.currentTime + 1.6); } } catch (err) {}
+  }
+  let bellT = 0;
+  function updateTrains(dt) {
+    const cityWorld = mode !== "hill" && mode !== "campo";
+    // city: a train now and then on the nearest line
+    if (cityWorld && !S.paused) {
+      let best = null; for (let j = Math.floor(S.z / G) - 4; j <= Math.floor(S.z / G) + 4; j++) if (isRailRow(j) && (best == null || Math.abs(railZ(j) - S.z) < Math.abs(railZ(best) - S.z))) best = j;
+      if (best != null && Math.abs(railZ(best) - S.z) < 330 && !trains.some(t => t.L === cityLine(best)) && S.t > (S.nextTrainT ?? 25)) {
+        const dir = Math.random() < 0.5 ? 1 : -1;
+        spawnTrain(cityLine(best), S.x - dir * 470, dir, 14, false);
+        S.nextTrainT = S.t + 75 + Math.random() * 45;
+      }
+    }
+    // country road: a freight train timed to meet you at the crossing, some of the times
+    if (mode === "campo") {
+      const u = S.routeU ?? -S.z;
+      for (const L of RURAL_LINES) {
+        const ahead = L.uR - u;
+        if (ahead > 150 && ahead < 420 && L.decided !== Math.floor(u / 1000) && !trains.some(t => t.L === L)) {
+          L.decided = Math.floor(u / 1000);
+          if (Math.random() < 0.6) { const eta = ahead / Math.max(S.v, 12), dir = Math.random() < 0.5 ? 1 : -1, v = 16; spawnTrain(L, -dir * (v * eta + 20), dir, v, true); }
+        }
+      }
+    }
+    for (let n = trains.length - 1; n >= 0; n--) {
+      const tr = trains[n], L = tr.L;
+      tr.s += tr.dir * tr.v * dt;
+      const fx = L.x0 + L.dx * tr.s, fz = L.z0 + L.dz * tr.s, th = Math.atan2(L.dx * tr.dir, -L.dz * tr.dir);
+      placeCar(tr.obj, fx, fz, th); tr.obj.position.y = 0.2;
+      // where the player is along this line
+      const ps = (S.x - L.x0) * L.dx + (S.z - L.z0) * L.dz, pa = Math.abs((S.x - L.x0) * L.dz - (S.z - L.z0) * L.dx);
+      if (!tr.horned && pa < 200 && (ps - tr.s) * tr.dir > 0 && (ps - tr.s) * tr.dir < 260) { tr.horned = true; trainHorn(); }
+      const tailS = tr.s - tr.dir * tr.len;
+      if ((tailS - ps) * tr.dir > 520 || (ps - tr.s) * tr.dir > 900 || mode === "hill" || (L.city ? mode === "campo" : mode !== "campo")) removeTrain(n);
+    }
+    // barriers and red lights
+    bellT -= dt;
+    const blink = Math.floor(S.t * 2.6) % 2;
+    for (const set of railSets.values()) {
+      const closed = !!trainNear(cityLine(set.j), set.x, 18);
+      for (const arm of set.arms) { const target = closed ? arm.down : arm.up; arm.rotation.z += clamp(target - arm.rotation.z, -0.6 * dt, 0.6 * dt); }
+      set.lamps.forEach(pair => pair.forEach((m, k) => m.color.setHex(closed && k === blink ? 0xff2a14 : 0x3a1410)));
+      if (closed && bellT <= 0 && audio && audio.on && Math.hypot(S.x - set.x, S.z - railZ(set.j)) < 80) { bellT = 0.55; try { const ac = audio.ac, o = ac.createOscillator(), g = ac.createGain(); o.frequency.value = 1250; g.gain.value = 0.025; o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime + 0.12); } catch (err) {} }
+    }
+    for (const [key, set] of ruralSets) { const L = RURAL_LINES.find(l => l.key === key), closed = L && !!trainNear(L, 0, 18); set.forEach(pair => pair.forEach((m, k) => m.color.setHex(closed && k === blink ? 0xff2a14 : 0x3a1410))); }
+  }
+  // does a train hit this car?
+  function trainHits(p) {
+    for (const tr of trains) {
+      const L = tr.L, cs = [];
+      for (const hl of [2.1, 1.05, 0, -1.05, -2.1]) for (const hw of [0.9, -0.9]) cs.push(...corners(p.x, p.z, p.th, hl, hw).slice(0, 1));
+      const lo = Math.min(tr.s, tr.s - tr.dir * tr.len), hi = Math.max(tr.s, tr.s - tr.dir * tr.len);
+      if (cs.some(([x, z]) => { const s = (x - L.x0) * L.dx + (z - L.z0) * L.dz, a = Math.abs((x - L.x0) * L.dz - (z - L.z0) * L.dx); return a < 1.6 && s > lo && s < hi; })) return tr;
+    }
+    return null;
   }
   function disposeGroup(g) { g.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
   function updateCells() {
@@ -2660,7 +2961,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const ci = Math.floor(S.x / G), cj = Math.floor(S.z / G);
     for (const [key, g] of cells) {
       const [i, j] = key.split(",").map(Number);
-      if (Math.abs(i - ci) > 2 || Math.abs(j - cj) > 2) { scene.remove(g); disposeGroup(g); cells.delete(key); lightSets.delete(key); }
+      if (Math.abs(i - ci) > 2 || Math.abs(j - cj) > 2) { scene.remove(g); disposeGroup(g); cells.delete(key); lightSets.delete(key); railSets.delete(key); }
     }
     // the nearest blocks are built right away; farther ones one per frame to avoid hitches
     for (let r = 0; r <= 2; r++) for (let i = ci - r; i <= ci + r; i++) for (let j = cj - r; j <= cj + r; j++) {
@@ -2776,6 +3077,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       add(ribbon(u0, u1, sd < 0 ? -90 : FENCE + 1, sd < 0 ? -FENCE - 1 : 90, -0.03, 6, 6, 77), fm, flat);
       // wire fence
       for (let u = Math.ceil(u0 / 5) * 5; u < u1; u += 5) {
+        if (RURAL_LINES.some(L => u + 5 > L.uR - 4 && u < L.uR + 4)) continue;
         const p = routePoint(u, sd * FENCE), q = routePoint(u + 5, sd * FENCE), ry = Math.atan2(q.x - p.x, q.z - p.z);
         solid.add(poleGeo, fenceMat, p.x, 0.6, p.z, 0, 1.4, 1.2, 1.4);
         for (const y of [0.55, 0.95]) solid.add(kmGeo, wireMat, (p.x + q.x) / 2, y, (p.z + q.z) / 2, ry, 0.06, 0.03, 5 / 0.12);
@@ -2801,6 +3103,26 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       if (((u % 1000) + 1000) % 1000 === 50) sign(u, limit80Mat);
       if (((u % 1000) + 1000) % 1000 === 0 && u > 0) { const p = routePoint(u, HALF + SHOULDER + 0.6), th = routeInfo(u).th; solid.add(kmGeo, kmMat(u / 1000), p.x, 0.4, p.z, -th); }
       if (Math.abs(routeInfo(u + 150).k) > SHARP_K && Math.abs(routeInfo(u + 145).k) <= SHARP_K) sign(u, routeInfo(u + 150).k > 0 ? curveRMat : curveLMat);
+    }
+    for (const L of RURAL_LINES) {
+      if (L.uR < u0 || L.uR >= u1) continue;
+      const edge = HALF + SHOULDER;
+      addTrack(solid, L.x0 - L.dx * 90, L.z0 - L.dz * 90, L.dx, L.dz, 90 - edge, 0.16, true, true);
+      addTrack(solid, L.x0 + L.dx * edge, L.z0 + L.dz * edge, L.dx, L.dz, 90 - edge, 0.16, true, true);
+      addTrack(solid, L.x0 - L.dx * edge, L.z0 - L.dz * edge, L.dx, L.dz, 2 * edge, -0.05, false, false);
+      solid.add(new THREE.BoxGeometry(3.4, 0.02, 2 * edge), panelMat, L.x0, 0.01, L.z0, Math.atan2(L.dx, L.dz));
+      const pairs = [];
+      for (const [du, sd] of [[-9, 1], [9, -1]]) {
+        const u = L.uR + du, th = routeInfo(u).th + (sd < 0 ? Math.PI : 0), p = routePoint(u, sd * (HALF + SHOULDER + 0.8)), d = dirOf(th);
+        solid.add(poleGeo, poleMat, p.x, 1.6, p.z, 0, 1.4, 3.2, 1.4);
+        solid.add(signGeo, crossMat, p.x - d.x * 0.06, 3.05, p.z - d.z * 0.06, -th, 1.3, 1.3, 1.3);
+        pairs.push(lampPair(solid, p.x, p.z, th, 2.35));
+        solid.add(signGeo, stopSignMat, p.x - d.x * 0.06, 1.55, p.z - d.z * 0.06, -th);
+        add(ribbon(L.uR + du * 0.8, L.uR + du * 0.8 + 0.45, sd > 0 ? 0 : -HALF, sd > 0 ? HALF : 0, 0.014, 0.45), paintMat, flat);
+        const w = routePoint(L.uR + du * 16, sd * (HALF + SHOULDER + 0.8)), wth = routeInfo(L.uR + du * 16).th + (sd < 0 ? Math.PI : 0), wd = dirOf(wth);
+        solid.add(poleGeo, poleMat, w.x, 1.2, w.z, 0, 1, 2.4, 1); solid.add(signGeo, railWarnMat, w.x - wd.x * 0.05, 2.4, w.z - wd.z * 0.05, -wth);
+      }
+      ruralSets.set(L.key, pairs);
     }
     flat.build(grp, false, true); solid.build(grp, true, true);
     routeRoot.add(grp);
@@ -2884,7 +3206,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     for (const c of traffic) removeCar(c);
     traffic.length = 0;
     for (const [, g] of cells) { scene.remove(g); disposeGroup(g); }
-    cells.clear(); lightSets.clear();
+    cells.clear(); lightSets.clear(); railSets.clear();
+    while (trains.length) removeTrain(trains.length - 1);
     for (const [, g] of hillChunks) { hillRoot.remove(g); disposeGroup(g); }
     hillChunks.clear();
     for (const [, g] of routeChunks) { routeRoot.remove(g); disposeGroup(g); }
@@ -3013,6 +3336,13 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
           }
         }
         if (mustStop) vT = Math.min(vT, Math.sqrt(Math.max(0, 2 * 3.5 * (toLine - 0.4))));
+        if (c.k % 2 === 0) {
+          const blk = c.k === 0 ? c.j - 1 : c.j;
+          if (isRailRow(blk) && !isAvenue(c.i)) {
+            const toRail = G / 2 - 7 - front;
+            if (toRail > -1 && toRail < 45 && trainNear(cityLine(blk), c.i * G, 22)) vT = Math.min(vT, Math.sqrt(Math.max(0, 2 * 3.5 * (toRail - 0.4))));
+          }
+        }
         if ((c.next !== 0 || ctrlOf(ni, nj) === "round") && toLine < 25) vT = Math.min(vT, 6);
         // left turns yield to oncoming cars
         if (!mustStop && c.next === -1 && toLine < 1 && ctrlOf(ni, nj) !== "round" && traffic.some(o => o !== c && o.k === (c.k + 2) % 4 && !o.turn && Math.hypot(o.x - c.x, o.z - c.z) < 30)) vT = 0;
@@ -3065,7 +3395,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (school && r < 0.55) return "kid";
     return r < 0.45 ? "adult" : r < 0.62 ? "elder" : r < 0.77 ? "phone" : r < 0.87 ? "kid" : "doubt";
   }
-  function makePed(type) {
+  const smockMat = L({ color: 0xf4f4f0 });
+  function makePed(type, school) {
     const g = new THREE.Group();
     const legs = [-0.1, 0.1].map(x => { const m = new THREE.Mesh(pedLegGeo, pedPants); m.position.set(x, 0.85, 0); g.add(m); return m; });
     const body = new THREE.Mesh(pedBodyGeo, pick(type === "kid" ? kidCloth : pedCloth)); body.position.y = 1.16; g.add(body);
@@ -3074,6 +3405,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (type === "elder") { body.rotation.x = 0.18; body.position.z = 0.04; head.position.z = hair.position.z = 0.12; head.position.y = hair.position.y = 1.56; const cane = new THREE.Mesh(caneGeo, caneMat); cane.position.set(0.28, 0.46, 0.22); g.add(cane); }
     if (type === "phone") { const ph = new THREE.Mesh(phoneGeo, phoneMat); ph.position.set(0.1, 1.38, 0.24); ph.rotation.x = -0.6; g.add(ph); head.position.z = hair.position.z = 0.05; }
     if (type === "adult" && Math.random() < 0.4) { const bag = new THREE.Mesh(bagGeo, pick(pedCloth)); bag.position.set(0.3, 0.95, 0); g.add(bag); }
+    if (type === "kid" && school) { body.material = smockMat; body.scale.set(1.05, 1.35, 1.05); body.position.y = 1.08; } // the white school smock
     if (type === "kid") g.scale.setScalar(0.62);
     g.traverse(o => { if (o.isMesh) o.castShadow = true; });
     g.legs = legs;
@@ -3083,7 +3415,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   const pedPose = pd => { const [x, z] = rel(pd.cx, pd.cz, pd.th, pd.a, pd.b); return { x, z }; };
   function addPed(pd) {
     pd.speed = PED_SPEED[pd.type][0] + Math.random() * (PED_SPEED[pd.type][1] - PED_SPEED[pd.type][0]);
-    pd.obj = makePed(pd.type); pd.phase = Math.random() * 6; pd.yielded = false; pd.flagged = false; pd.prevIn = false; pd.onRoad = false;
+    pd.obj = makePed(pd.type, pd.school); pd.phase = Math.random() * 6; pd.yielded = false; pd.flagged = false; pd.prevIn = false; pd.onRoad = false;
     Object.assign(pd, pedPose(pd));
     scene.add(pd.obj); peds.push(pd);
   }
@@ -3119,7 +3451,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (peds.some(o => o.role === "zebra" && o.i === i && o.j === j && o.k === k)) return;
     const sg = segAt(i * G + dirOf(k * Math.PI / 2).x * -20, j * G + dirOf(k * Math.PI / 2).z * -20), school = sg && segFeature(sg.axis, sg.line, sg.block) === "school";
     const dir = Math.random() < 0.5 ? 1 : -1, type = pickType(school);
-    const pd = { role: "zebra", i, j, k, cx: i * G, cz: j * G, th: k * Math.PI / 2, a: CROSS_A, b: -dir * CROSS_END, dir, type, state: "wait", wait: 0.5 + Math.random() * 2.5, reckless: Math.random() < (type === "phone" ? 0.45 : type === "kid" ? 0.2 : 0.05) };
+    const pd = { school, role: "zebra", i, j, k, cx: i * G, cz: j * G, th: k * Math.PI / 2, a: CROSS_A, b: -dir * CROSS_END, dir, type, state: "wait", wait: 0.5 + Math.random() * 2.5, reckless: Math.random() < (type === "phone" ? 0.45 : type === "kid" ? 0.2 : 0.05) };
     const p = pedPose(pd);
     if (Math.hypot(p.x - S.x, p.z - S.z) < 25) return;
     addPed(pd);
@@ -3133,7 +3465,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (s < 15 || s > G - 15) return;
     const cx = sg.axis === "NS" ? sg.line * G : along, cz = sg.axis === "NS" ? along : sg.line * G;
     const school = segFeature(sg.axis, sg.line, sg.block) === "school", dir = Math.random() < 0.5 ? 1 : -1;
-    addPed({ role: "mid", cx, cz, th: c.th, a: 0, b: -dir * (HALF + 1.6), dir, type: school ? "kid" : pick(["adult", "phone", "kid", "adult"]), state: "walk", wait: 0, reckless: true });
+    if (sg.axis === "NS" && isRailRow(sg.block)) return;
+    addPed({ school, role: "mid", cx, cz, th: c.th, a: 0, b: -dir * (HALF + 1.6), dir, type: school ? "kid" : pick(["adult", "phone", "kid", "adult"]), state: "walk", wait: 0, reckless: true });
   }
   // people walking along the sidewalks, so the city is alive (and the sidewalk is not a place to drive)
   function spawnWalker() {
@@ -3146,7 +3479,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       const dist = Math.hypot(cx - S.x, cz - S.z);
       if (dist < 30 || dist > 110) continue;
       const school = segFeature(ns ? "NS" : "EW", line, block) === "school";
-      addPed({ role: "walker", ns, line, block, cx, cz, th: ns ? 0 : Math.PI / 2, a: 0, b, dir: Math.random() < 0.5 ? 1 : -1, type: pickType(school), state: "walk", wait: 0, reckless: false });
+      addPed({ school, role: "walker", ns, line, block, cx, cz, th: ns ? 0 : Math.PI / 2, a: 0, b, dir: Math.random() < 0.5 ? 1 : -1, type: pickType(school), state: "walk", wait: 0, reckless: false });
       return;
     }
   }
@@ -3328,7 +3661,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   const wheelEl = document.getElementById("wheel");
   const v3 = (x, y, z) => new THREE.Vector3(x, y, z);
   function render3d() {
-    ground.position.set(Math.round(S.x / 16) * 16, -0.06, Math.round(S.z / 16) * 16);
+    // in the city the far ground sits lower, so it never covers the tunnels; each block has its own grass
+    ground.position.set(Math.round(S.x / 16) * 16, mode === "campo" || mode === "hill" ? -0.06 : -6.5, Math.round(S.z / 16) * 16);
     sun.position.set(S.x + 50, 90, S.z + 35); sun.target.position.set(S.x, 0, S.z); sun.target.updateMatrixWorld();
     placeCar(myCar, S.x, S.z, S.th); myCar.position.y = heightAt(S.x, S.z);
     beamRoot.visible = opts.night && S.lights;
@@ -3443,6 +3777,9 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         for (let w = u - 150; w <= u + 150; w += 6) { const p = routePoint(w, 0); w === u - 150 ? gctx.moveTo(X(p.x), Z(p.z)) : gctx.lineTo(X(p.x), Z(p.z)); }
         gctx.stroke();
       }
+      gctx.strokeStyle = "#1b1b1b"; gctx.lineWidth = 2 * dpr;
+      for (const L of RURAL_LINES) if (Math.abs(L.uR - u) < 200) { gctx.beginPath(); gctx.moveTo(X(L.x0 - L.dx * 200), Z(L.z0 - L.dz * 200)); gctx.lineTo(X(L.x0 + L.dx * 200), Z(L.z0 + L.dz * 200)); gctx.stroke(); }
+      for (const tr of trains) { const L = tr.L; gctx.strokeStyle = "#e2553f"; gctx.lineWidth = 3 * dpr; gctx.beginPath(); gctx.moveTo(X(L.x0 + L.dx * tr.s), Z(L.z0 + L.dz * tr.s)); gctx.lineTo(X(L.x0 + L.dx * (tr.s - tr.dir * tr.len)), Z(L.z0 + L.dz * (tr.s - tr.dir * tr.len))); gctx.stroke(); }
       for (const c of routeCars) { gctx.fillStyle = c.kind === "tractor" ? "#f0a535" : "#d9d4c8"; gctx.beginPath(); gctx.arc(X(c.x), Z(c.z), (c.kind === "tractor" ? 2.8 : 1.8) * dpr, 0, Math.PI * 2); gctx.fill(); }
       gctx.translate(w / 2, h / 2); gctx.rotate(S.th);
       gctx.fillStyle = "#4fc3f7"; gctx.beginPath(); gctx.moveTo(0, -8 * dpr); gctx.lineTo(5 * dpr, 6 * dpr); gctx.lineTo(-5 * dpr, 6 * dpr); gctx.closePath(); gctx.fill();
@@ -3460,6 +3797,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     gctx.fillStyle = "#6b6e72";
     for (let i = Math.floor((S.x - 140) / G); i <= Math.ceil((S.x + 140) / G); i++) gctx.fillRect(X(i * G - HALF), 0, 7 * sc, h);
     for (let j = Math.floor((S.z - 140) / G); j <= Math.ceil((S.z + 140) / G); j++) gctx.fillRect(0, Z(j * G - HALF), w, 7 * sc);
+    for (let j = Math.floor((S.z - 140) / G); j <= Math.ceil((S.z + 140) / G); j++) if (isRailRow(j)) { gctx.fillStyle = "#1b1b1b"; gctx.fillRect(0, Z(railZ(j)) - 1.5 * dpr, w, 3 * dpr); }
+    for (const tr of trains) if (tr.L.city) { gctx.fillStyle = "#e2553f"; const a = tr.s, b2 = tr.s - tr.dir * tr.len; gctx.fillRect(X(Math.min(a, b2)), Z(tr.L.z0) - 2.5 * dpr, Math.abs(a - b2) * sc, 5 * dpr); }
     gctx.fillStyle = "#585a5d"; gctx.fillRect(X(LOT.x0), Z(LOT.z0), (LOT.x1 - LOT.x0) * sc, (LOT.z1 - LOT.z0) * sc);
     gctx.fillRect(X(DRIVE.x0), Z(DRIVE.z0), (DRIVE.x1 - DRIVE.x0) * sc, (DRIVE.z1 - DRIVE.z0) * sc);
     gctx.fillStyle = "#ffd23d";
@@ -3556,6 +3895,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const setChip = (txt, col) => { if (chip.dataset.t !== txt) { chip.dataset.t = txt; chip.innerHTML = `<i style="background:${col}"></i>`; chip.appendChild(document.createTextNode(txt)); } chip.hidden = false; };
     if (mode === "campo") {
       const u = S.routeU ?? -S.z, ca = help ? curveAhead(u, 250) : null, slow = help && routeCars.find(c => c.lane > 0 && c.u - u > 0 && c.u - u < 220);
+      const rr = help && RURAL_LINES.find(L => L.uR - u > -3 && L.uR - u < 260);
+      if (rr) { const near = trainNear(rr, 0, 25); setChip(`Paso a nivel con PARE · ${Math.max(0, Math.round(rr.uR - u))} m${near ? " · ¡viene el tren!" : ""}`, near ? "#ff3b24" : "#f2c230"); return; }
       const txt = ca ? `Curva a la ${ca.dir === "right" ? "derecha" : "izquierda"} en ${Math.round(ca.dist)} m · baja a 60 km/h` : slow ? `${slow.kind === "tractor" ? "Tractor" : "Camión"} adelante · ${Math.round(slow.u - u)} m${noPass(u) ? " · doble línea: no adelantar" : ""}` : help && noPass(u) ? "Doble línea amarilla: prohibido adelantar" : "";
       if (txt) setChip(txt, ca ? "#f2c230" : slow ? "#f0a535" : "#e8b62a"); else chip.hidden = true;
       return;
@@ -3575,6 +3916,16 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     }
     const nav = lotNav();
     if (nav) { setChip(nav.text, "#ffd23d"); return; }
+    { const sg = segAt(S.x, S.z);
+      if (help && sg && sg.axis === "NS" && isRailRow(sg.block)) {
+        const rel = S.z - railZ(sg.block), d = (Math.abs(rel) - CAR_L / 2), toward = -Math.sign(rel) * dirOf(S.th).z > 0.5;
+        if (toward && d > -2 && d < 90) {
+          if (isAvenue(sg.line)) setChip(`Túnel bajo las vías · ${Math.max(0, Math.round(d))} m · luces encendidas`, "#3f8fe0");
+          else if (trainNear(cityLine(sg.block), sg.line * G, 18)) setChip(`¡Barreras bajas! Paso a nivel · ${Math.max(0, Math.round(d))} m · detente`, "#ff3b24");
+          else setChip(`Paso a nivel · ${Math.max(0, Math.round(d))} m · mira a los dos lados`, "#f2c230");
+          return;
+        }
+      } }
     const tb = help && mode === "city" ? bumpAhead() : null;
     if (tb != null && tb > -2 && tb < 70) { setChip(`Lomo de burro · ${Math.max(0, Math.round(tb))} m · pásalo a menos de 20 km/h`, "#f2c230"); return; }
     if (ap && ap.dist > -1 && ap.dist < 120) {
@@ -3622,6 +3973,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     while (S.hist.length && S.hist[0].t < S.t - 4.5) S.hist.shift();
     updateTraffic(dt);
     updateRouteCars(dt);
+    updateTrains(dt);
     updatePeds(dt);
     collide(prev);
     updateCells();
