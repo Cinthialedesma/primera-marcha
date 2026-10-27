@@ -394,6 +394,12 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 .coach ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; color: var(--muted); }
 .coach li.now { color: var(--ink); font-weight: 600; }
 .coach li.ok { color: var(--green); text-decoration: line-through; }
+.coach .chk { display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--line); padding-top: 5px; }
+.coach .chk[hidden] { display: none; }
+.coach .chk i { font-style: normal; display: inline-block; width: 1.1em; }
+.coach .chk .y { color: var(--green); }
+.coach .chk .n { color: var(--amber); }
+.coach .chk em { font-style: normal; color: var(--muted); font-size: .72rem; }
 .coach .meter { display: flex; gap: 10px; font-family: var(--font-num); color: var(--amber); }
 .sensor { display: flex; gap: 2px; align-items: center; }
 .sensor i { width: 10px; height: 8px; border-radius: 2px; background: #2a2e34; display: inline-block; }
@@ -478,6 +484,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     <div class="coach" id="coach" hidden>
       <b id="coach-title"></b>
       <ol id="coach-steps"></ol>
+      <div class="chk" id="coach-check" hidden></div>
       <div class="meter"><span id="coach-angle"></span><span class="sensor" id="coach-sensor"></span><span id="coach-dist"></span></div>
     </div>
     <div class="toasts" id="toasts" aria-live="polite"></div>
@@ -1700,6 +1707,27 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const allIn = r => corners(S.x, S.z, S.th).every(([x, z]) => inRect(x, z, r, 0.1));
     const aligned = tol => Math.abs(Math.cos(S.th)) < Math.sin(tol);
     const inPerp = allIn(PERP_RECT) && aligned(0.21), inPar = allIn(PAR_RECT) && aligned(0.14);
+    // what is still missing to count as parked, shown in the coach panel
+    S.parkCheck = null;
+    for (const [r, tol, on] of [[PERP_RECT, 12, perpTarget.visible], [PAR_RECT, 8, parTarget.visible]]) {
+      if (!on || !inRect(S.x, S.z, r, 2.5)) continue;
+      const o = corners(S.x, S.z, S.th).map(([x, z]) => !inRect(x, z, r, 0.1)), n = o.filter(Boolean).length;
+      let out = null;
+      if (n === 4) out = "Todavía no estás en el lugar";
+      else if (o[0] && o[1]) out = "Sobresale la trompa: retrocede un poco";
+      else if (o[2] && o[3]) out = "Sobresale la cola: avanza un poco";
+      else if (o[0] && o[2]) out = "Se sale el costado derecho: sal y entra más centrado";
+      else if (o[1] && o[3]) out = "Se sale el costado izquierdo: sal y entra más centrado";
+      else if (n) out = `Se sale la esquina ${o[0] || o[1] ? "delantera" : "trasera"} ${o[0] || o[2] ? "derecha" : "izquierda"}`;
+      const ang = Math.round(Math.asin(Math.min(1, Math.abs(Math.cos(S.th)))) * 180 / Math.PI);
+      S.parkCheck = { out, ang, tol, still: S.v === 0, t: S.parkT, done: r === PERP_RECT ? S.parkedPerp || (mode === "parking" && (S.mission === 0 ? S.parkedFront : S.parkedBack)) : S.parkedPar };
+      if (S.v === 0 && !S.parkCheck.done && (out || ang > tol) && Math.abs(S.vPrev ?? 1) < 1e-3) {
+        S.parkStillT = (S.parkStillT || 0) + dt;
+        if (S.parkStillT > 2.5) tip(`Todavía no cuenta como estacionado: ${out ? out.toLowerCase() : `estás torcido ${ang}° (máximo ${tol}°)`}.`, "park-why", 25);
+      } else S.parkStillT = 0;
+      break;
+    }
+    S.vPrev = S.v;
     if ((inPerp || inPar) && S.v === 0) {
       S.parkT += dt;
       if (S.parkT > 1) {
@@ -1739,7 +1767,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     { title: "Respeta un PARE", hint: "Cada 90 m hay una esquina. El GPS marca en rojo las que tienen PARE. Detente por completo antes de la línea blanca y vuelve a arrancar en 1ª.", done: () => S.stopOk },
     { title: "Dobla a la derecha señalizando", hint: "Pon el señalizador derecho (X) unos 30 m antes de la esquina, baja a 2ª y menos de 20 km/h, y gira con → cuando tu auto llegue al cruce peatonal. Quédate en el carril derecho.", done: () => S.turned.right },
     { title: "Dobla a la izquierda señalizando", hint: "Señalizador izquierdo (Z), reduce, avanza hasta el centro de la intersección y gira con ← hasta quedar en el carril derecho de la otra calle.", done: () => S.turned.left },
-    { title: "Estaciona en el lugar marcado", hint: "Ve al estacionamiento de práctica: en el GPS (abajo a la izquierda) es el rectángulo gris con la P, y una línea amarilla te marca el camino. La entrada está en la calle donde empezaste, del lado derecho, junto al cartel azul ESCUELA · PRÁCTICA y una columna amarilla. Adentro, estaciona en el rectángulo amarillo, de frente o en reversa, y no te muevas por un segundo.", done: () => S.parkedPerp },
+    { title: "Estaciona en el lugar marcado", hint: "Ve al estacionamiento de práctica: en el GPS (abajo a la izquierda) es el rectángulo gris con la P, y una línea amarilla te marca el camino. La entrada está en la calle donde empezaste, del lado derecho, junto al cartel azul ESCUELA · PRÁCTICA y una columna amarilla. Adentro, estaciona en el rectángulo amarillo, de frente o en reversa. Cuenta cuando todo el auto queda entre las líneas, derecho, y frenado 1 segundo: el rectángulo se pone verde y el panel de la derecha te dice qué falta.", done: () => S.parkedPerp },
     { title: "Estaciona en paralelo", hint: "Ponte al lado del auto de adelante, a 1 m, con las colas alineadas. En reversa gira todo a la derecha hasta quedar en 45°, endereza, y cuando tu frente pase la cola del auto de adelante gira todo a la izquierda.", done: () => S.parkedPar },
     { title: "Examen final", hint: "Sigue el GPS hasta los 3 puntos verdes (los ves en la calle como columnas verdes) y vuelve a estacionar en el lugar marcado. Apruebas con 2 infracciones o menos.", done: () => S.exam && S.exam.passed },
   ];
@@ -1800,7 +1828,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     CITY_MISSIONS[3].steps = [["Busca una esquina con PARE (punto rojo en el GPS)", () => apC("stop")], ["Frena y detente del todo antes de la línea blanca", () => apC("stop") && S.v === 0], ["Vuelve a salir en 1ª y cruza", () => S.stopOk]];
     const turnSteps = (side, key) => [[`Pon el guiño ${side === "right" ? "derecho (X)" : "izquierdo (Z)"} antes de la esquina`, () => S.blink === side], ["Mira el espejo (V)", () => S.blink === side && mirrorNow()], ["Baja a menos de 20 km/h", () => S.blink === side && kmh() < 20 && S.v > 0.5], [`Dobla a la ${side === "right" ? "derecha" : "izquierda"} siguiendo la guía amarilla`, () => S.turned[side]]];
     CITY_MISSIONS[4].steps = turnSteps("right"); CITY_MISSIONS[5].steps = turnSteps("left");
-    CITY_MISSIONS[6].steps = [["Ve al estacionamiento (la P del GPS)", () => inLot(S.x, S.z)], ["Entra al rectángulo amarillo", () => inRect(S.x, S.z, PERP_RECT, 0.5)], ["Detente adentro un segundo", () => S.parkedPerp]];
+    CITY_MISSIONS[6].steps = [["Ve al estacionamiento (la P del GPS)", () => inLot(S.x, S.z)], ["Entra al rectángulo amarillo", () => inRect(S.x, S.z, PERP_RECT, 0.5)], ["Todo el auto adentro, derecho y frenado 1 segundo (el lugar se pone verde)", () => S.parkedPerp]];
     CITY_MISSIONS[8].steps = [["Punto 1 del GPS", () => S.exam && (S.exam.idx >= 1 || S.exam.passed)], ["Punto 2", () => S.exam && (S.exam.idx >= 2 || S.exam.passed)], ["Punto 3", () => S.exam && (S.exam.idx >= 3 || S.exam.passed)], ["Vuelve a estacionar en el lugar marcado", () => S.exam && S.exam.passed]];
     HILL_MISSIONS[0].steps = [["Embrague a fondo y pon 1ª", () => S.gear === "1"], ["Acelera hasta unas 2.000 rpm", () => rpm() > 1700 && S.gas > 0.15], ["Suelta el embrague hasta que haga fuerza (tiembla)", () => e() > 0.08 && S.running], ["Ahí, baja el freno de mano (Q)", () => !S.hand && S.running], ["Sube sin irte para atrás", () => S.hillLaunchOk]];
     HILL_MISSIONS[1].steps = [["Al llegar al PARE, frena hasta detenerte", () => S.v === 0 && S.hs && S.hs.uphill && S.hs.stopped], ["Pisa el embrague antes de parar", () => S.v === 0 && S.clutch > 0.6], ["Sube el freno de mano (Q)", () => S.hillStopOk || (S.v === 0 && S.hand)]];
@@ -2862,7 +2890,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   }
   scene.add(lot);
   const targetMat = B({ color: 0xffd23d, transparent: true, opacity: 0.35, depthWrite: false });
-  const rectMesh = r => { const m = new THREE.Mesh(new THREE.PlaneGeometry(r.x1 - r.x0, r.z1 - r.z0), targetMat); m.rotation.x = -Math.PI / 2; m.position.set((r.x0 + r.x1) / 2, 0.02, (r.z0 + r.z1) / 2); scene.add(m); return m; };
+  const rectMesh = r => { const m = new THREE.Mesh(new THREE.PlaneGeometry(r.x1 - r.x0, r.z1 - r.z0), targetMat.clone()); m.rotation.x = -Math.PI / 2; m.position.set((r.x0 + r.x1) / 2, 0.02, (r.z0 + r.z1) / 2); scene.add(m); return m; };
   const perpTarget = rectMesh(PERP_RECT), parTarget = rectMesh(PAR_RECT);
   // cones for the circuit exam: a slalom line and a corridor to reverse through
   const SLALOM = [-20, -30, -40, -50, -60].map(z => ({ x: 32, z })), CORRIDOR = { x: 16, z0: -48, z1: -24, half: 1.75 };
@@ -4165,11 +4193,11 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       { text: "Ponte en el pasillo, derecho frente al lugar amarillo.", ghost: [49, SPOT_Z, Math.PI / 2], ok: () => near(S.z, SPOT_Z, 0.5) && headingNear(Math.PI / 2, 0.17) && S.x < 53 },
       { text: "1ª y solo el punto de roce, sin acelerar: avanza derecho.", ghost: [57.3, SPOT_Z, Math.PI / 2], ok: () => inRect(S.x + 2.1, S.z, PERP_RECT) },
       { text: "Frena cuando el sensor se ponga rojo (a medio metro del muro).", ok: () => S.v === 0 && inRect(S.x, S.z, PERP_RECT) },
-      { text: "Freno de mano (Q) y neutro (N).", ok: () => S.parkedFront || S.parkedPerp } ] },
+      { text: "Quédate quieto 1 segundo con todo el auto entre las líneas (el lugar se pone verde).", ok: () => S.parkedFront || S.parkedPerp } ] },
     back: { title: "Estacionar de culata", steps: [
       { text: "Sal del lugar y da la vuelta: quédate de espaldas al lugar amarillo, en el pasillo.", ghost: [47, SPOT_Z, -Math.PI / 2], ok: () => near(S.z, SPOT_Z, 0.5) && headingNear(-Math.PI / 2, 0.17) && S.x < 53 },
       { text: "Reversa (R) y retrocede derecho mirando los espejos laterales.", ghost: [57.3, SPOT_Z, -Math.PI / 2], ok: () => inRect(S.x + 2.1, S.z, PERP_RECT) },
-      { text: "Frena cuando el sensor de atrás se ponga rojo.", ok: () => S.parkedBack } ] },
+      { text: "Frena cuando el sensor de atrás se ponga rojo y quédate quieto 1 segundo.", ok: () => S.parkedBack } ] },
     parallel: { title: "Estacionar en paralelo", steps: [
       { text: "Ponte al lado del auto de adelante, a 1 m, con las colas alineadas, mirando hacia el oeste.", ghost: [PAR_CAR_AHEAD_X, -79.6, -Math.PI / 2], ok: () => near(S.x, PAR_CAR_AHEAD_X, 1.5) && near(S.z, -79.6, 0.8) && headingNear(-Math.PI / 2, 0.21) },
       { text: "Reversa (R) despacio con el volante todo a la derecha (→) hasta quedar en diagonal, a unos 45°.", ghost: [24.3, -82.25, -Math.PI / 2], ok: () => wrap(S.th + Math.PI / 2) < -0.6 },
@@ -4251,6 +4279,21 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     }
     return null;
   }
+  // the three things that make it count as parked, each one green or not yet
+  function parkCheckHtml() {
+    const el = document.getElementById("coach-check"), pc = S.parkCheck;
+    let h = "";
+    if (pc && !pc.done) {
+      const row = (ok, text, why) => `<span class="${ok ? "y" : "n"}"><i>${ok ? "✓" : "✗"}</i>${text}${!ok && why ? ` <em>${why}</em>` : ""}</span>`;
+      const inOk = !pc.out, angOk = pc.ang <= pc.tol;
+      h = `<b>Para que cuente como estacionado:</b>`
+        + row(inOk, "Todo el auto entre las líneas", pc.out)
+        + row(angOk, "Derecho, paralelo a las líneas", `torcido ${pc.ang}° (máximo ${pc.tol}°)`)
+        + row(pc.still && inOk && angOk, pc.still && inOk && angOk ? `Quieto: ${Math.min(1, pc.t).toFixed(1).replace(".", ",")} de 1 segundo` : "Frenado del todo 1 segundo", pc.still ? "primero lo de arriba" : "frena hasta 0 km/h");
+    }
+    el.hidden = !h;
+    if (el.innerHTML !== h) el.innerHTML = h;
+  }
   function updateCoach() {
     let key = null;
     if (help && mode === "parking") key = ["front", "back", "parallel"][S.mission] || null;
@@ -4259,7 +4302,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (key !== coachKey) { coachKey = key; coachStep = 0; }
     const showSensor = inLot(S.x, S.z) && Math.abs(S.v) < 3;
     const live = !key && !showSensor ? liveCoach() : null;
-    coachEl.hidden = !key && !showSensor && !live;
+    coachEl.hidden = !key && !showSensor && !live && !S.parkCheck;
     ghost.visible = false;
     if (coachEl.hidden) return;
     let html = "";
@@ -4280,12 +4323,14 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       document.getElementById("coach-angle").textContent = live.note;
       if (coachSteps.innerHTML !== html) coachSteps.innerHTML = html;
       document.getElementById("coach-sensor").innerHTML = ""; document.getElementById("coach-dist").textContent = "";
+      parkCheckHtml();
       return;
     } else {
       document.getElementById("coach-title").textContent = "Sensores de estacionamiento";
       document.getElementById("coach-angle").textContent = "";
     }
     if (coachSteps.innerHTML !== html) coachSteps.innerHTML = html;
+    parkCheckHtml();
     const back = S.gear === "R", dist = sensorDist(back);
     const bars = dist === Infinity ? 0 : dist < 0.4 ? 5 : dist < 0.8 ? 4 : dist < 1.3 ? 3 : dist < 1.9 ? 2 : 1;
     document.getElementById("coach-sensor").innerHTML = [1, 2, 3, 4, 5].map(n => `<i class="${n <= bars ? "on" + (bars >= 4 ? " near" : bars >= 3 ? " mid" : "") : ""}"></i>`).join("");
@@ -4355,6 +4400,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     lotMarker.visible = lotWanted();
     if (lotMarker.visible) lotMarker.position.set(LOT_DOOR.x, 3, LOT_DOOR.z);
     parTarget.visible = mode === "city" ? S.mission === 7 || S.mission >= MISSIONS.length : mode === "parking" && S.mission >= 2;
+    for (const [m, r] of [[perpTarget, PERP_RECT], [parTarget, PAR_RECT]]) { const pc = S.parkCheck, good = pc && !pc.out && pc.ang <= pc.tol && inRect(S.x, S.z, r); m.material.color.setHex(good ? 0x46e86c : 0xffd23d); }
 
     const amp = S.shake;
     const jx = (Math.random() - 0.5) * 0.02 * amp + Math.sin(S.t * 31) * 0.004 * amp;
