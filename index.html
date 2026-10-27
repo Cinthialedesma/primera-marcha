@@ -1511,10 +1511,17 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (S.v > 2 && !S.launchRolled && Math.abs(hillDz(S.z)) > 0.06) S.hillLaunchOk = true;
     if (north) {
       const front = u + CAR_L / 2, n = Math.max(0, Math.ceil((front - 0.01) / half)), lineU = n * half, uphill = n % 2 === 0;
+      // a PARE just passed waits 4 m before it is judged, in case you stop a little past the line
+      const pend = S.hsPend;
+      if (pend) {
+        const past = front - pend.lineU;
+        if (past < 4 && Math.abs(S.v) < 1.5 / 3.6 && !pend.lateStop) { pend.lateStop = true; toast(`Te detuviste ${past.toFixed(1).replace(".", ",")} m pasada la línea. Cuenta, pero la próxima frena un poco antes.`, "tip", "hill-late" + pend.n, 5); }
+        if (past >= 4) { S.hsPend = null; if (pend.lateStop) infraction(`Te detuviste en el PARE en ${pend.uphill ? "subida" : "bajada"} pasando la línea`, -5); else infraction(`Pasaste un PARE en ${pend.uphill ? "subida" : "bajada"} sin detenerte`); }
+      }
       if (!S.hs || S.hs.n !== n) {
         const prev = S.hs;
         if (prev && prev.n < n) {
-          if (prev.minV > 1.5 / 3.6) infraction(`Pasaste un PARE en ${prev.uphill ? "subida" : "bajada"} sin detenerte`);
+          if (prev.minV > 1.5 / 3.6) S.hsPend = Object.assign(prev, { lineU: prev.n * half });
           else {
             award(10, `PARE respetado en ${prev.uphill ? "subida" : "bajada"}`);
             if (prev.uphill) { S.hillStopOk = true; if (!prev.rolled) { S.hillStartOk = true; award(15, "Arrancaste en subida sin irte para atrás"); } }
@@ -1523,8 +1530,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         S.hs = { n, uphill, minV: Infinity, stopped: false, maxU: -Infinity, rolled: false };
       }
       const hs = S.hs, dist = lineU - front;
-      if (dist < 15) hs.minV = Math.min(hs.minV, Math.abs(S.v));
-      if (Math.abs(S.v) < 0.05 && dist < 6) hs.stopped = true;
+      if (dist < 30) hs.minV = Math.min(hs.minV, Math.abs(S.v));
+      if (Math.abs(S.v) < 0.05 && dist < 30) { if (!hs.stopped) toast("Detenida en el PARE ✓", "good", "hill-stop-ok" + n, 3); hs.stopped = true; }
       if (hs.stopped) { hs.maxU = Math.max(hs.maxU, u); if (u < hs.maxU - 0.3) hs.rolled = true; }
       if (dist > 15 && dist < 50 && S.v > 3) {
         if (uphill) tip(`PARE en subida en ${Math.round(dist)} m. Al detenerte, sube el freno de mano (Q). Para salir: 1ª, acelera a unas 2.000 rpm, suelta el embrague hasta que el auto haga fuerza y recién ahí baja el freno de mano.`, "hill-stop" + n, 60);
@@ -1555,9 +1562,17 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     checkRail(dt);
     const kmh = Math.abs(S.v) * 3.6;
     const ap = approach();
-    if (ap && ap.dist > 0 && ap.dist < 15) {
-      const key = ap.i + "," + ap.j;
-      S.appr[key] = Math.min(S.appr[key] ?? Infinity, Math.abs(S.v));
+    if (ap && ap.dist > 0) {
+      // from your front bumper to the white line: a stop anywhere in the 30 m before it counts; past it, it is a smaller fault
+      const key = ap.i + "," + ap.j, toLine = ap.dist - (STOP_LINE - HALF) - CAR_L / 2;
+      S.apprLate = S.apprLate || {}; S.stopSeen = S.stopSeen || {};
+      if (toLine > -0.4 && toLine < 30) S.appr[key] = Math.min(S.appr[key] ?? Infinity, Math.abs(S.v));
+      else if (toLine <= -0.4) S.apprLate[key] = Math.min(S.apprLate[key] ?? Infinity, Math.abs(S.v));
+      if (ctrlOf(ap.i, ap.j) === "stop" && S.v === 0 && toLine < 30 && !S.stopSeen[key]) {
+        S.stopSeen[key] = true;
+        if (toLine > -0.4) toast("Detenida en el PARE ✓ Mira a los dos lados y sal en 1ª.", "good", "stopseen" + key, 3);
+        else toast(`Te detuviste ${Math.round(-toLine * 10) / 10} m pasada la línea blanca. Cuenta, pero la próxima frena un poco antes.`.replace(".", ","), "tip", "stopseen" + key, 3);
+      }
     }
     if (ap && ap.dist > 12 && ap.dist < 55 && S.v > 3) {
       const cc = ctrlOf(ap.i, ap.j);
@@ -1588,13 +1603,16 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (S.box && !S.box.judged && S.v > 0) {
       // judge PARE / red light once the front of the car passes the stop line
       const z = S.box, d = dirOf(z.th), remaining = (z.i * G - S.x) * d.x + (z.j * G - S.z) * d.z;
-      if (remaining < STOP_LINE + CAR_L / 2) {
+      if (remaining < (ctrlOf(z.i, z.j) === "stop" ? HALF + CAR_L / 2 + 0.5 : STOP_LINE + CAR_L / 2)) {
         z.judged = true;
         const key = z.key, axis = Math.abs(d.z) > 0.5 ? "NS" : "EW";
+        setTimeout(() => { delete S.appr[key]; if (S.apprLate) delete S.apprLate[key]; if (S.stopSeen) delete S.stopSeen[key]; }, 0);
         if (remaining > -2) {
           if (ctrlOf(z.i, z.j) === "stop") {
-            if ((S.appr[key] ?? Infinity) > 1.5 / 3.6) infraction("Pasaste un PARE sin detenerte por completo");
-            else { award(10, "PARE respetado"); S.stopOk = true; }
+            const ok = 1.5 / 3.6, before = S.appr[key] ?? Infinity, late = (S.apprLate || {})[key] ?? Infinity;
+            if (before <= ok) { award(10, "PARE respetado"); S.stopOk = true; }
+            else if (late <= ok) { infraction("Te detuviste en el PARE pasando la línea blanca", -5); S.stopOk = true; tip("La línea blanca del PARE está unos metros antes de la esquina, antes de la senda peatonal. El cartel de arriba te dice a cuántos metros está de tu trompa.", "late-stop", 30); }
+            else { infraction("Pasaste un PARE sin detenerte por completo"); tip("Para que cuente, el auto tiene que quedar quieto del todo (0 km/h) un momento, antes de la línea blanca o apenas pasada.", "nostop-tip", 30); }
           } else if (ctrlOf(z.i, z.j) === "light") { if (lightState(z.i, z.j, axis) === "red") infraction("Cruzaste con luz roja", -30); }
           else if (ctrlOf(z.i, z.j) === "round") {
             // whoever is already going around has priority: cars coming toward your entry from your left
@@ -4666,7 +4684,10 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       const cc = ctrlOf(ap.i, ap.j), st = cc === "light" ? lightState(ap.i, ap.j, ap.axis) : null;
       const col = cc === "round" ? "#4f9be8" : cc === "stop" ? "#e2553f" : cc === "ceda" ? "#ffffff" : cc === "none" ? "#9a9fa6" : { red: "#ff3b24", yellow: "#ffbe2e", green: "#46e86c" }[st];
       const label = cc === "round" ? "Rotonda: cede el paso a los de adentro" : cc === "stop" ? "PARE" : cc === "ceda" ? "Ceda el paso" : cc === "none" ? "Sin señales: prioridad derecha" : "Semáforo " + { red: "rojo", yellow: "amarillo", green: "verde" }[st] + (noLeft(ap.i, ap.j, cardinal(S.th).k) ? " · no girar a la izq." : "");
-      const txt = label + " · " + Math.max(0, Math.round(ap.dist)) + " m";
+      const toLine = ap.dist - (STOP_LINE - HALF) - CAR_L / 2, key = ap.i + "," + ap.j;
+      let txt = label + " · " + Math.max(0, Math.round(ap.dist)) + " m";
+      if (cc !== "none" && cc !== "round" && toLine < 40) txt = toLine > 0.3 ? `${label} · línea blanca a ${toLine < 5 ? toLine.toFixed(1).replace(".", ",") : Math.round(toLine)} m de tu trompa` : toLine > -0.4 ? `${label} · estás en la línea` : `${label} · pasaste la línea blanca`;
+      if (cc === "stop" && toLine < 30 && (S.appr[key] ?? Infinity) <= 1.5 / 3.6) txt = "PARE · detenida ✓ · mira y sal en 1ª";
       if (chip.dataset.t !== txt) { chip.dataset.t = txt; chip.innerHTML = `<i style="background:${col}"></i>`; chip.appendChild(document.createTextNode(txt)); }
       chip.hidden = false;
     } else chip.hidden = true;
