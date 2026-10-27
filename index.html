@@ -393,7 +393,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 .coach b { font-size: .82rem; }
 .coach ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; color: var(--muted); }
 .coach li.now { color: var(--ink); font-weight: 600; }
-.coach li.ok { color: var(--green); }
+.coach li.ok { color: var(--green); text-decoration: line-through; }
 .coach .meter { display: flex; gap: 10px; font-family: var(--font-num); color: var(--amber); }
 .sensor { display: flex; gap: 2px; align-items: center; }
 .sensor i { width: 10px; height: 8px; border-radius: 2px; background: #2a2e34; display: inline-block; }
@@ -4189,6 +4189,69 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     }
     return Infinity;
   }
+  // live step-by-step help for turns, roundabouts and the tunnel; steps cross off as they happen
+  let liveId = null, liveDone = new Set();
+  function steerAdvice(g) {
+    const d = dirOf(S.th), rx = S.x - d.x * REAR, rz = S.z - d.z * REAR;
+    let bi = 0, bd = Infinity;
+    g.path.forEach((p, k) => { const dd = (p.x - S.x) ** 2 + (p.z - S.z) ** 2; if (dd < bd) { bd = dd; bi = k; } });
+    let k = bi, run = 0;
+    while (k < g.path.length - 1 && run < (g.round ? 2.2 : 4.5) + REAR) { run += Math.hypot(g.path[k + 1].x - g.path[k].x, g.path[k + 1].z - g.path[k].z); k++; }
+    const t = g.path[k], ang = Math.atan2(t.x - rx, -(t.z - rz)), alpha = wrap(ang - S.th), ld = Math.max(1, Math.hypot(t.x - rx, t.z - rz));
+    const want = clamp(Math.atan2(2 * WHEELBASE * Math.sin(alpha), ld), -MAX_STEER, MAX_STEER), diff = want - S.steer;
+    return Math.abs(diff) < 0.08 ? "Volante: bien así" : diff > 0 ? "Volante: más a la derecha →" : "Volante: más a la izquierda ←";
+  }
+  function liveCoach() {
+    if (!help || mode === "hill" || mode === "campo") return null;
+    const kmh = Math.abs(S.v) * 3.6, g = S.guide;
+    if (g && !g.round) {
+      const side = g.side, arrow = side === "right" ? "→" : "←";
+      return { id: g.key, title: `Doblar a la ${side === "right" ? "derecha" : "izquierda"}`, note: g.cued && !g.finished ? steerAdvice(g) : "", steps: [
+        [`Guiño ${side === "right" ? "derecho (X)" : "izquierdo (Z)"} puesto`, () => S.blink === side || g.cued],
+        ["Mira el espejo de ese lado (V)", () => S.t - S.mirrorT < 8],
+        ["Baja a menos de 15 km/h (2ª o 1ª)", () => (kmh < 15 && S.v > 0.3) || g.cued],
+        ...(() => {
+          // what this corner asks for before turning
+          const ci = Math.round(g.bx / G), cj = Math.round(g.bz / G), cc = ctrlOf(ci, cj), key = ci + "," + cj;
+          if (cc === "stop") return [["Es un PARE: detente del todo antes de la línea", () => (S.appr[key] ?? Infinity) < 0.4 || (S.box && S.box.key === key && S.box.judged)]];
+          if (cc === "light") return [["Semáforo: si está en rojo o amarillo, espera el verde", () => lightState(ci, cj, Math.abs(dirOf(S.th).z) > 0.5 ? "NS" : "EW") === "green" || g.cued]];
+          return [[cc === "ceda" ? "Ceda el paso: mira a los costados y deja pasar" : "Sin señales: cede el paso a quien viene por tu derecha", () => g.cued]];
+        })(),
+        ["Sigue derecho hasta el primer punto amarillo", () => g.cued],
+        [`Ahora mantén ${arrow} y sigue la línea amarilla`, () => g.finished || (g.engaged && Math.abs(wrap(S.th - g.target)) < 0.45)],
+        ["Endereza: suelta la flecha y sigue por tu carril", () => g.finished],
+      ] };
+    }
+    if (g && g.round) {
+      const near = Math.hypot(S.x - g.bx, S.z - g.bz);
+      return { id: g.key, title: "Rotonda", note: g.cued ? steerAdvice(g) : "", steps: [
+        ["Llega despacio: 2ª y menos de 20 km/h", () => kmh < 20 && S.v > 0.3],
+        ["Cede el paso a los autos que ya están dando la vuelta", () => g.cued],
+        ["Entra girando a la derecha, con la isleta a tu izquierda", () => near < RING_R + 1.5],
+        ["Pon el guiño derecho (X) antes de tu salida", () => S.blink === "right" && near < RING_R + 3],
+        ["Sal y endereza", () => near > RING_R + 6 && (g.cued)],
+      ] };
+    }
+    const sg = segAt(S.x, S.z);
+    if (sg && sg.axis === "NS" && isRailRow(sg.block) && isAvenue(sg.line)) {
+      const zr = railZ(sg.block), rel = S.z - zr, dist = Math.abs(rel), toward = -Math.sign(rel) * dirOf(S.th).z * Math.sign(S.v || 1) > 0.3;
+      if (dist > 70) return null;
+      const depth = -cityHeight(S.x, S.z), rpm = toRpm(S.we), g2 = +S.gear;
+      let note = "";
+      if (S.gear === "N" && Math.abs(S.v) > 1) note = "¡No bajes en neutro! Embrague y pon 2ª o 3ª.";
+      else if (toward && depth > 0.3 && kmh > 45) note = "Vas rápido en la bajada: frena suave.";
+      else if (!toward && depth > 0.3 && g2 >= 3 && rpm < 1500 && S.v > 1) note = "El motor se ahoga en la subida: baja a 2ª ahora.";
+      else if (!toward && depth > 0.3 && S.gas < 0.1 && S.v > 1) note = "En la subida, acelera un poco para no perder velocidad.";
+      if (note && !note.startsWith("En la subida")) tip(note, "tunnel-note-" + note, 10);
+      return { id: "tunnel" + sg.line + "," + sg.block, title: "Túnel bajo las vías", note, steps: [
+        ["Enciende las luces (K)", () => S.lights],
+        ["Bajada: suelta el acelerador y frena suave, con un cambio puesto (nunca neutro)", () => toward && depth > 1.2 && S.gas < 0.1 && S.gear !== "N"],
+        ["Abajo, bajo el puente: velocidad pareja, en tu carril y sin detenerte", () => depth > 3.6],
+        ["Subida: acelera; si el motor tiembla o baja de 1.500 rpm, pon 2ª", () => !toward && depth < 0.8 && dist > 25],
+      ] };
+    }
+    return null;
+  }
   function updateCoach() {
     let key = null;
     if (help && mode === "parking") key = ["front", "back", "parallel"][S.mission] || null;
@@ -4196,7 +4259,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (key && mode === "city" && !inLot(S.x, S.z)) key = null;
     if (key !== coachKey) { coachKey = key; coachStep = 0; }
     const showSensor = inLot(S.x, S.z) && Math.abs(S.v) < 3;
-    coachEl.hidden = !key && !showSensor;
+    const live = !key && !showSensor ? liveCoach() : null;
+    coachEl.hidden = !key && !showSensor && !live;
     ghost.visible = false;
     if (coachEl.hidden) return;
     let html = "";
@@ -4208,6 +4272,16 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       const cur = c.steps[Math.min(coachStep, c.steps.length - 1)];
       if (cur.ghost && coachStep < c.steps.length) { const [gx, gz, gth] = cur.ghost; placeCar(ghost, gx, gz, gth); ghost.visible = true; }
       document.getElementById("coach-angle").textContent = key === "parallel" ? `Ángulo ${Math.round(Math.abs(wrap(S.th + Math.PI / 2)) * 180 / Math.PI)}°` : "";
+    } else if (live) {
+      if (live.id !== liveId) { liveId = live.id; liveDone = new Set(); }
+      live.steps.forEach(([, ok], n) => { if (!liveDone.has(n)) { let v = false; try { v = !!ok(); } catch (err) {} if (v) liveDone.add(n); } });
+      const now = live.steps.findIndex((st, n) => !liveDone.has(n));
+      document.getElementById("coach-title").textContent = live.title;
+      live.steps.forEach(([text], n) => { html += `<li class="${liveDone.has(n) ? "ok" : n === now ? "now" : ""}">${text}</li>`; });
+      document.getElementById("coach-angle").textContent = live.note;
+      if (coachSteps.innerHTML !== html) coachSteps.innerHTML = html;
+      document.getElementById("coach-sensor").innerHTML = ""; document.getElementById("coach-dist").textContent = "";
+      return;
     } else {
       document.getElementById("coach-title").textContent = "Sensores de estacionamiento";
       document.getElementById("coach-angle").textContent = "";
