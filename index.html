@@ -202,6 +202,15 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 .missions li.done .n { background: var(--green); border-color: var(--green); color: #0f1a10; }
 .missions li.current { background: var(--panel-2); color: var(--ink); }
 .missions li.current .n { border-color: var(--amber); color: var(--amber); }
+.missions li.locked { opacity: .55; }
+.path { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; background: var(--panel-2); border-radius: 8px; }
+.path .steps { display: flex; gap: 4px; }
+.path .steps button { flex: 1; min-width: 0; height: 28px; border-radius: 6px; border: 1px solid var(--line); background: #16181b; color: var(--muted); font: inherit; font-size: .78rem; cursor: pointer; padding: 0; }
+.path .steps button.done { background: var(--green); border-color: var(--green); color: #0f1a10; }
+.path .steps button.here { border-color: var(--amber); color: var(--amber); }
+.path .steps button:disabled { cursor: not-allowed; opacity: .5; }
+.path p { margin: 0; font-size: .82rem; color: var(--muted); }
+.path p b { color: var(--ink); font-weight: 600; }
 .missions .hint { display: block; font-size: .85rem; color: var(--muted); margin-top: 4px; }
 .rules { display: flex; flex-direction: column; gap: 12px; }
 .rule h3 { margin: 0 0 2px; font-size: .95rem; }
@@ -563,6 +572,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       <button class="tab" role="tab" aria-selected="false" data-pane="rules">Reglas</button>
     </div>
     <div class="pane" id="pane-missions">
+      <div class="path" id="path"></div>
       <ol class="missions" id="missions"></ol>
     </div>
     <div class="pane" id="pane-controls" hidden>
@@ -593,9 +603,11 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         <label for="opt-autoclutch"><input type="checkbox" id="opt-autoclutch"><span>Embrague automático<small>Para empezar: el auto maneja el embrague por ti. Solo aceleras, frenas y cambias.</small></span></label>
         <label for="opt-voice"><input type="checkbox" id="opt-voice"><span>Instructor por voz<small>Los consejos se escuchan, así no sacas la vista de la calle.</small></span></label>
         <label for="opt-guide"><input type="checkbox" id="opt-guide"><span>Guía amarilla para doblar<small>Se apaga sola cuando ya doblaste bien 6 veces, como en la vida real.</small></span></label>
+        <label for="opt-free"><input type="checkbox" id="opt-free"><span>Todo desbloqueado<small>Si ya sabes manejar: puedes elegir cualquier lugar sin seguir el camino.</small></span></label>
         <label for="opt-night"><input type="checkbox" id="opt-night"><span>De noche<small>Se ve poco: enciende las luces bajas (K). Los peatones y las bicis cuestan más de ver.</small></span></label>
         <label for="opt-rain"><input type="checkbox" id="opt-rain"><span>Lluvia<small>Menos visibilidad, el auto tarda más en frenar y vas a necesitar el limpiaparabrisas (L).</small></span></label>
       </div>
+      <button class="btn" id="btn-wipe" type="button">Borrar mi progreso</button>
       <p class="note">El estacionamiento de práctica es el rectángulo gris con la P en el GPS. Cuando te toca estacionar, una línea amarilla te marca el camino y una columna amarilla marca la entrada (a la derecha, a unos 30 m de donde partes).</p>
     </div>
     <div class="pane" id="pane-rules" hidden>
@@ -605,6 +617,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         <div class="rule"><h3>En la ruta</h3><p>Luces bajas siempre encendidas, también de día. Máximo 80 km/h en la mayoría de las rutas de dos carriles (en las rutas nacionales, hasta 110 km/h para autos). La doble línea amarilla prohíbe adelantar. Para adelantar: guiño izquierdo, mira que el carril contrario esté libre hasta lejos, pasa rápido y vuelve con el guiño derecho cuando veas al otro vehículo en el espejo de adentro. La banquina es solo para emergencias.</p></div>
         <div class="rule"><h3>Pasos a nivel y túneles</h3><p>Antes de las vías baja la velocidad, mira a los dos lados y escucha. Si hay luces rojas, campanas o la barrera está bajando, te detienes antes de la barrera: el tren no puede frenar. Nunca te detengas sobre las vías. En los pasos sin barrera de la ruta hay PARE: detención total. En los túneles, luces encendidas y sin detenerte.</p></div>
         <div class="rule"><h3>Escuelas</h3><p>Cerca de una escuela, máximo 20 km/h: los chicos de guardapolvo blanco pueden cruzar en cualquier momento, sobre todo a la entrada y a la salida.</p></div>
+        <div class="rule"><h3>Los errores de los demás</h3><p>Maneja pensando que los otros se pueden equivocar: hay quien cruza en rojo, colectivos que salen de la parada sin avisar y autos en doble fila. Aunque tengas verde, mira a los costados antes de cruzar. Para pasar algo detenido en tu carril: espejo, guiño izquierdo, mirar que no venga nadie de frente, pasar despacio y volver.</p></div>
         <div class="rule"><h3>Rotondas</h3><p>Tiene prioridad quien ya está circulando por la rotonda. Llega despacio (2ª, menos de 20 km/h), cede el paso a los que vienen por tu izquierda y entra girando a la derecha: se circula siempre con la isleta a tu izquierda. Antes de tu salida pon el guiño derecho.</p></div>
         <div class="rule"><h3>Peatones</h3><p>En la senda peatonal el peatón siempre tiene prioridad, también cuando doblas con luz verde: la gente que cruza la calle a la que entras pasa primero. Ojo con quien cruza mirando el celular, con los chicos y con quien cruza por la mitad de la cuadra: aunque crucen mal, tienes que frenar. A las personas mayores espéralas sin tocar bocina.</p></div>
         <div class="rule"><h3>Señal PARE / ALTO</h3><p>Detención total antes de la línea blanca, aunque no venga nadie. Mira a ambos lados y avanza cuando sea seguro. Bajar a 5 km/h no cuenta.</p></div>
@@ -777,9 +790,13 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   }
   function inObb(px, pz, o) {
     const d = dirOf(o.th), r = rightOf(o.th), lx = px - o.x, lz = pz - o.z;
-    return Math.abs(lx * d.x + lz * d.z) <= CAR_L / 2 && Math.abs(lx * r.x + lz * r.z) <= CAR_W / 2;
+    return Math.abs(lx * d.x + lz * d.z) <= (o.hl || CAR_L / 2) && Math.abs(lx * r.x + lz * r.z) <= (o.hw || CAR_W / 2);
   }
-  const overlap = (a, b) => corners(a.x, a.z, a.th).some(([x, z]) => inObb(x, z, b)) || corners(b.x, b.z, b.th).some(([x, z]) => inObb(x, z, a));
+  const edgePts = o => o.hl > 3 ? corners(o.x, o.z, o.th, o.hl, o.hw).concat(corners(o.x, o.z, o.th, 0, o.hw)) : corners(o.x, o.z, o.th, o.hl, o.hw);
+  const overlap = (a, b) => edgePts(a).some(([x, z]) => inObb(x, z, b)) || edgePts(b).some(([x, z]) => inObb(x, z, a));
+  // bus stops: some street sides have one, 25 m after the corner
+  const BUS_STOP_S = 25;
+  const busStop = (i, j, k) => !(i === 0 && j === 0 && k === 0) && !(k % 2 === 0 && isAvenue(i) && isRailRow(k === 0 ? j - 1 : j)) && hash2(i * 7 + k * 3 + 1, j * 13 + k * 5 + 2) < 0.4;
   // intersections: PARE, semáforo, Ceda el paso, or no sign at all (then whoever comes from the right goes first)
   function ctrlOf(i, j) { const h = hash2(i, j); return h < 0.35 ? "stop" : h < 0.65 ? "light" : h < 0.83 ? "ceda" : h < 0.9 ? "round" : "none"; }
   // small roundabouts: a round island in the middle, traffic goes around it counterclockwise (keeping it on your left)
@@ -864,6 +881,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   const LOT_ENTRY = { x: 0, z: -45 }, LOT_DOOR = { x: 5, z: -45 };
   function lotWanted() {
     if (mode !== "city" || inLot(S.x, S.z) || inRect(S.x, S.z, DRIVE)) return false;
+    if (!examOpen()) return false;
     return S.mission === 6 || S.mission === 7 || !!(S.exam && S.exam.phase === "park" && !S.exam.passed && !S.exam.failed);
   }
   function lotNav() {
@@ -1210,7 +1228,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       if (trh) { hit = "train"; other = null; if (!trh.hitPlayer) { trh.hitPlayer = true; S.lastHit = -9; } else S.lastHit = S.t; }
       if (!hit && mode !== "campo") for (const o of parked) if (Math.hypot(o.x - S.x, o.z - S.z) < 6 && worse(o)) { hit = "parked"; break; }
       if (!hit && mode === "campo") for (const c of routeCars) if (Math.hypot(c.x - S.x, c.z - S.z) < 7 && worse(c)) { hit = c.lane < 0 ? "front" : "car"; other = c; break; }
-      if (!hit) for (const c of traffic) if (Math.hypot(c.x - S.x, c.z - S.z) < 6 && worse(c)) { hit = "car"; other = c; break; }
+      if (!hit) for (const c of traffic) if (Math.hypot(c.x - S.x, c.z - S.z) < (c.hl ? 9 : 6) && worse(c)) { hit = "car"; other = c; break; }
       if (!hit && Math.abs(S.v) > 0.3) for (const pd of peds) {
         const d = dirOf(S.th), r = rightOf(S.th), lx = pd.x - S.x, lz = pd.z - S.z;
         if (Math.abs(lx * d.x + lz * d.z) < CAR_L / 2 + 0.3 && Math.abs(lx * r.x + lz * r.z) < CAR_W / 2 + 0.3) { hit = "ped"; pd.hit = true; break; }
@@ -1584,7 +1602,20 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     }
     if (S.box && kmh > 25 && Math.abs(S.steer) > 0.2 && ctrlOf(S.box.i, S.box.j) !== "round") tip("Muy rápido para doblar: baja a 2ª y a menos de 20 km/h.", "fast-turn", 15);
 
-    if (!S.box && S.t - S.boxExitT > 3 && onRoad(S.x, S.z) && !inLot(S.x, S.z) && S.v > 2) {
+    // something stopped in your lane: you may go around it, carefully
+    if (S.blink === "left") S.lastLeftT = S.t;
+    const dpar = dirOf(S.th);
+    const blocker = traffic.find(o => (o.static || o.atStop) && Math.hypot(o.x - S.x, o.z - S.z) < 60);
+    if (blocker) {
+      const od = dirOf(blocker.th), a = (S.x - blocker.x) * od.x + (S.z - blocker.z) * od.z, lat = Math.abs((S.x - blocker.x) * od.z - (S.z - blocker.z) * od.x), same = dpar.x * od.x + dpar.z * od.z > 0.7;
+      if (same && a < -(blocker.hl || 2.1) - 12 && a > -55 && S.v > 2) tip(blocker.static ? "Auto en doble fila con las balizas puestas. Mira el espejo, pon el guiño izquierdo (Z) y pásalo despacio cuando no venga nadie de frente. Después vuelve a tu carril." : "Colectivo en la parada: puede salir en cualquier momento. Si pone el guiño izquierdo, déjalo salir. Si lo pasas: espejo, guiño izquierdo y despacio, atento a la gente que baja.", "blocker" + (blocker.static ? "d" : "b") + Math.round(blocker.x) + Math.round(blocker.z), 30);
+      if (same && blocker.prevA != null && blocker.prevA < 0 && a >= 0 && lat < 5) {
+        if (S.t - (S.lastLeftT ?? -99) < 8) award(10, blocker.static ? "Pasaste el auto en doble fila con precaución" : "Pasaste al colectivo con precaución");
+        else infraction(blocker.static ? "Esquivaste el auto en doble fila sin poner el guiño" : "Pasaste al colectivo sin poner el guiño", -5);
+      }
+      blocker.prevA = a;
+    }
+    if (!S.box && S.t - S.boxExitT > 3 && onRoad(S.x, S.z) && !inLot(S.x, S.z) && S.v > 2 && !(blocker && Math.hypot(blocker.x - S.x, blocker.z - S.z) < 30)) {
       const i = Math.round(S.x / G), j = Math.round(S.z / G), r = rightOf(S.th);
       let off = null;
       if (Math.abs(S.x - i * G) <= HALF && Math.abs(r.x) > 0.7) off = (S.x - i * G) * r.x;
@@ -1690,16 +1721,64 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     { title: "Maneja 3 km sin errores", hint: "Mantén tu carril, respeta los 80 km/h y la doble línea amarilla. Si te vas a la banquina, vuelve despacio sin frenar de golpe.", done: () => (S.routeClean || 0) >= 3000 },
   ];
   let MISSIONS = CITY_MISSIONS;
+  // the order to learn in: each step opens the next one
+  const PATH = [
+    { mode: "lesson", title: "Primera clase", until: 7 },
+    { mode: "city", title: "Ciudad: arrancar, PARE y doblar", until: 6 },
+    { mode: "hill", title: "Subidas y bajadas", until: 4 },
+    { mode: "parking", title: "Estacionamiento", until: 3 },
+    { mode: "campo", title: "Ruta en el campo", until: 5 },
+    { mode: "city", title: "Examen final", until: 9 },
+  ];
+  const MODE_NAMES = { lesson: "Primera clase", city: "Ciudad", hill: "Subidas y bajadas", parking: "Estacionamiento", campo: "Ruta en el campo" };
+  let prog = { modes: {}, free: false, last: null };
+  try { Object.assign(prog, JSON.parse(localStorage.getItem("pm-progress") || "{}")); } catch (err) {}
+  const missionOf = m => (m === mode && S ? S.mission : prog.modes[m] ? prog.modes[m].mission : 0);
+  const stageDone = n => missionOf(PATH[n].mode) >= PATH[n].until;
+  const stageOpen = n => n === 0 || prog.free || stageDone(n - 1);
+  const modeOpen = m => PATH.some((st, n) => st.mode === m && stageOpen(n));
+  const examOpen = () => prog.free || stageDone(4);
+  function saveProgress() {
+    if (!S) return;
+    prog.modes[mode] = { mission: S.mission, score: S.score, counts: S.counts, dist: S.dist, bestClean: S.bestClean, licensed: S.licensed, log: S.log.slice(0, 40) };
+    prog.last = mode;
+    try { localStorage.setItem("pm-progress", JSON.stringify(prog)); } catch (err) {}
+  }
+  function renderPath() {
+    const el = document.getElementById("path");
+    if (!el) return;
+    let cur = PATH.findIndex((st, n) => !stageDone(n));
+    if (cur < 0) cur = PATH.length;
+    el.innerHTML = "";
+    const row = document.createElement("div"); row.className = "steps";
+    PATH.forEach((st, n) => {
+      const b = document.createElement("button"); b.type = "button";
+      b.textContent = stageDone(n) ? "✓" : stageOpen(n) ? String(n + 1) : "🔒";
+      b.className = (stageDone(n) ? "done" : "") + (n === cur ? " here" : "");
+      b.title = `${n + 1}. ${st.title}`; b.disabled = !stageOpen(n);
+      b.addEventListener("click", () => { if (mode !== st.mode) setMode(st.mode); document.getElementById("road").focus(); });
+      row.appendChild(b);
+    });
+    el.appendChild(row);
+    const p = document.createElement("p");
+    p.innerHTML = cur < PATH.length ? `Tu camino · paso ${cur + 1} de ${PATH.length}: <b></b>` : `<b>¡Completaste todo el camino!</b>`;
+    if (cur < PATH.length) p.querySelector("b").textContent = PATH[cur].title + (PATH[cur].mode !== mode ? ` (elígelo en Lugar o toca el ${cur + 1})` : "");
+    el.appendChild(p);
+    // the place selector shows which places are still closed
+    for (const o of document.getElementById("mode").options) { const open = modeOpen(o.value); o.disabled = !open; o.textContent = (open ? "" : "🔒 ") + MODE_NAMES[o.value]; }
+  }
   const missionsEl = document.getElementById("missions");
   function renderMissions() {
     missionsEl.innerHTML = "";
+    renderPath();
     MISSIONS.forEach((m, i) => {
       const li = document.createElement("li");
-      li.className = i < S.mission ? "done" : i === S.mission ? "current" : "";
+      const locked = mode === "city" && i >= 6 && !examOpen();
+      li.className = (i < S.mission ? "done" : i === S.mission && !locked ? "current" : "") + (locked ? " locked" : "");
       li.innerHTML = `<span class="n">${i < S.mission ? "✓" : i + 1}</span><span></span>`;
       const body = li.lastChild;
       body.textContent = m.title;
-      if (i === S.mission) { const h = document.createElement("span"); h.className = "hint"; h.textContent = m.hint; body.appendChild(h); }
+      if (i === S.mission) { const h = document.createElement("span"); h.className = "hint"; h.textContent = locked ? "Se abre cuando termines Subidas y bajadas, Estacionamiento y Ruta en el campo (mira Tu camino, arriba)." : m.hint; body.appendChild(h); }
       missionsEl.appendChild(li);
     });
     if (S.mission >= MISSIONS.length) {
@@ -1722,7 +1801,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     toast("Examen final: sigue el GPS hasta el primer punto verde.", "good", "exam-start" + S.t, 1);
   }
   function updateExam() {
-    if (mode === "city" && S.mission === MISSIONS.length - 1 && !S.exam) startExam();
+    if (mode === "city" && S.mission === MISSIONS.length - 1 && !S.exam && examOpen()) startExam();
     const ex = S.exam;
     if (!ex || ex.passed || ex.failed) return;
     const infr = S.counts.infr - ex.infr0;
@@ -1763,6 +1842,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     [/luces bajas/, "En ruta, luces bajas siempre encendidas (K)."],
     [/tren|vías|paso a nivel/, "En los pasos a nivel: baja la velocidad, mira y escucha. Con luces, campanas o barreras bajas te detienes, y nunca quedes parada sobre las vías."],
     [/túnel/, "Antes de entrar a un túnel enciende las luces (K)."],
+    [/doble fila|colectivo/, "Para pasar algo detenido en tu carril: espejo, guiño izquierdo, mirar que no venga nadie de frente y volver a tu carril."],
     [/punto muerto/, "En las bajadas deja una marcha puesta (2ª) para que el motor frene."],
   ];
   const tripKey = t => t.startsWith("Exceso de velocidad") ? "Exceso de velocidad" : t.startsWith("Pasaste el lomo de burro") ? "Pasaste el lomo de burro rápido" : t.replace(/\s*\(\+?-?\d+\)$/, "");
@@ -1838,11 +1918,16 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     document.getElementById("road").focus();
   }
   function checkMissions() {
+    if (mode === "city" && S.mission >= 6 && !examOpen()) return;
     if (S.mission < MISSIONS.length && MISSIONS[S.mission].done()) {
+      const before = PATH.map((st, n) => stageDone(n));
       award(50, "Misión cumplida: " + MISSIONS[S.mission].title);
       toast("Misión cumplida: " + MISSIONS[S.mission].title + " (+50)", "good", "m" + S.mission);
       S.mission++;
+      saveProgress();
       renderMissions();
+      // a step of the path finished: say what opens now
+      PATH.forEach((st, n) => { if (!before[n] && stageDone(n)) toast(n + 1 < PATH.length ? `¡Completaste "${st.title}"! Se abrió: ${PATH[n + 1].title}. Tócalo en Tu camino, en la pestaña Misiones.` : "¡Completaste todo el camino!", "good", "stage" + n, 999); });
       if (S.mission < MISSIONS.length) tip("Siguiente: " + MISSIONS[S.mission].title + ". " + MISSIONS[S.mission].hint, "next" + S.mission, 999);
     }
   }
@@ -1964,6 +2049,15 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       toast("Ya doblaste bien 6 veces: desde ahora la guía amarilla no aparece, como en la vida real. Si la necesitas, actívala en Controles → Opciones.", "good", "guide-off", 999);
     }
   }
+  const optFree = document.getElementById("opt-free");
+  optFree.checked = !!prog.free;
+  optFree.addEventListener("change", () => { prog.free = optFree.checked; saveProgress(); renderMissions(); document.getElementById("road").focus(); });
+  document.getElementById("btn-wipe").addEventListener("click", () => {
+    if (!confirm("¿Borrar todo tu progreso (misiones y puntaje de todos los lugares)? No se puede deshacer.")) return;
+    prog = { modes: {}, free: false, last: null }; optFree.checked = false;
+    try { localStorage.setItem("pm-progress", JSON.stringify(prog)); } catch (err) {}
+    S = null; setMode("lesson");
+  });
   const optNight = document.getElementById("opt-night");
   optNight.checked = opts.night;
   optNight.addEventListener("change", () => { opts.night = optNight.checked; saveOpts(); applyWeather(); if (opts.night && !S.lights) tip("Es de noche: enciende las luces bajas con K.", "night-on", 5); document.getElementById("road").focus(); });
@@ -2482,6 +2576,35 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     g.tail = g.children[4];
     return g;
   }
+  const amberMat = B({ color: 0xffa21f }), blinkGeo = new THREE.BoxGeometry(0.18, 0.12, 0.08);
+  function addHazards(g) {
+    g.hazards = [];
+    for (const [x, z] of [[-0.75, 2.12], [0.75, 2.12], [-0.75, -2.12], [0.75, -2.12]]) { const m = new THREE.Mesh(blinkGeo, amberMat); m.position.set(x, 0.75, z); g.add(m); g.hazards.push(m); }
+  }
+  const busMats = [0xd8b33a, 0x2f6fb0, 0xc83a3a, 0x3f8a4a].map(c => L({ color: c }));
+  const busWinMat = L({ map: canvasTex(256, 64, (ctx, w, h) => { ctx.fillStyle = "#1d2630"; ctx.fillRect(0, 0, w, h); ctx.fillStyle = "rgba(160,190,210,.25)"; for (let x = 6; x < w; x += 32) ctx.fillRect(x, 6, 26, h - 12); }) });
+  function makeBus() {
+    const g = new THREE.Group(), body = busMats[Math.floor(Math.random() * busMats.length)];
+    const part = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; g.add(m); return m; };
+    part(new THREE.BoxGeometry(2.5, 2.2, 12), body, 0, 1.55, 0);
+    part(new THREE.BoxGeometry(2.52, 0.9, 11.2), busWinMat, 0, 2.05, -0.2);
+    part(new THREE.BoxGeometry(2.3, 0.85, 0.05), busWinMat, 0, 2.05, 6.01);
+    part(new THREE.BoxGeometry(2.5, 0.25, 12), L({ color: 0xe9e4d8 }), 0, 2.78, 0);
+    for (const z of [4.2, -3.8]) for (const x of [-1.15, 1.15]) part(new THREE.CylinderGeometry(0.48, 0.48, 0.3, 12), darkMat, x, 0.48, z).rotation.z = Math.PI / 2;
+    part(new THREE.BoxGeometry(0.4, 0.15, 0.05), headMat, -0.85, 0.85, 6.02); part(new THREE.BoxGeometry(0.4, 0.15, 0.05), headMat, 0.85, 0.85, 6.02);
+    g.tail = part(new THREE.BoxGeometry(2.2, 0.15, 0.05), tailOff, 0, 0.9, -6.02);
+    g.blinkL = part(blinkGeo, amberMat, -1.27, 1.0, 5.6); g.blinkR = part(blinkGeo, amberMat, 1.27, 1.0, 5.6);
+    return g;
+  }
+  const stopSignBusMat = L({ map: canvasTex(128, 128, (ctx, w) => { ctx.fillStyle = "#1f4f8a"; ctx.fillRect(0, 0, w, w); ctx.fillStyle = "#fff"; ctx.fillRect(28, 26, 72, 46); ctx.fillStyle = "#1f4f8a"; ctx.fillRect(34, 32, 60, 18); ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(44, 76, 8, 0, 7); ctx.arc(84, 76, 8, 0, 7); ctx.fill(); ctx.font = "bold 22px 'Saira Semi Condensed', Arial"; ctx.textAlign = "center"; ctx.fillText("PARADA", w / 2, 112); }, false) });
+  const shelterRoofGeo = new THREE.BoxGeometry(3.2, 0.1, 1.4), shelterBackGeo = new THREE.BoxGeometry(3.2, 1.9, 0.06), shelterMat = L({ color: 0x5c6670 }), glassPanelMat = L({ color: 0x9fb7c4, transparent: true, opacity: 0.45 });
+  function addBusStop(bd, ii, jj, k) {
+    const th = k * Math.PI / 2, d = dirOf(th), [px, pz] = rel(ii * G, jj * G, th, BUS_STOP_S + 4, HALF + 0.6);
+    bd.add(poleGeo, poleMat, px, 1.4, pz, 0, 1, 2.8, 1); bd.add(signGeo, stopSignBusMat, px - d.x * 0.05, 2.5, pz - d.z * 0.05, -th, 0.8, 0.8, 0.8);
+    const [sx, sz] = rel(ii * G, jj * G, th, BUS_STOP_S, HALF + 2.3), r = rightOf(th);
+    bd.add(shelterRoofGeo, shelterMat, sx, 2.35, sz, -th);
+    bd.add(shelterBackGeo, glassPanelMat, sx + r.x * 0.65, 1.3, sz + r.z * 0.65, -th);
+  }
   const placeCar = (g, x, z, th) => { g.position.set(x, heightAt(x, z), z); g.rotation.y = Math.PI - th; return g; };
 
   // ---- practice lot ----
@@ -2760,6 +2883,11 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       if (feat === "bump") solid.add(bumpGeo, bumpMat, axis === "NS" ? ox : ox + G / 2, 0.045, axis === "NS" ? oz + G / 2 : oz, axis === "NS" ? 0 : Math.PI / 2);
     }
     if (isRailRow(j)) buildCityRail(grp, flat, solid, i, j, ox, oz);
+    // bus stops on the street sides this block owns
+    for (const [ii, jj, k] of [[i, j + 1, 0], [i, j, 2], [i, j, 1], [i + 1, j, 3]]) {
+      if (!busStop(ii, jj, k) || (i === 0 && j === -1)) continue;
+      addBusStop(solid, ii, jj, k);
+    }
     flat.build(grp, false, true);
     solid.build(grp, true, true);
     scene.add(grp);
@@ -3199,6 +3327,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     }
   }
   function setMode(m) {
+    if (S && S.t > 0.5) saveProgress();
     mode = m;
     for (const pd of peds) removePed(pd);
     peds.length = 0;
@@ -3216,6 +3345,13 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     routeCars.length = 0;
     lot.visible = m !== "hill" && m !== "campo"; ground.visible = m !== "hill"; hillRoot.visible = m === "hill"; routeRoot.visible = m === "campo"; skyline.visible = m !== "campo";
     S = freshState(); knob.x = 100; knob.y = 100; toastsEl.innerHTML = "";
+    const saved = prog.modes[m];
+    if (saved) {
+      Object.assign(S, { mission: saved.mission || 0, score: saved.score || 0, dist: saved.dist || 0, bestClean: saved.bestClean || 0, licensed: !!saved.licensed, log: (saved.log || []).slice() });
+      Object.assign(S.counts, saved.counts || {});
+      S.trip = { logStart: S.log.length, t0: 0, dist0: S.dist, score0: S.score, maxKmh: 0 };
+    }
+    prog.last = m;
     document.getElementById("stall-card").hidden = true; document.getElementById("result-card").hidden = true; document.getElementById("trip-card").hidden = true;
     document.getElementById("mode").value = m;
     renderMissions(); renderScore();
@@ -3242,7 +3378,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   }
   function segPose(c) {
     const d = dirOf(c.k * Math.PI / 2), r = rightOf(c.k * Math.PI / 2);
-    return { x: c.i * G + d.x * c.s + r.x * LANE, z: c.j * G + d.z * c.s + r.z * LANE, th: c.k * Math.PI / 2 };
+    const off = c.off ?? LANE;
+    return { x: c.i * G + d.x * c.s + r.x * off, z: c.j * G + d.z * c.s + r.z * off, th: c.k * Math.PI / 2 };
   }
   function removeCar(c) { scene.remove(c.obj); }
   const pickTurn = () => { const r = Math.random(); return r < 0.6 ? 0 : r < 0.8 ? 1 : -1; };
@@ -3255,7 +3392,10 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       if (dp < 45 || dp > 190) continue;
       if (traffic.some(o => Math.hypot(o.x - c.x, o.z - c.z) < 14)) continue;
       c.v = 7 + Math.random() * 3; c.vmax = 10 + Math.random() * 3.5; c.turn = null; c.next = pickTurn(); c.wait = 0; c.done = false; c.hitT = 0; c.stuck = 0;
-      c.obj = makeCarMesh(carBodyMats[Math.floor(Math.random() * carBodyMats.length)]);
+      // some vehicles are buses (they stop at the bus stops); a few drivers run red lights
+      if (trafficTarget() >= 8 && traffic.filter(o => o.kind === "bus").length < 2 && Math.random() < 0.3) { c.kind = "bus"; c.hl = 6; c.hw = 1.3; c.vmax = 9; c.next = 0; }
+      else c.reckless = Math.random() < (trafficTarget() >= 20 ? 0.12 : 0.06);
+      c.obj = c.kind === "bus" ? makeBus() : makeCarMesh(carBodyMats[Math.floor(Math.random() * carBodyMats.length)]);
       scene.add(c.obj);
       traffic.push(c);
       return;
@@ -3283,6 +3423,22 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       Object.assign(c.turn, { round: true, pts, cum, s: 0, len: cum[cum.length - 1] });
     }
   }
+  const boxBusyCars = (i, j, self) => traffic.some(o => o !== self && o.turn && Math.abs(o.x - i * G) < HALF + 3 && Math.abs(o.z - j * G) < HALF + 3);
+  function spawnDouble() {
+    const sg = segAt(S.x, S.z);
+    if (!sg || Math.abs(S.v) < 2 || inLot(S.x, S.z)) return;
+    const c0 = cardinal(S.th), k = c0.k, d = dirOf(c0.th);
+    // the segment you drive on, measured from the corner you left
+    const ii = sg.axis === "NS" ? sg.line : (d.x > 0 ? Math.floor(S.x / G) : Math.ceil(S.x / G)), jj = sg.axis === "EW" ? sg.line : (d.z > 0 ? Math.floor(S.z / G) : Math.ceil(S.z / G));
+    const sNow = (S.x - ii * G) * d.x + (S.z - jj * G) * d.z, sObs = sNow + 45 + Math.random() * 20;
+    if (sObs > G - 18 || sObs < 15) return;
+    if (k % 2 === 0 && isRailRow(k === 0 ? jj - 1 : jj) && (isAvenue(ii) || Math.abs(sObs - G / 2) < 14)) return; // never in a tunnel or on the tracks
+    const c = { i: ii, j: jj, k, s: sObs, v: 0, vmax: 0, static: true, turn: null, next: 0, wait: 0, done: true, hitT: 0, stuck: 0, off: LANE + 0.3 };
+    Object.assign(c, segPose(c));
+    c.obj = makeCarMesh(carBodyMats[Math.floor(Math.random() * carBodyMats.length)]); addHazards(c.obj);
+    scene.add(c.obj); traffic.push(c);
+    placeCar(c.obj, c.x, c.z, c.th);
+  }
   function boxBusy(i, j, self) {
     const near = o => Math.abs(o.x - i * G) < HALF + 3 && Math.abs(o.z - j * G) < HALF + 3;
     return traffic.some(o => o !== self && o.turn && near(o)) || near(S);
@@ -3292,7 +3448,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     let gap = Infinity;
     const test = (o, isPlayer) => {
       const dx = o.x - c.x, dz = o.z - c.z, a = dx * d.x + dz * d.z, l = Math.abs(dx * d.z - dz * d.x);
-      if (a > 0 && a < 40 && l < (isPlayer ? 2.2 : 1.6)) gap = Math.min(gap, a - CAR_L - 0.2);
+      if (a > 0 && a < 40 && l < (isPlayer ? 2.2 : 1.6 + (o.hw || 0.9) - 0.9)) gap = Math.min(gap, a - (c.hl || CAR_L / 2) - (o.hl || CAR_L / 2) - 0.2);
     };
     // cars facing you (waiting to enter a roundabout, or coming the other way) are not in your lane
     for (const o of traffic) if (o !== c && Math.cos(o.th - c.th) > -0.3) test(o, false);
@@ -3307,28 +3463,41 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     S.trafficLevel = target;
     for (let n = traffic.length - 1; n >= 0; n--) {
       const c = traffic[n];
-      if (Math.hypot(c.x - S.x, c.z - S.z) > 230 || traffic.length > target) { removeCar(c); traffic.splice(n, 1); }
+      const passedDouble = c.static && ((S.x - c.x) * dirOf(c.th).x + (S.z - c.z) * dirOf(c.th).z > 45 || Math.hypot(c.x - S.x, c.z - S.z) > 160);
+      if (Math.hypot(c.x - S.x, c.z - S.z) > 230 || (!c.static && traffic.filter(o => !o.static).length > target) || passedDouble) { removeCar(c); traffic.splice(n, 1); }
     }
-    if (traffic.length < target && Math.random() < dt * 2) spawnCar();
+    if (traffic.filter(c => !c.static).length < target && Math.random() < dt * 2) spawnCar();
+    if (target > 0 && S.t > (S.nextDoubleT ?? 45) && !traffic.some(c => c.static)) { S.nextDoubleT = S.t + 50 + Math.random() * 40; spawnDouble(); }
+    const blinkOn = Math.floor(S.t * 2.5) % 2 === 0;
 
     for (const c of traffic) {
+      if (c.static) { c.obj.hazards.forEach(m => { m.visible = blinkOn; }); continue; }
+      // something stopped in the lane (a double-parked car, a bus at its stop): go around it if nobody comes the other way
+      if (!c.turn) {
+        const obs = traffic.find(o => o !== c && (o.static || o.atStop) && o.i === c.i && o.j === c.j && o.k === c.k && o.s - c.s > -(o.hl || 2.1) - 3 && o.s - c.s < 24);
+        const oncoming = traffic.some(o => o.k === (c.k + 2) % 4 && !o.turn && Math.hypot(o.x - c.x, o.z - c.z) < 40);
+        c.offT = obs && (!oncoming || c.off < 0.5) ? -0.9 : LANE;
+        c.off = (c.off ?? LANE) + clamp(c.offT - (c.off ?? LANE), -1.4 * dt, 1.4 * dt);
+      }
       const gap = gapAhead(c);
       let vT = Math.min(c.vmax, Math.sqrt(Math.max(0, 2 * 4 * (gap - 2.5))));
       if (c.turn) {
         if (c.next !== 0 || c.turn.round) vT = Math.min(vT, 5);
       } else {
-        const front = c.s + CAR_L / 2, toLine = (G - STOP_LINE) - front;
+        const front = c.s + (c.hl || CAR_L / 2), toLine = (G - STOP_LINE) - front;
         const d0 = dirOf(c.k * Math.PI / 2), ni = c.i + Math.round(d0.x), nj = c.j + Math.round(d0.z);
         let mustStop = false;
         if (toLine > -1) {
           if (ctrlOf(ni, nj) === "stop") {
+            if (c.reckless && toLine < 6 && !boxBusyCars(ni, nj, c)) c.done = true; // rolls through the PARE
             if (!c.done) {
               mustStop = true;
               if (c.v < 0.2 && toLine < 2) { c.wait += dt; if (c.wait > 1.2 && !boxBusy(ni, nj, c)) c.done = true; }
             }
           } else if (ctrlOf(ni, nj) === "light") {
             const st = lightState(ni, nj, c.k % 2 === 0 ? "NS" : "EW");
-            if (st === "red" || (st === "yellow" && toLine > 9)) mustStop = true;
+            if ((st === "red" || (st === "yellow" && toLine > 9)) && !(c.reckless && !boxBusyCars(ni, nj, c))) mustStop = true;
+            if (c.reckless && st === "red" && toLine < 3 && !c.warned && Math.hypot(ni * G - S.x, nj * G - S.z) < 45) { c.warned = true; toast("¡Ese auto cruzó en rojo! Por eso, aunque tengas verde, mira a los costados antes de cruzar.", "bad", "runner" + ni + "," + nj, 10); }
           } else {
             // Ceda el paso / no sign: arrive slowly and wait while someone is crossing
             if (toLine < 14) vT = Math.min(vT, 5);
@@ -3344,6 +3513,15 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
           }
         }
         if ((c.next !== 0 || ctrlOf(ni, nj) === "round") && toLine < 25) vT = Math.min(vT, 6);
+        if (c.kind === "bus" && busStop(c.i, c.j, c.k) && !c.stopDone) {
+          const toStop = BUS_STOP_S - c.s;
+          if (toStop > -1 && toStop < 30) vT = Math.min(vT, Math.sqrt(Math.max(0, 2 * 2 * (toStop - 0.2))));
+          if (c.v < 0.15 && toStop < 0.8) {
+            c.atStop = true; c.stopT = (c.stopT || 0) + dt;
+            if (c.stopT > 9) { c.atStop = false; c.stopDone = true; c.stopT = 0; }
+            else vT = 0;
+          }
+        }
         // left turns yield to oncoming cars
         if (!mustStop && c.next === -1 && toLine < 1 && ctrlOf(ni, nj) !== "round" && traffic.some(o => o !== c && o.k === (c.k + 2) % 4 && !o.turn && Math.hypot(o.x - c.x, o.z - c.z) < 30)) vT = 0;
       }
@@ -3365,7 +3543,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         const p = bez(t.P, t.u), p2 = bez(t.P, Math.min(1, t.u + 0.02)), p0 = bez(t.P, Math.max(0, t.u - 0.02));
         c.x = p.x; c.z = p.z; c.th = Math.atan2(p2.x - p0.x, -(p2.z - p0.z));
         }
-        if (t.u >= 1) { c.i = t.ni; c.j = t.nj; c.k = t.k2; c.s = t.round ? RING_R + 0.5 : HALF; c.turn = null; c.next = pickTurn(); c.done = false; c.wait = 0; Object.assign(c, segPose(c)); }
+        if (t.u >= 1) { c.i = t.ni; c.j = t.nj; c.k = t.k2; c.s = t.round ? RING_R + 0.5 : HALF; c.turn = null; c.next = c.kind === "bus" ? 0 : pickTurn(); c.stopDone = false; c.off = LANE; c.done = false; c.wait = 0; Object.assign(c, segPose(c)); }
       } else {
         c.s += c.v * dt;
         const dn = dirOf(c.k * Math.PI / 2);
@@ -3374,6 +3552,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       }
       placeCar(c.obj, c.x, c.z, c.th);
       c.obj.tail.material = c.braking ? tailOn : tailOff;
+      if (c.obj.blinkL) { const pulling = c.atStop && c.stopT > 6.5; c.obj.blinkR.visible = c.atStop && !pulling && blinkOn; c.obj.blinkL.visible = (pulling || c.offT < 0) && blinkOn; }
     }
   }
 
@@ -3991,13 +4170,16 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     drawGauge(speedo, Math.abs(S.v) * 3.6, 140, 20, null, "km/h", String(Math.round(Math.abs(S.v) * 3.6)));
     updateDom();
     updateSound();
+    if (Math.floor(S.t / 5) !== Math.floor((S.t - dt) / 5)) saveProgress();
     requestAnimationFrame(frame);
   }
-  document.getElementById("mode").value = mode;
+  window.addEventListener("beforeunload", saveProgress);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) saveProgress(); });
   applyWeather();
-  renderMissions();
-  renderScore();
-  tip("Hola. Si es tu primera vez, elige Lugar → Primera clase, arriba. Si no, primera misión: " + MISSIONS[0].hint, "welcome", 999);
+  const firstTime = !Object.keys(prog.modes).length;
+  setMode(prog.last && modeOpen(prog.last) ? prog.last : "lesson");
+  if (firstTime) tip("Hola. Empezamos por la Primera clase: en un estacionamiento vacío aprendes el embrague paso a paso. Después se van abriendo los otros lugares (mira Tu camino, en la pestaña Misiones).", "welcome", 999);
+  else tip(`Hola de nuevo. Sigues donde quedaste: ${MODE_NAMES[mode]}, misión ${Math.min(S.mission + 1, MISSIONS.length)} de ${MISSIONS.length}.`, "welcome", 999);
   requestAnimationFrame(frame);
 })();
 </script>
