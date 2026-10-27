@@ -70,6 +70,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 }
 .btn:hover { border-color: var(--amber-dim); }
 .btn[aria-pressed="true"] { border-color: var(--amber); color: var(--amber); }
+.btn.armed { border-color: var(--red); color: #fff; background: var(--red); }
 
 /* Road */
 .stage {
@@ -2177,14 +2178,24 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       toast("Ya doblaste bien 6 veces: desde ahora la guía amarilla no aparece, como en la vida real. Si la necesitas, actívala en Controles → Opciones.", "good", "guide-off", 999);
     }
   }
+  // ask "are you sure?" on the button itself: the first click arms it, a second click within 4 s does it
+  function twoStep(btn, ask, action) {
+    const label = btn.textContent; let armed = 0;
+    btn.addEventListener("click", () => {
+      if (armed && Date.now() - armed < 4000) { armed = 0; btn.textContent = label; btn.classList.remove("armed"); action(); return; }
+      if (!ask()) { action(); return; }
+      armed = Date.now(); btn.textContent = "¿Seguro? Toca de nuevo"; btn.classList.add("armed");
+      setTimeout(() => { if (armed && Date.now() - armed >= 3900) { armed = 0; btn.textContent = label; btn.classList.remove("armed"); } }, 4000);
+    });
+  }
   const optFree = document.getElementById("opt-free");
   optFree.checked = !!prog.free;
   optFree.addEventListener("change", () => { prog.free = optFree.checked; saveProgress(); renderMissions(); document.getElementById("road").focus(); });
-  document.getElementById("btn-wipe").addEventListener("click", () => {
-    if (!confirm("¿Borrar todo tu progreso (misiones y puntaje de todos los lugares)? No se puede deshacer.")) return;
+  twoStep(document.getElementById("btn-wipe"), () => true, () => {
     prog = { modes: {}, free: false, last: null }; optFree.checked = false;
     try { localStorage.setItem("pm-progress", JSON.stringify(prog)); } catch (err) {}
     S = null; setMode("lesson");
+    toast("Borraste tu progreso: empiezas de nuevo desde la Primera clase.", "", "wipe", 1);
   });
   const optNight = document.getElementById("opt-night");
   optNight.checked = opts.night;
@@ -2198,8 +2209,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   const trafficSel = document.getElementById("traffic");
   trafficSel.addEventListener("change", () => document.getElementById("road").focus());
   // start this place over from the beginning: first mission, score at zero (the other places keep their progress)
-  document.getElementById("btn-reset").addEventListener("click", () => {
-    if (S.mission > 0 && !confirm(`¿Empezar de nuevo "${MODE_NAMES[mode]}" desde la primera misión? Se borran las misiones y el puntaje de este lugar (los otros lugares no cambian).`)) return;
+  twoStep(document.getElementById("btn-reset"), () => S.mission > 0 || S.score !== 0, () => {
     delete prog.modes[mode];
     try { localStorage.setItem("pm-progress", JSON.stringify(prog)); } catch (err) {}
     S = null; setMode(mode);
