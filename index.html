@@ -239,6 +239,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   font-size: .68rem; color: #d9d4c8; text-shadow: 0 1px 2px #000; letter-spacing: .04em; opacity: .85;
 }
 .mirror.zoom { cursor: zoom-out; z-index: 3; }
+.mirror.look { border-color: var(--amber); }
 #m-rear { top: 10px; left: 50%; transform: translateX(-50%); width: 25%; height: 12%; border-radius: 12px; }
 #m-rear.zoom { width: 62%; height: 38%; }
 #m-left { left: 1.5%; bottom: 25%; width: 15%; height: 16%; border-radius: 40% 14px 14px 30%; }
@@ -393,6 +394,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     <div class="top-actions">
       <label class="sel" for="mode">Lugar
         <select id="mode">
+          <option value="lesson">Primera clase</option>
           <option value="city">Ciudad</option>
           <option value="hill">Subidas y bajadas</option>
           <option value="parking">Estacionamiento</option>
@@ -495,6 +497,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         <div class="gear-big" id="gear-big">N</div>
         <div class="lights">
           <span class="lamp blink" id="lamp-left">◀</span>
+          <span class="lamp" id="lamp-belt" title="Cinturón de seguridad">CINTURÓN</span>
           <span class="lamp blink" id="lamp-right">▶</span>
         </div>
         <div class="lights">
@@ -575,6 +578,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         <span class="key">Q</span><span>Freno de mano</span>
         <span class="key">H</span><span>Bocina</span>
         <span class="key">L</span><span>Limpiaparabrisas</span>
+        <span class="key">C</span><span>Cinturón de seguridad</span>
+        <span class="key">V</span><span>Mirar los espejos (antes de arrancar y de doblar)</span>
         <span class="key">M</span><span>Agrandar el espejo (o clic en un espejo)</span>
         <span class="key">Rueda</span><span>Embrague fino con la rueda del mouse</span>
       </div>
@@ -582,6 +587,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       <h2>Opciones</h2>
       <div class="options">
         <label for="opt-autoclutch"><input type="checkbox" id="opt-autoclutch"><span>Embrague automático<small>Para empezar: el auto maneja el embrague por ti. Solo aceleras, frenas y cambias.</small></span></label>
+        <label for="opt-voice"><input type="checkbox" id="opt-voice"><span>Instructor por voz<small>Los consejos se escuchan, así no sacas la vista de la calle.</small></span></label>
+        <label for="opt-guide"><input type="checkbox" id="opt-guide"><span>Guía amarilla para doblar<small>Se apaga sola cuando ya doblaste bien 6 veces, como en la vida real.</small></span></label>
         <label for="opt-rain"><input type="checkbox" id="opt-rain"><span>Lluvia<small>Menos visibilidad, el auto tarda más en frenar y vas a necesitar el limpiaparabrisas (L).</small></span></label>
       </div>
       <p class="note">El estacionamiento de práctica es el rectángulo gris con la P en el GPS. Cuando te toca estacionar, una línea amarilla te marca el camino y una columna amarilla marca la entrada (a la derecha, a unos 30 m de donde partes).</p>
@@ -769,7 +776,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   // ---------- state ----------
   let S;
   let mode = "city";
-  const START = { city: { x: LANE, z: -14, th: 0 }, hill: { x: LANE, z: 25, th: 0 }, parking: { x: 22, z: -40, th: Math.PI / 2, limit: 20 } };
+  const START = { city: { x: LANE, z: -14, th: 0 }, hill: { x: LANE, z: 25, th: 0 }, parking: { x: 22, z: -40, th: Math.PI / 2, limit: 20 }, lesson: { x: 22, z: -40, th: Math.PI / 2, limit: 20 } };
   const heightAt = (x, z) => mode === "hill" ? hillH(z) : 0;
   function freshState() {
     return Object.assign({
@@ -782,6 +789,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       score: 0, cleanDist: 0, bestClean: 0, trafficLevel: 0,
       mission: 0, counts: { infr: 0, stall: 0, grind: 0, crash: 0 }, log: [], hist: [], paused: false,
       trip: { logStart: 0, t0: 0, dist0: 0, score0: 0, maxKmh: 0 },
+      belt: false, beltFlag: false, mirrorT: -99, parkedStop: true, biteT: 0, fwd1: 0, lessonStops: 0, moved: false, rev: 0, l2: false,
       hs: null, dh: null, launchRolled: false, lastRoll: -9, parkedFront: false, parkedBack: false,
     }, START[mode]);
   }
@@ -803,11 +811,27 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     d.title = "Clic para cerrar";
     d.addEventListener("click", () => d.remove());
     toastsEl.prepend(d);
+    say(text);
     while (toastsEl.children.length > 2) toastsEl.lastChild.remove();
     // long enough to read: about 1 second per 12 characters, at least 6 s
     setTimeout(() => d.remove(), Math.max(6000, text.length * 85));
   }
   const tip = (text, key, cooldown = 20) => { if (help) toast(text, "tip", key, cooldown); };
+  // the instructor reads the messages aloud, so your eyes can stay on the road
+  let voiceEs = null;
+  const ORD = { 1: "primera", 2: "segunda", 3: "tercera", 4: "cuarta", 5: "quinta" };
+  function pickVoice() { const vs = speechSynthesis.getVoices(); voiceEs = vs.find(v => /^es[-_]AR/i.test(v.lang)) || vs.find(v => /^es[-_](419|US|MX|UY|CL|CO)/i.test(v.lang)) || vs.find(v => /^es/i.test(v.lang)) || null; }
+  if ("speechSynthesis" in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+  function say(text) {
+    if (!opts.voice || !("speechSynthesis" in window)) return;
+    const clean = text.replace(/\s*\([+−-]?\d+\)/g, "").replace(/\s*\([A-ZÑ↑↓←→, /]{1,12}\)/g, "").replace(/([1-5])ª/g, (m, d) => ORD[d])
+      .replace(/km\/h/g, "kilómetros por hora").replace(/rpm/g, "revoluciones").replace(/(\d)\.(\d{3})/g, "$1$2");
+    try {
+      if (speechSynthesis.pending) speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(clean); u.lang = voiceEs ? voiceEs.lang : "es-AR"; if (voiceEs) u.voice = voiceEs; u.rate = 1.08;
+      speechSynthesis.speak(u);
+    } catch (err) {}
+  }
 
   // ---------- score ----------
   const levelOf = s => { let l = LEVELS[0]; for (const x of LEVELS) if (s >= x[0]) l = x; return l; };
@@ -837,6 +861,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   function toggleEngine() {
     if (S.running || S.crank > 0) {
       S.running = false; S.crank = 0;
+      if (S.v === 0) S.parkedStop = true;
       if (S.v === 0 && S.dist - S.trip.dist0 > 300) setTimeout(showTrip, 400);
       return;
     }
@@ -923,6 +948,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     for (const st of info.steps) { const li = document.createElement("li"); li.textContent = st; ol.appendChild(li); }
     toastsEl.innerHTML = "";
     card.hidden = false;
+    say("Se apagó el motor. " + info.title);
     drawStallChart();
     document.getElementById("stall-ok").focus({ preventScroll: true }); document.getElementById("stall-card").scrollTop = 0;
   }
@@ -958,7 +984,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const rpm = toRpm(S.we);
     let Te;
     if (S.running) {
-      const idleAir = clamp((IDLE - rpm) / 250, 0, 0.25);
+      // idle control: like a modern car, it adds a little throttle when the clutch loads the engine, so at the bite point it creeps without stalling
+      const idleAir = clamp((IDLE - rpm) / 120, 0, 0.6);
       let thr = Math.max(S.gas, idleAir);
       if (rpm > 6700) thr = 0;
       Te = thr * torqueCurve(rpm) - (9 + 0.0032 * rpm);
@@ -1101,6 +1128,31 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     return { i, j, dist: Math.abs(S.x - i * G) - HALF, axis: "EW" };
   }
 
+  function checkCommon(dt) {
+    const kmh = Math.abs(S.v) * 3.6;
+    if (!S.belt && kmh > 5 && !S.beltFlag) { S.beltFlag = true; infraction("Manejaste sin el cinturón de seguridad"); tip("Abróchate el cinturón con C. En Argentina es obligatorio y en el examen es lo primero que miran.", "belt", 20); }
+    if (!S.belt && S.running && S.v === 0) tip("Antes de arrancar abróchate el cinturón (C): la luz roja CINTURÓN del tablero te lo recuerda.", "belt-pre", 40);
+    // pulling away after being parked: look in the mirrors first
+    if (S.parkedStop && Math.abs(S.v) > 1) {
+      S.parkedStop = false;
+      if (S.t - S.mirrorT > 10) { infraction("Arrancaste sin mirar los espejos", -5); tip("Antes de salir de donde estabas estacionada, mira los espejos (V o clic en un espejo): puede venir un auto, una moto o una bici.", "mirror-start", 30); }
+    }
+    if (S.parkedStop && S.running && S.gear !== "N" && S.t - S.mirrorT > 10 && S.mission > 0) tip("Antes de salir, mira los espejos (V).", "mirror-pre", 40);
+    if (mode === "lesson") updateLesson(dt);
+  }
+  function updateLesson(dt) {
+    const e = S.gear === "N" ? 0 : engage(S.clutch);
+    if (S.mission === 2) {
+      if (S.running && S.gear === "1" && e > 0.03 && e < 0.75 && Math.abs(S.v) < 2.6) { S.biteT += dt; if (S.biteT > 0.4) tip("¡Ahí está el punto de roce! El motor baja un poco de vueltas y el auto tiembla. Deja el embrague quieto ahí.", "bite-found", 30); }
+      else if (S.biteT < 2) S.biteT = 0;
+    }
+    if (S.mission === 3 && S.running && S.gear === "1" && S.v > 0) S.fwd1 += S.v * dt;
+    if (Math.abs(S.v) > 1) S.moved = true;
+    if (S.mission === 4 && S.v === 0 && S.moved && S.running) S.lessonStops++;
+    if (S.v === 0) S.moved = false;
+    if (S.mission === 5 && S.running && S.gear === "R" && S.v < 0) S.rev -= S.v * dt;
+    if (S.mission === 6 && S.running && S.gear === "2" && S.v * 3.6 > 10) S.l2 = true;
+  }
   function checkHill(dt) {
     const kmh = Math.abs(S.v) * 3.6, u = -S.z, north = Math.cos(S.th) > 0.7, half = HILL_P / 2;
     S.limit = 40;
@@ -1157,6 +1209,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (g >= 1 && g <= 4 && rpm > 3300 && e > 0.9 && S.gas > 0.2) tip(`Puedes pasar a ${g + 1}ª.`, "up" + g, 25);
   }
   function checkRules(dt) {
+    checkCommon(dt);
     if (mode === "hill") { checkHill(dt); return; }
     const kmh = Math.abs(S.v) * 3.6;
     const ap = approach();
@@ -1174,6 +1227,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         if (st !== "green") tip(`Semáforo en ${st === "red" ? "rojo" : "amarillo"} adelante: prepárate para detenerte antes de la línea blanca.`, "ap-light" + ap.i + "," + ap.j + st, 25);
       }
       if (S.blink === "left" && noLeft(ap.i, ap.j, cardinal(S.th).k)) tip("En esta esquina está prohibido girar a la izquierda (mira el cartel redondo). Sigue derecho o dobla a la derecha.", "noleft" + ap.i + "," + ap.j, 30);
+      if (S.blink && ap.dist < 40 && S.t - S.mirrorT > 6) tip("Antes de doblar mira el espejo (V) de ese lado: puede venir una moto o una bici.", "mirror-turn" + ap.i + "," + ap.j, 30);
       if (ap.dist < 45 && !S.blink && !(S.turned.left && S.turned.right)) tip("Esquina adelante: puedes seguir derecho o doblar. Para doblar, señaliza (Z izquierda / X derecha): aparece una guía amarilla en el piso y te aviso cuándo girar.", "corner", 45);
     }
     if (ap && ap.dist < 25 && Math.abs(S.steer) > 0.15 && !S.blink && S.v > 0.5) tip("¿Vas a doblar? Pon el señalizador: Z izquierda, X derecha.", "blink-tip", 20);
@@ -1222,7 +1276,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         const side = turn > 0 ? "right" : "left", name = side === "right" ? "derecha" : "izquierda";
         if (side === "left" && noLeft(S.box.i, S.box.j, cardinal(S.box.th).k)) infraction("Giraste a la izquierda donde está prohibido", -20);
         if (S.box.blink !== side && S.blink !== side) infraction(`Doblaste a la ${name} sin señalizar`);
-        else { award(10, `Doblaste a la ${name} señalizando`); toast(`Bien: doblaste a la ${name} señalizando (+10).`, "good", "turned" + S.box.key); S.turned[side] = true; }
+        else { award(10, `Doblaste a la ${name} señalizando`); toast(`Bien: doblaste a la ${name} señalizando (+10).`, "good", "turned" + S.box.key); S.turned[side] = true; countGoodTurn(); }
+        if (S.t - S.mirrorT > 12) infraction("Doblaste sin mirar el espejo", -5);
         S.blink = null; // the blinker switches itself off after the turn; the guide stays until the car is straight
       } else if (S.blink && S.v > 0) tip("Seguiste derecho con el guiño puesto: apágalo tocando la misma tecla (Z o X).", "blink-left-on", 20);
       S.box = null;
@@ -1241,7 +1296,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       } else { S.wrongT = 0; S.wrongFlag = false; }
     }
 
-    S.limit = inLot(S.x, S.z) || mode === "parking" ? 20 : (streetLimit(S.x, S.z) ?? S.limit);
+    S.limit = inLot(S.x, S.z) || mode === "parking" || mode === "lesson" ? 20 : (streetLimit(S.x, S.z) ?? S.limit);
     // school zones and speed bumps
     const sg = segAt(S.x, S.z), feat = sg && segFeature(sg.axis, sg.line, sg.block), key = sg && sg.axis + sg.line + "," + sg.block;
     if (feat === "school") tip("Zona escolar: máximo 20 km/h y atención a los chicos que cruzan.", "school" + key, 60);
@@ -1298,7 +1353,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 
   // ---------- missions ----------
   const CITY_MISSIONS = [
-    { title: "Enciende el motor", hint: "Mantén el embrague a fondo (Espacio o A) y pulsa E. Si es tu primera vez, puedes activar el embrague automático en la pestaña Controles. El motor de arranque gira un momento antes de encender.", done: () => S.running },
+    { title: "Prepárate y enciende el motor", hint: "Como en el auto de verdad, antes de salir: abróchate el cinturón (C) y mira los espejos (V o clic en un espejo). Después mantén el embrague a fondo (Espacio o A) y pulsa E. El motor de arranque gira un momento antes de encender.", done: () => S.running && S.belt && S.mirrorT >= 0 },
     { title: "Arranca en primera sin que se apague", hint: "Embrague a fondo, 1ª, quita el freno de mano (Q). Acelera hasta unas 1.500 rpm y mantenlo con toques de D. Recién ahí suelta A. Cuando las rpm bajen un poco y el auto tiemble, estás en el punto de roce: deja el pedal ahí (rueda del mouse) hasta que el auto avance y después termina de soltar.", done: () => S.running && S.gear === "1" && S.v * 3.6 > 8 && S.clutch < BITE_FULL },
     { title: "Pasa a segunda", hint: "Cerca de 15–20 km/h: suelta el acelerador, embrague a fondo, 2ª, suelta el embrague y vuelve a acelerar.", done: () => S.running && S.gear === "2" && S.v * 3.6 > 18 && S.clutch < BITE_FULL },
     { title: "Respeta un PARE", hint: "Cada 90 m hay una esquina. El GPS marca en rojo las que tienen PARE. Detente por completo antes de la línea blanca y vuelve a arrancar en 1ª.", done: () => S.stopOk },
@@ -1319,6 +1374,15 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     { title: "Estaciona de culata (en reversa)", hint: "Sal del lugar, avanza unos metros más allá, pon reversa (R) y entra marcha atrás. Mira los espejos laterales (clic para agrandar) para quedar entre las líneas.", done: () => S.parkedBack },
     { title: "Estaciona en paralelo", hint: "Al fondo del estacionamiento, entre dos autos. Ponte al lado del auto de adelante a 1 m, con las colas alineadas. En reversa gira todo a la derecha hasta quedar en 45°, endereza, y cuando tu frente pase la cola del auto de adelante gira todo a la izquierda.", done: () => S.parkedPar },
   ];
+  const LESSON_MISSIONS = [
+    { title: "Prepárate antes de encender", hint: "Lo primero, siempre: abróchate el cinturón (C), mira los espejos (V o clic en un espejo), fíjate que el freno de mano esté puesto (luz roja (P) del tablero) y que la palanca esté en el medio, en neutro (N).", done: () => S.belt && S.mirrorT >= 0 && S.hand && S.gear === "N" },
+    { title: "Enciende el motor", hint: "Pisa el embrague a fondo y mantenlo (Espacio o A). Pulsa E. Escucha el motor: en reposo queda en unas 850 rpm (la aguja de la izquierda, un poco antes del 1).", done: () => S.running },
+    { title: "Encuentra el punto de roce", hint: "Con el embrague a fondo pon 1ª (tecla 1) y baja el freno de mano (Q). Sin acelerar, suelta el embrague MUY despacio con la rueda del mouse (hacia arriba). Cuando las rpm bajen un poco y el auto tiemble o empiece a moverse, ese es el punto de roce: déjalo quieto ahí 2 segundos. Si se mueve mucho, vuelve a pisar un poco (rueda hacia abajo).", done: () => S.biteT >= 2 },
+    { title: "Avanza 10 metros en 1ª", hint: "Desde el punto de roce acelera un poco, hasta unas 1.500 rpm, y termina de soltar el embrague de a poco. Mantén el acelerador suave y avanza derecho 10 metros.", done: () => S.fwd1 >= 10 },
+    { title: "Detente sin que se apague", hint: "Suelta el acelerador. Pisa el embrague a fondo y después frena suave (↓) hasta que el auto pare. Con el embrague pisado el motor no se apaga. Ya detenida, pon neutro (N).", done: () => S.lessonStops >= 1 },
+    { title: "Retrocede 5 metros", hint: "Detenida, con el embrague a fondo pon reversa (R). Mira el espejo de atrás (M lo agranda). Sin acelerar, suelta el embrague hasta el punto de roce y deja que el auto retroceda despacio.", done: () => S.rev >= 5 },
+    { title: "Pasa a 2ª y vuelve a 1ª", hint: "Sal en 1ª, acelera hasta unos 12 km/h, suelta el acelerador, embrague a fondo, 2ª y suelta. Después frena un poco, embrague a fondo y vuelve a 1ª. Si te quedas sin lugar, dobla para usar el largo del estacionamiento.", done: () => S.l2 && S.gear === "1" && S.running && S.v > 0.5 },
+  ];
   let MISSIONS = CITY_MISSIONS;
   const missionsEl = document.getElementById("missions");
   function renderMissions() {
@@ -1337,6 +1401,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       li.className = "current";
       li.innerHTML = mode === "city"
         ? `<span class="n">★</span><span>¡Aprobaste el examen! Ya tienes tu licencia de práctica. Sigue manejando con tránsito, con lluvia o sin ayudas para subir tu puntaje.</span>`
+        : mode === "lesson" ? `<span class="n">★</span><span>¡Terminaste la primera clase! Ya sabes lo básico del embrague. Ahora elige Ciudad en Lugar, arriba.</span>`
         : `<span class="n">★</span><span>Completaste las misiones de este lugar. Prueba otro en el selector Lugar, arriba.</span>`;
       missionsEl.appendChild(li);
     }
@@ -1383,6 +1448,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     [/Raspaste|reversa avanzando/, "Pisa el embrague a fondo antes de mover la palanca de cambios."],
     [/Chocaste|Tocaste|Atropellaste/, "Ve más despacio cerca de autos y obstáculos, y usa los espejos antes de moverte."],
     [/lomo de burro/, "Cuando veas el cartel amarillo de lomo de burro, baja a menos de 20 km/h."],
+    [/cinturón/, "Lo primero al subir al auto: el cinturón (C)."],
+    [/espejo/, "Mira los espejos (V) antes de arrancar y antes de cada giro."],
     [/punto muerto/, "En las bajadas deja una marcha puesta (2ª) para que el motor frene."],
   ];
   const tripKey = t => t.startsWith("Exceso de velocidad") ? "Exceso de velocidad" : t.startsWith("Pasaste el lomo de burro") ? "Pasaste el lomo de burro rápido" : t.replace(/\s*\(\+?-?\d+\)$/, "");
@@ -1524,6 +1591,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     else if (k === "z") S.blink = S.blink === "left" ? null : "left";
     else if (k === "x") S.blink = S.blink === "right" ? null : "right";
     else if (k === "m") toggleMirror("rear");
+    else if (k === "c") { S.belt = !S.belt; if (S.belt) toast("Cinturón abrochado.", "", "belt-on", 2); }
+    else if (k === "v") lookMirrors();
     else if (k === "h") honk(true);
     else if (k === "l") toggleWipers();
     else if ("12345".includes(k) && k.length === 1) shiftTo(k);
@@ -1563,12 +1632,24 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   document.getElementById("result-ok").addEventListener("click", closeResult);
   document.getElementById("result-x").addEventListener("click", closeResult);
   document.getElementById("result-retry").addEventListener("click", () => { closeResult(); startExam(); });
-  const opts = { autoClutch: false, rain: false };
+  const opts = { autoClutch: false, rain: false, voice: true, guide: true, sound: true, turnsOk: 0 };
   try { const saved = JSON.parse(localStorage.getItem("pm-opts") || "{}"); Object.assign(opts, saved); } catch (err) {}
   const optAuto = document.getElementById("opt-autoclutch"), optRain = document.getElementById("opt-rain");
   optAuto.checked = opts.autoClutch; optRain.checked = opts.rain;
   const saveOpts = () => { try { localStorage.setItem("pm-opts", JSON.stringify(opts)); } catch (err) {} };
   optAuto.addEventListener("change", () => { opts.autoClutch = optAuto.checked; saveOpts(); toast(opts.autoClutch ? "Embrague automático activado: solo acelera, frena y cambia." : "Embrague manual: ahora lo manejas tú (Espacio o A)."); document.getElementById("road").focus(); });
+  const optVoice = document.getElementById("opt-voice"), optGuide = document.getElementById("opt-guide");
+  optVoice.checked = opts.voice; optGuide.checked = opts.guide;
+  optVoice.addEventListener("change", () => { opts.voice = optVoice.checked; saveOpts(); if (!opts.voice && "speechSynthesis" in window) speechSynthesis.cancel(); else say("Instructor por voz activado."); document.getElementById("road").focus(); });
+  optGuide.addEventListener("change", () => { opts.guide = optGuide.checked; opts.turnsOk = 0; saveOpts(); document.getElementById("road").focus(); });
+  // the yellow line is for learning: after 6 good turns it goes away, like the training wheels of a bike
+  function countGoodTurn() {
+    opts.turnsOk = (opts.turnsOk || 0) + 1; saveOpts();
+    if (opts.guide && opts.turnsOk >= 6) {
+      opts.guide = false; optGuide.checked = false; saveOpts();
+      toast("Ya doblaste bien 6 veces: desde ahora la guía amarilla no aparece, como en la vida real. Si la necesitas, actívala en Controles → Opciones.", "good", "guide-off", 999);
+    }
+  }
   optRain.addEventListener("change", () => { opts.rain = optRain.checked; saveOpts(); applyWeather(); if (opts.rain) tip("Está lloviendo: enciende el limpiaparabrisas (L) y frena antes, el auto tarda más en detenerse.", "rain", 30); document.getElementById("road").focus(); });
   function toggleWipers() { S.wipers = !S.wipers; document.getElementById("btn-wipers").setAttribute("aria-pressed", S.wipers); }
   document.getElementById("btn-wipers").addEventListener("click", toggleWipers);
@@ -1581,7 +1662,12 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   document.getElementById("mode").addEventListener("change", e => { setMode(e.target.value); document.getElementById("road").focus(); });
 
   const mirrorEls = { rear: document.getElementById("m-rear"), left: document.getElementById("m-left"), right: document.getElementById("m-right") };
+  function lookMirrors() {
+    S.mirrorT = S.t;
+    for (const n in mirrorEls) { mirrorEls[n].classList.add("look"); setTimeout(() => mirrorEls[n].classList.remove("look"), 900); }
+  }
   function toggleMirror(name) {
+    S.mirrorT = S.t;
     const was = mirrorEls[name].classList.contains("zoom");
     for (const n in mirrorEls) mirrorEls[n].classList.remove("zoom");
     if (!was) mirrorEls[name].classList.add("zoom");
@@ -1640,7 +1726,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   // ---------- sound ----------
   let audio = null;
   const soundBtn = document.getElementById("btn-sound");
-  soundBtn.addEventListener("click", () => {
+  function startAudio() {
     try {
       if (!audio) {
         const ac = new (window.AudioContext || window.webkitAudioContext)();
@@ -1656,8 +1742,16 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         if (audio.on) audio.ac.resume();
       }
       soundBtn.setAttribute("aria-pressed", audio.on);
+      opts.sound = audio.on; saveOpts();
     } catch (err) { toast("Este navegador no permite sonido aquí."); }
-  });
+  }
+  soundBtn.addEventListener("click", () => { if (soundBtn.dataset.skip) { delete soundBtn.dataset.skip; return; } startAudio(); });
+  // the engine sound is on from the first key or click: in a manual car you shift a lot by ear
+  const firstGesture = e => {
+    window.removeEventListener("keydown", firstGesture, true); window.removeEventListener("pointerdown", firstGesture, true);
+    if (!audio && opts.sound !== false) { startAudio(); if (e && e.target && e.target.closest && e.target.closest("#btn-sound")) soundBtn.dataset.skip = "1"; }
+  };
+  window.addEventListener("keydown", firstGesture, true); window.addEventListener("pointerdown", firstGesture, true);
   function updateSound() {
     if (!audio) return;
     const rpm = toRpm(S.we), t = audio.ac.currentTime;
@@ -2106,7 +2200,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   function updateGuide() {
     if (mode === "hill") { S.guide = null; guideDots.forEach(m => { m.visible = false; }); return; }
     // the blinker switches off by itself after the turn, so keep the guide until the turn is finished
-    if (!help || (!S.blink && !(S.guide && S.guide.cued))) S.guide = null;
+    if (!help || !opts.guide || (!S.blink && !(S.guide && S.guide.cued))) S.guide = null;
     else if (S.blink && (!S.guide || S.guide.side !== S.blink)) {
       const ap = approach();
       S.guide = ap && ap.dist > 0 && ap.dist < 40 && !(S.box && S.box.key === ap.i + "," + ap.j && S.box.judged) ? makeGuide(ap, S.blink) : null;
@@ -2342,7 +2436,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     mode = m;
     for (const pd of peds) removePed(pd);
     peds.length = 0;
-    MISSIONS = m === "hill" ? HILL_MISSIONS : m === "parking" ? PARK_MISSIONS : CITY_MISSIONS;
+    MISSIONS = m === "hill" ? HILL_MISSIONS : m === "parking" ? PARK_MISSIONS : m === "lesson" ? LESSON_MISSIONS : CITY_MISSIONS;
     for (const c of traffic) removeCar(c);
     traffic.length = 0;
     for (const [, g] of cells) { scene.remove(g); disposeGroup(g); }
@@ -2355,7 +2449,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     document.getElementById("stall-card").hidden = true; document.getElementById("result-card").hidden = true; document.getElementById("trip-card").hidden = true;
     document.getElementById("mode").value = m;
     renderMissions(); renderScore();
-    const intro = { city: "Ciudad: misiones de manejo y examen final.", hill: "Subidas y bajadas: empiezas parada en una subida con el freno de mano puesto. Practica arrancar sin irte para atrás.", parking: "Estacionamiento: practica estacionar de frente, de culata y en paralelo. Ve despacio, solo con el punto de roce." };
+    const intro = { lesson: "Primera clase: un estacionamiento sin tránsito para aprender el embrague paso a paso. Sigue la pestaña Misiones.", city: "Ciudad: misiones de manejo y examen final.", hill: "Subidas y bajadas: empiezas parada en una subida con el freno de mano puesto. Practica arrancar sin irte para atrás.", parking: "Estacionamiento: practica estacionar de frente, de culata y en paralelo. Ve despacio, solo con el punto de roce." };
     toast(intro[m], "tip", "intro" + m + S.t, 1);
   }
   function updateLights() {
@@ -2839,6 +2933,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     el("gear-big").textContent = S.gear;
     el("lamp-engine").className = "lamp" + (S.running ? " on green" : "");
     el("lamp-hand").className = "lamp" + (S.hand ? " on red" : "");
+    el("lamp-belt").className = "lamp" + (S.belt ? "" : " on red");
     const blinkOn = Math.floor(S.t * 3) % 2 === 0;
     el("lamp-left").className = "lamp blink" + (S.blink === "left" && blinkOn ? " on" : "");
     el("lamp-right").className = "lamp blink" + (S.blink === "right" && blinkOn ? " on" : "");
@@ -2938,7 +3033,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   applyWeather();
   renderMissions();
   renderScore();
-  tip("Hola. Primera misión: " + MISSIONS[0].hint, "welcome", 999);
+  tip("Hola. Si es tu primera vez, elige Lugar → Primera clase, arriba. Si no, primera misión: " + MISSIONS[0].hint, "welcome", 999);
   requestAnimationFrame(frame);
 })();
 </script>
