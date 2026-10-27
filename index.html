@@ -267,6 +267,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 #m-left.zoom, #m-right.zoom { width: 44%; height: 46%; }
 .toasts { top: auto; bottom: 40%; right: 50%; transform: translateX(50%); align-items: center; max-width: min(460px, 80%); z-index: 4; }
 .toast.tip { border-left-color: #6fa8dc; }
+.toast.talk { border-left-color: #3f8fe0; font-style: italic; }
 .lamp.blink { font-size: .9rem; padding: 0 6px; }
 .lamp.blink.on { background: var(--green); border-color: var(--green); color: #0f1a10; }
 .steer { display: flex; gap: 8px; justify-content: center; }
@@ -419,6 +420,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
           <option value="hill">Subidas y bajadas</option>
           <option value="parking">Estacionamiento</option>
           <option value="campo">Ruta en el campo</option>
+          <option value="ride">Llevar a alguien</option>
         </select>
       </label>
       <label class="sel" for="traffic">Tránsito
@@ -517,6 +519,15 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       <div class="quiz-opts" id="quiz-opts"></div>
       <p class="nums" id="quiz-why"></p>
       <div class="card-foot"><button class="btn" id="quiz-next" type="button" hidden>Siguiente <span class="key">Enter</span></button></div>
+    </div>
+    <div class="stall-card result-card" id="ride-card" role="dialog" aria-labelledby="ride-title" hidden>
+      <div class="card-head">
+        <div><span class="eyebrow" id="ride-eyebrow">Viaje terminado</span><h3 id="ride-title"></h3></div>
+        <button class="x" id="ride-x" type="button" aria-label="Cerrar">✕</button>
+      </div>
+      <p id="ride-text"></p>
+      <div class="result-stats" id="ride-stats"></div>
+      <div class="card-foot"><button class="btn" id="ride-ok" type="button">Siguiente pasajero <span class="key">Enter</span></button></div>
     </div>
     <div class="focus-hint" id="focus-hint" hidden>Haz clic en la calle para usar el teclado</div>
   </section>
@@ -1041,6 +1052,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     S.counts.stall++;
     const info = explainStall();
     award(-5, "Se apagó el motor: " + info.title, "warn");
+    rideHit("stall", 8);
     showStall(info);
   }
   function explainStall() {
@@ -1663,7 +1675,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (feat === "school") tip("Zona escolar: máximo 20 km/h y atención a los chicos que cruzan.", "school" + key, 60);
     if (sg && S.prevSeg && S.prevSeg.key === key && (S.prevSeg.s - G / 2) * (sg.s - G / 2) < 0 && feat === "bump") {
       if (kmh > 20) {
-        S.v *= 0.8; S.shake = 2.2; infraction(`Pasaste el lomo de burro a ${Math.round(kmh)} km/h`, -5);
+        S.v *= 0.8; S.shake = 2.2; infraction(`Pasaste el lomo de burro a ${Math.round(kmh)} km/h`, -5); rideHit("bump", 6);
         tip("El auto saltó porque llegaste rápido. La próxima vez: al ver el cartel amarillo suelta el acelerador y frena suave hasta ir a menos de 20 km/h ANTES de llegar a la franja amarilla y negra.", "bump-fast", 30);
       } else { S.shake = Math.max(S.shake, 0.6); award(2, "Lomo de burro despacio"); toast("Bien: pasaste el lomo de burro despacio (+2). Ya puedes volver a acelerar.", "good", "bump-ok", 10); }
     }
@@ -1751,6 +1763,11 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     { title: "Adelanta al tractor", hint: "Espera una zona con línea blanca discontinua. Mira el espejo, guiño izquierdo (Z), fíjate que no venga nadie de frente, pásate al carril contrario y acelera. Vuelve con el guiño derecho (X) cuando veas el tractor en el espejo de adentro.", done: () => !!S.passedTractor },
     { title: "Maneja 3 km sin errores", hint: "Mantén tu carril, respeta los 80 km/h y la doble línea amarilla. Si te vas a la banquina, vuelve despacio sin frenar de golpe.", done: () => (S.routeClean || 0) >= 3000 },
   ];
+  const RIDE_MISSIONS = [
+    { title: "Busca a tu primer pasajero y llévalo", hint: "Alguien te espera en una vereda: el GPS lo marca con un punto azul y en la calle hay una columna azul. Detente junto al cordón, del lado derecho, y espera que suba. Después el GPS te lleva al destino: frena junto al cordón para que baje.", done: () => (S.rides || 0) >= 1 },
+    { title: "Un viaje de 4 estrellas o más", hint: "Tu pasajero se fija en cómo manejas: frena de a poco, dobla despacio, que no se te apague el motor y sin infracciones.", done: () => (S.bestStars || 0) >= 4 },
+    { title: "Lleva a 5 pasajeros", hint: "Cada persona es distinta: la abuela quiere que vayas muy suave y algunos están apurados (pero sin multas).", done: () => (S.rides || 0) >= 5 },
+  ];
   let MISSIONS = CITY_MISSIONS;
   PARK_MISSIONS.push(
     { title: "Examen de circuito: zigzag entre conos", hint: "Los 5 conos naranjas en fila, en el medio del estacionamiento. Entra desde el lado de la entrada y pasa en zigzag: uno por la derecha, el siguiente por la izquierda. En 1ª, despacio y sin tocar ninguno. Si tocas uno, vuelve a empezar.", done: () => S.slalomOk },
@@ -1767,18 +1784,18 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     { mode: "parking", title: "Examen de circuito con conos", until: 5 },
     { mode: "city", title: "Examen final en la calle", until: 9 },
   ];
-  const MODE_NAMES = { lesson: "Primera clase", city: "Ciudad", hill: "Subidas y bajadas", parking: "Estacionamiento", campo: "Ruta en el campo" };
+  const MODE_NAMES = { lesson: "Primera clase", city: "Ciudad", hill: "Subidas y bajadas", parking: "Estacionamiento", campo: "Ruta en el campo", ride: "Llevar a alguien" };
   let prog = { modes: {}, free: false, last: null };
   try { Object.assign(prog, JSON.parse(localStorage.getItem("pm-progress") || "{}")); } catch (err) {}
   const missionOf = m => (m === mode && S ? S.mission : prog.modes[m] ? prog.modes[m].mission : 0);
   const stageDone = n => PATH[n].theory ? !!prog.theoryPassed : missionOf(PATH[n].mode) >= PATH[n].until;
   const stageOpen = n => n === 0 || prog.free || stageDone(n - 1);
-  const modeOpen = m => PATH.some((st, n) => st.mode === m && stageOpen(n));
+  const modeOpen = m => m === "ride" ? prog.free || stageDone(1) : PATH.some((st, n) => st.mode === m && stageOpen(n));
   const examOpen = () => prog.free || stageDone(6);
   const circuitOpen = () => prog.free || stageDone(5);
   function saveProgress() {
     if (!S) return;
-    prog.modes[mode] = { mission: S.mission, score: S.score, counts: S.counts, dist: S.dist, bestClean: S.bestClean, licensed: S.licensed, log: S.log.slice(0, 40) };
+    prog.modes[mode] = { mission: S.mission, score: S.score, counts: S.counts, dist: S.dist, bestClean: S.bestClean, licensed: S.licensed, log: S.log.slice(0, 40), rides: S.rides || 0, bestStars: S.bestStars || 0 };
     prog.last = mode;
     try { localStorage.setItem("pm-progress", JSON.stringify(prog)); } catch (err) {}
   }
@@ -1824,6 +1841,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       li.className = "current";
       li.innerHTML = mode === "city"
         ? `<span class="n">★</span><span>¡Aprobaste el examen! Ya tienes tu licencia de práctica. Sigue manejando con tránsito, con lluvia o sin ayudas para subir tu puntaje.</span>`
+        : mode === "ride" ? `<span class="n">★</span><span>¡Ya sos chofer de confianza! Siguen apareciendo pasajeros: prueba con mucho tránsito, de noche o con lluvia.</span>`
         : mode === "campo" ? `<span class="n">★</span><span>¡Completaste la ruta! Prueba con más tránsito o con lluvia.</span>`
         : mode === "lesson" ? `<span class="n">★</span><span>¡Terminaste la primera clase! Ya sabes lo básico del embrague. Ahora elige Ciudad en Lugar, arriba.</span>`
         : `<span class="n">★</span><span>Completaste las misiones de este lugar. Prueba otro en el selector Lugar, arriba.</span>`;
@@ -2104,7 +2122,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const k = e.key.toLowerCase();
     if (S.paused) {
       if (quiz) { if (k === "escape" || (k === "enter" && quiz.done)) closeQuiz(); else if (k === "enter") quizNext(); e.preventDefault(); return; }
-      if (k === "enter" || k === "escape") { closeStall(); closeResult(); closeTrip(); e.preventDefault(); } return;
+      if (k === "enter" || k === "escape") { closeStall(); closeResult(); closeTrip(); closeRide(); e.preventDefault(); } return;
     }
     if (KEYMAP[k]) { keys[KEYMAP[k]] = true; e.preventDefault(); return; }
     if (e.repeat) return;
@@ -2157,6 +2175,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   document.getElementById("quiz-x").addEventListener("click", closeQuiz);
   document.getElementById("quiz-next").addEventListener("click", () => { if (quiz && quiz.done) closeQuiz(); else quizNext(); });
   document.getElementById("result-x").addEventListener("click", closeResult);
+  document.getElementById("ride-ok").addEventListener("click", closeRide);
+  document.getElementById("ride-x").addEventListener("click", closeRide);
   document.getElementById("result-retry").addEventListener("click", () => { closeResult(); startExam(); });
   const opts = { biteHelp: true, autoClutch: false, rain: false, night: false, voice: true, guide: true, sound: true, turnsOk: 0 };
   try { const saved = JSON.parse(localStorage.getItem("pm-opts") || "{}"); Object.assign(opts, saved); } catch (err) {}
@@ -3516,12 +3536,166 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       if (c.lane < 0 ? c.u < pu - 120 : Math.abs(c.u - pu) > 450) { scene.remove(c.obj); routeCars.splice(n, 1); }
     }
   }
+  // ---------- "Llevar a alguien": pick someone up and drive them where they need to go ----------
+  const PASSENGERS = [
+    { who: "Tu abuela Marta", lo: "la", short: "Marta", type: "elder", soft: 1.6, hurry: false, hi: "¡Hola, querida! Despacito, eh, que no estoy para sustos.",
+      say: { brake: "¡Ay! Más suave con el freno, que se me cae la cartera.", turn: "¡Despacio en las curvas, que me mareo!", stall: "Tranquila, volvé a arrancar sin apuro.", infr: "¡Uy! Eso no estaba bien, eh.", bump: "¡Ay, mi cintura! Más despacio en los pozos.", good: "Qué bien manejás, me siento muy segura." } },
+    { who: "Tu amiga Sofi", lo: "la", short: "Sofi", type: "adult", soft: 1, hurry: true, hi: "¡Hola! Vamos que llego tarde… pero sin multas, eh.",
+      say: { brake: "¡Epa! ¿Qué pasó?", turn: "¡Uh, me fui para el costado!", stall: "Jaja, se te apagó. Tranqui, volvé a arrancar.", infr: "¡Ey! Eso era multa.", bump: "¡Upa!", good: "Vas re bien, eh." } },
+    { who: "Tu primo Nico", lo: "lo", short: "Nico", type: "kid", soft: 1.2, hurry: false, hi: "¡Hola! ¿Me llevás? Mamá dijo que vaya atrás con el cinturón.",
+      say: { brake: "¡Wow, qué frenada!", turn: "¡Uuuh, como en la montaña rusa!", stall: "¿Se rompió el auto?", infr: "Mi mamá dice que eso no se hace.", bump: "¡Salté!", good: "¡Qué lindo pasear!" } },
+    { who: "Tu mamá", lo: "la", short: "Mamá", type: "adult", soft: 1.3, hurry: false, hi: "¡Hola, hija! Dale, a ver cómo manejás.",
+      say: { brake: "¡Despacio! Mirá más adelante así frenás antes.", turn: "Más despacio antes de doblar.", stall: "No pasa nada, embrague a fondo y de nuevo.", infr: "Hija, eso es una infracción.", bump: "¡Los lomos de burro despacio!", good: "Muy bien, estoy orgullosa." } },
+    { who: "Juan, tu compañero de trabajo", lo: "lo", short: "Juan", type: "adult", soft: 1, hurry: true, hi: "¡Gracias por llevarme! Tengo una reunión en un rato.",
+      say: { brake: "¡Uf! Casi se me cae el café.", turn: "¡Epa, qué curva!", stall: "Pasa, tranquila.", infr: "Mejor no, que las multas salen caras.", bump: "¡Ups!", good: "Llegamos bien, eh." } },
+  ];
+  const PLACES = ["al hospital", "a la escuela", "a la estación de tren", "al club", "a la farmacia", "al supermercado", "a la casa de una amiga", "al trabajo", "a la plaza"];
+  let ride = null, rideObjs = [];
+  function rideSay(text, key, cooldown = 4) {
+    if (!ride || !ride.p) return;
+    toast(`${ride.p.short}: “${text}”`, "talk", "ride-" + key, cooldown);
+  }
+  function rideHit(kind, amount) {
+    if (!ride || ride.state !== "riding") return;
+    ride.comfort = Math.max(0, ride.comfort - amount * ride.p.soft);
+    ride.events[kind] = (ride.events[kind] || 0) + 1;
+    rideSay(ride.p.say[kind] || ride.p.say.infr, kind, 5);
+  }
+  // a place on the right side of a street, where someone can wait on the sidewalk
+  function pickSpot(minD, maxD) {
+    for (let tries = 0; tries < 80; tries++) {
+      const i = Math.round(S.x / G) + Math.floor(Math.random() * 7) - 3, j = Math.round(S.z / G) + Math.floor(Math.random() * 7) - 3, k = Math.floor(Math.random() * 4), s = 28 + Math.random() * 34;
+      if (k % 2 === 0 && isRailRow(k === 0 ? j - 1 : j)) continue;
+      if (i === 0 && (j === 0 || j === -1)) continue;
+      if (busStop(i, j, k) && Math.abs(s - BUS_STOP_S) < 14) continue;
+      const th = k * Math.PI / 2, [x, z] = rel(i * G, j * G, th, s, LANE), [cx, cz] = rel(i * G, j * G, th, s, HALF + 1.4);
+      const d = Math.hypot(x - S.x, z - S.z);
+      if (d < minD || d > maxD) continue;
+      return { i, j, k, s, th, x, z, cx, cz };
+    }
+    return null;
+  }
+  // the way there along the streets, arriving in the right direction
+  function rideRoute(sp) {
+    const pts = [{ x: S.x, z: S.z }], d = dirOf(sp.th);
+    const sg = segAt(S.x, S.z), along = (S.x - sp.x) * d.x + (S.z - sp.z) * d.z, lat = Math.abs((S.x - sp.x) * d.z - (S.z - sp.z) * d.x);
+    if (!(lat < 4 && along < 0 && along > -G && Math.cos(S.th - sp.th) > 0.7)) {
+      const ap = approach(), ci = ap ? ap.i : Math.round(S.x / G), cj = ap ? ap.j : Math.round(S.z / G);
+      const ex = sp.i * G, ez = sp.j * G, bx = ex - Math.round(d.x) * G, bz = ez - Math.round(d.z) * G;
+      pts.push({ x: ci * G, z: cj * G });
+      if (ci * G !== bx) pts.push({ x: bx, z: cj * G });
+      pts.push({ x: bx, z: bz }, { x: ex, z: ez });
+    }
+    pts.push({ x: sp.x, z: sp.z });
+    // drop repeated and straight-through points
+    const out = [pts[0]];
+    for (let n = 1; n < pts.length; n++) { const a = out[out.length - 1], p = pts[n]; if (Math.hypot(p.x - a.x, p.z - a.z) > 1) out.push(p); }
+    for (let n = out.length - 2; n >= 1; n--) { const a = out[n - 1], b = out[n], c = out[n + 1]; if (Math.abs((b.x - a.x) * (c.z - b.z) - (b.z - a.z) * (c.x - b.x)) < 1) out.splice(n, 1); }
+    let len = 0; for (let n = 1; n < out.length; n++) len += Math.hypot(out[n].x - out[n - 1].x, out[n].z - out[n - 1].z);
+    return { pts: out, len };
+  }
+  function rideInstruction(r) {
+    const p = r.pts;
+    if (p.length < 3) return `llegando · ${Math.round(r.len)} m`;
+    const a = p[0], b = p[1], c = p[2], dist = Math.round(Math.hypot(b.x - a.x, b.z - a.z));
+    const v1x = b.x - a.x, v1z = b.z - a.z, v2x = c.x - b.x, v2z = c.z - b.z, cr = (v1x * v2z - v1z * v2x) / Math.max(1, Math.hypot(v1x, v1z) * Math.hypot(v2x, v2z));
+    const turn = cr > 0.5 ? "doblá a la derecha" : cr < -0.5 ? "doblá a la izquierda" : Math.abs(cr) <= 0.5 && v1x * v2x + v1z * v2z < 0 ? "da la vuelta a la manzana" : "seguí derecho";
+    return `en ${dist} m ${turn} · faltan ${Math.round(r.len)} m`;
+  }
+  const rideMarker = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 5, 20, 1, true), new THREE.MeshBasicMaterial({ color: 0x3f8fe0, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false }));
+  rideMarker.layers.set(2); rideMarker.visible = false; scene.add(rideMarker);
+  function clearRide() { for (const o of rideObjs) scene.remove(o); rideObjs = []; ride = null; rideMarker.visible = false; }
+  function newRide() {
+    clearRide();
+    const p = PASSENGERS[Math.floor(Math.random() * PASSENGERS.length)], place = PLACES[Math.floor(Math.random() * PLACES.length)];
+    const pick = pickSpot(60, 260);
+    if (!pick) return;
+    ride = { p, place, pick, drop: null, state: "pickup", comfort: 100, events: {}, stopT: 0, prevV: 0, prevTh: S.th, acc: 0, brakeT: 0, lastHit: 0, infr0: S.counts.infr, t0: 0 };
+    const ped = makePed(p.type, p.type === "kid"); ped.position.set(pick.cx, 0, pick.cz); ped.rotation.y = Math.atan2(-rightOf(pick.th).x, -rightOf(pick.th).z); scene.add(ped); rideObjs.push(ped); ride.ped = ped;
+    toast(`${p.who} te pide que ${p.lo} lleves ${place}. Búsca${p.lo}: en el GPS es el punto azul, y en la calle, la columna azul.`, "good", "ride-new" + S.t, 1);
+  }
+  const atSpot = sp => { const d = dirOf(sp.th), r = rightOf(sp.th), along = (S.x - sp.x) * d.x + (S.z - sp.z) * d.z, side = (S.x - sp.x) * r.x + (S.z - sp.z) * r.z; return Math.abs(along) < 7 && side > -1.2 && side < 1.6 && Math.cos(S.th - sp.th) > 0.8; };
+  function updateRide(dt) {
+    if (mode !== "ride" || S.paused) return;
+    if (!ride) { if (S.t > 2) newRide(); return; }
+    const sp = ride.state === "pickup" || ride.state === "boarding" ? ride.pick : ride.drop;
+    rideMarker.visible = true; rideMarker.position.set(sp.cx, 2.5, sp.cz);
+    ride.route = rideRoute(sp);
+    if (ride.state === "pickup") {
+      if (atSpot(sp) && S.v === 0) { ride.stopT += dt; if (ride.stopT > 0.8) { ride.state = "boarding"; ride.stopT = 0; } }
+      else { ride.stopT = 0; if (atSpot(sp) && S.v > 0.5) tip("Detente del todo junto a la vereda para que pueda subir.", "ride-stop", 10); }
+      if (Math.hypot(sp.x - S.x, sp.z - S.z) < 40 && S.v > 3) tip("Ahí está, en la vereda de la derecha: pon el guiño derecho (X), baja la velocidad y detente junto al cordón.", "ride-near", 30);
+    } else if (ride.state === "boarding") {
+      ride.stopT += dt;
+      const ped = ride.ped, tx = S.x + rightOf(S.th).x * 1.2, tz = S.z + rightOf(S.th).z * 1.2;
+      ped.position.x += (tx - ped.position.x) * Math.min(1, dt * 2); ped.position.z += (tz - ped.position.z) * Math.min(1, dt * 2);
+      if (S.v !== 0) { ride.state = "pickup"; ride.stopT = 0; tip("Espera quieta hasta que suba: con el auto en movimiento no se sube nadie.", "ride-wait", 8); }
+      if (ride.stopT > 1.8) {
+        scene.remove(ped); ride.state = "riding"; ride.t0 = S.t; ride.infr0 = S.counts.infr;
+        ride.drop = pickSpot(180, 420) || pickSpot(100, 600);
+        ride.target = ride.drop ? rideRoute(ride.drop).len / 8 + 35 : 120;
+        toast(`${ride.p.short}: “${ride.p.hi}”`, "talk", "ride-hi" + S.t, 1); say(ride.p.hi);
+        if (!S.belt) setTimeout(() => rideSay("¡Ponete el cinturón vos también!", "belt", 20), 2500);
+        if (S.t - S.mirrorT > 10) setTimeout(() => tip("Antes de salir de nuevo: mira el espejo (V) y pon el guiño izquierdo.", "ride-out", 20), 4000);
+      }
+    } else if (ride.state === "riding") {
+      if (!ride.drop) { newRide(); return; }
+      // how the trip feels from the passenger seat: hard braking and fast turns
+      const a = (S.v - ride.prevV) / Math.max(dt, 1e-3), yaw = wrap(S.th - ride.prevTh) / Math.max(dt, 1e-3);
+      ride.acc = ride.acc * 0.8 + a * 0.2;
+      if (ride.acc < -5.5 && S.v > 0.5) ride.brakeT += dt; else ride.brakeT = 0;
+      if (ride.brakeT > 0.25 && S.t - ride.lastHit > 3) { ride.lastHit = S.t; rideHit("brake", 10); }
+      if (Math.abs(yaw * S.v) > 3.3 && S.t - ride.lastHit > 3) { ride.lastHit = S.t; rideHit("turn", 8); }
+      if (S.counts.infr > (ride.infrSeen ?? ride.infr0)) { rideHit("infr", 12 * (S.counts.infr - (ride.infrSeen ?? ride.infr0))); }
+      ride.infrSeen = S.counts.infr;
+      if (S.dist - (ride.goodAt ?? S.dist) > 600 && ride.comfort > 80) { rideSay(ride.p.say.good, "good", 120); ride.goodAt = S.dist; } else if (ride.goodAt == null) ride.goodAt = S.dist;
+      if (atSpot(sp) && S.v === 0) { ride.stopT += dt; if (ride.stopT > 1.2) finishRide(); }
+      else ride.stopT = 0;
+      if (Math.hypot(sp.x - S.x, sp.z - S.z) < 45 && S.v > 3) tip("Ya casi: el destino está a la derecha. Guiño derecho (X), baja la velocidad y detente junto al cordón.", "ride-drop-near", 30);
+    }
+    ride.prevV = S.v; ride.prevTh = S.th;
+  }
+  function finishRide() {
+    const r = ride, time = S.t - r.t0, infr = S.counts.infr - r.infr0;
+    let stars = r.comfort >= 90 ? 5 : r.comfort >= 75 ? 4 : r.comfort >= 55 ? 3 : r.comfort >= 35 ? 2 : 1;
+    const late = r.p.hurry && time > r.target;
+    if (late) stars = Math.max(1, stars - 1);
+    if (infr >= 2) stars = Math.min(stars, 2);
+    S.rides = (S.rides || 0) + 1; S.bestStars = Math.max(S.bestStars || 0, stars);
+    award(stars * 15, `Llevaste a ${r.p.short} ${r.place} (${stars} ★)`);
+    const bye = stars >= 4 ? r.p.say.good + " ¡Gracias!" : stars >= 3 ? "Gracias por traerme. Un poco más suave la próxima." : "Llegamos… pero la próxima, más tranquila, por favor.";
+    say(bye);
+    const ped = makePed(r.p.type, r.p.type === "kid"); ped.position.set(r.drop.cx, 0, r.drop.cz); scene.add(ped); rideObjs.push(ped);
+    S.paused = true; for (const k in keys) keys[k] = false; toastsEl.innerHTML = "";
+    document.getElementById("ride-eyebrow").textContent = "Viaje terminado";
+    document.getElementById("ride-title").textContent = `${"★".repeat(stars)}${"☆".repeat(5 - stars)}  ${r.p.short} llegó ${r.place}`;
+    const notes = [];
+    if (r.events.brake) notes.push(`frenaste fuerte ${r.events.brake} ${r.events.brake === 1 ? "vez" : "veces"}`);
+    if (r.events.turn) notes.push(`doblaste rápido ${r.events.turn} ${r.events.turn === 1 ? "vez" : "veces"}`);
+    if (r.events.stall) notes.push(`se apagó el motor ${r.events.stall} ${r.events.stall === 1 ? "vez" : "veces"}`);
+    if (infr) notes.push(`${infr} ${infr === 1 ? "infracción" : "infracciones"}`);
+    if (late) notes.push("llegaste tarde");
+    document.getElementById("ride-text").textContent = `“${bye}” ` + (notes.length ? "Para mejorar: " + notes.join(", ") + "." : "Viaje perfecto: suave, seguro y sin infracciones.");
+    document.getElementById("ride-stats").innerHTML = `<div><b>${Math.round(r.comfort)}</b>comodidad</div><div><b>${Math.floor(time / 60)}:${String(Math.round(time % 60)).padStart(2, "0")}</b>tiempo</div><div><b>+${stars * 15}</b>puntos</div>`;
+    const card = document.getElementById("ride-card"); card.hidden = false; card.scrollTop = 0;
+    document.getElementById("ride-ok").focus({ preventScroll: true });
+    ride.state = "done"; rideMarker.visible = false;
+    saveProgress();
+  }
+  function closeRide() {
+    const card = document.getElementById("ride-card");
+    if (card.hidden) return;
+    card.hidden = true; S.paused = false; ride = null;
+    setTimeout(() => { if (mode === "ride" && !ride) newRide(); }, 1500);
+    document.getElementById("road").focus();
+  }
   function setMode(m) {
     if (S && S.t > 0.5) saveProgress();
     mode = m;
     for (const pd of peds) removePed(pd);
     peds.length = 0;
-    MISSIONS = m === "campo" ? CAMPO_MISSIONS : m === "hill" ? HILL_MISSIONS : m === "parking" ? PARK_MISSIONS : m === "lesson" ? LESSON_MISSIONS : CITY_MISSIONS;
+    clearRide(); document.getElementById("ride-card").hidden = true;
+    MISSIONS = m === "ride" ? RIDE_MISSIONS : m === "campo" ? CAMPO_MISSIONS : m === "hill" ? HILL_MISSIONS : m === "parking" ? PARK_MISSIONS : m === "lesson" ? LESSON_MISSIONS : CITY_MISSIONS;
     for (const c of traffic) removeCar(c);
     traffic.length = 0;
     for (const [, g] of cells) { scene.remove(g); disposeGroup(g); }
@@ -3539,13 +3713,14 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (saved) {
       Object.assign(S, { mission: saved.mission || 0, score: saved.score || 0, dist: saved.dist || 0, bestClean: saved.bestClean || 0, licensed: !!saved.licensed, log: (saved.log || []).slice() });
       Object.assign(S.counts, saved.counts || {});
+      S.rides = saved.rides || 0; S.bestStars = saved.bestStars || 0;
       S.trip = { logStart: S.log.length, t0: 0, dist0: S.dist, score0: S.score, maxKmh: 0 };
     }
     prog.last = m;
     document.getElementById("stall-card").hidden = true; document.getElementById("result-card").hidden = true; document.getElementById("trip-card").hidden = true;
     document.getElementById("mode").value = m;
     renderMissions(); renderScore();
-    const intro = { campo: "Ruta en el campo: dos carriles, curvas, banquina y autos de frente. Luces bajas siempre encendidas (K) y máximo 80 km/h.", lesson: "Primera clase: un estacionamiento sin tránsito para aprender el embrague paso a paso. Sigue la pestaña Misiones.", city: "Ciudad: misiones de manejo y examen final.", hill: "Subidas y bajadas: empiezas parada en una subida con el freno de mano puesto. Practica arrancar sin irte para atrás.", parking: "Estacionamiento: practica estacionar de frente, de culata y en paralelo. Ve despacio, solo con el punto de roce." };
+    const intro = { ride: "Llevar a alguien: un familiar o un amigo te pide que lo lleves. Búscalo, maneja suave y déjalo en su destino. Al final te pone estrellas.", campo: "Ruta en el campo: dos carriles, curvas, banquina y autos de frente. Luces bajas siempre encendidas (K) y máximo 80 km/h.", lesson: "Primera clase: un estacionamiento sin tránsito para aprender el embrague paso a paso. Sigue la pestaña Misiones.", city: "Ciudad: misiones de manejo y examen final.", hill: "Subidas y bajadas: empiezas parada en una subida con el freno de mano puesto. Practica arrancar sin irte para atrás.", parking: "Estacionamiento: practica estacionar de frente, de culata y en paralelo. Ve despacio, solo con el punto de roce." };
     toast(intro[m], "tip", "intro" + m + S.t, 1);
   }
   function updateLights() {
@@ -3557,7 +3732,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 
   // ---------- traffic ----------
   function trafficTarget() {
-    if (mode !== "city") return 0;
+    if (mode !== "city" && mode !== "ride") return 0;
     const m = trafficSel.value;
     if (m === "off") return 0;
     if (m === "low") return 8;
@@ -3855,7 +4030,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   function removePed(pd) { scene.remove(pd.obj); }
   let pedClock = 0, midClock = 0;
   function updatePeds(dt) {
-    const city = mode === "city";
+    const city = mode === "city" || mode === "ride";
     const wantZebra = city ? 4 + Math.round(S.trafficLevel / 4) : 0, wantWalk = city ? 10 : 0;
     pedClock += dt; midClock += dt;
     if (pedClock > 1.5) {
@@ -3915,7 +4090,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       const done = pd.role !== "walker" && (pd.dir > 0 ? pd.b > CROSS_END : pd.b < -CROSS_END) && pd.state === "walk";
       const walkerOut = pd.role === "walker" && (() => { const s = (pd.ns ? pd.cz - pd.a : pd.cx + pd.a) - pd.block * G; return s < 6 || s > G - 6; })();
       if (done && pd.yielded && !pd.flagged) award(pd.role === "mid" ? 5 : 10, pd.role === "mid" ? "Frenaste para alguien que cruzaba mal" : pd.type === "elder" ? "Esperaste a una persona mayor que cruzaba" : "Cediste el paso al peatón");
-      if (done || walkerOut || Math.hypot(pd.x - S.x, pd.z - S.z) > 160 || mode !== "city") { removePed(pd); peds.splice(n, 1); }
+      if (done || walkerOut || Math.hypot(pd.x - S.x, pd.z - S.z) > 160 || (mode !== "city" && mode !== "ride")) { removePed(pd); peds.splice(n, 1); }
     }
   }
 
@@ -4185,6 +4360,12 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       nav.pts.forEach((p, k) => k ? gctx.lineTo(X(p.x), Z(p.z)) : gctx.moveTo(X(p.x), Z(p.z))); gctx.stroke();
       gctx.lineWidth = 2 * dpr; gctx.strokeRect(X(LOT.x0), Z(LOT.z0), (LOT.x1 - LOT.x0) * sc, (LOT.z1 - LOT.z0) * sc);
     }
+    if (mode === "ride" && ride && ride.route && ride.state !== "done") {
+      gctx.strokeStyle = "#3f8fe0"; gctx.lineWidth = 3 * dpr; gctx.lineJoin = "round"; gctx.beginPath();
+      ride.route.pts.forEach((p, k) => k ? gctx.lineTo(X(p.x), Z(p.z)) : gctx.moveTo(X(p.x), Z(p.z))); gctx.stroke();
+      const t = ride.route.pts[ride.route.pts.length - 1];
+      gctx.fillStyle = "#3f8fe0"; gctx.strokeStyle = "#0b1a2a"; gctx.lineWidth = 2; gctx.beginPath(); gctx.arc(clamp(X(t.x), 6, w - 6), clamp(Z(t.z), 6, h - 6), 6 * dpr, 0, Math.PI * 2); gctx.fill(); gctx.stroke();
+    }
     gctx.fillStyle = "#d9d4c8";
     for (const c of traffic) { gctx.beginPath(); gctx.arc(X(c.x), Z(c.z), 1.8 * dpr, 0, Math.PI * 2); gctx.fill(); }
     if (S.exam && S.exam.phase === "route" && !S.exam.failed) {
@@ -4279,6 +4460,10 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       else chip.hidden = true;
       return;
     }
+    if (mode === "ride" && ride && ride.route && ride.state !== "done") {
+      setChip(`${ride.state === "riding" ? `Llevando a ${ride.p.short} ${ride.place}` : `Busca a ${ride.p.short}`}: ${rideInstruction(ride.route)}`, "#3f8fe0");
+      return;
+    }
     if (S.exam && S.exam.phase === "route" && !S.exam.failed) {
       const [ci, cj] = S.exam.cps[S.exam.idx], txt = `Examen: punto ${S.exam.idx + 1} de 3 · ${Math.round(Math.hypot(S.x - ci * G, S.z - cj * G))} m`;
       if (chip.dataset.t !== txt) { chip.dataset.t = txt; chip.innerHTML = '<i style="background:#46e86c"></i>'; chip.appendChild(document.createTextNode(txt)); }
@@ -4296,7 +4481,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
           return;
         }
       } }
-    const tb = help && mode === "city" ? bumpAhead() : null;
+    const tb = help && (mode === "city" || mode === "ride") ? bumpAhead() : null;
     if (tb != null && tb > -2 && tb < 70) { setChip(`Lomo de burro · ${Math.max(0, Math.round(tb))} m · pásalo a menos de 20 km/h`, "#f2c230"); return; }
     if (ap && ap.dist > -1 && ap.dist < 120) {
       const cc = ctrlOf(ap.i, ap.j), st = cc === "light" ? lightState(ap.i, ap.j, ap.axis) : null;
@@ -4350,6 +4535,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     updateLights();
     checkRules(dt);
     checkMissions();
+    updateRide(dt);
     updateExam();
     S.trip.maxKmh = Math.max(S.trip.maxKmh, Math.abs(S.v) * 3.6);
     render3d();
