@@ -597,6 +597,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       <div class="rules">
         <div class="rule"><h3>Señales que vas a ver</h3><div class="signs" id="sign-list"></div></div>
         <div class="rule"><h3>Esquinas sin señales</h3><p>En Argentina, si una esquina no tiene PARE, Ceda el paso ni semáforo, tiene prioridad quien viene por tu derecha. Llega despacio, mira a la derecha y deja pasar.</p></div>
+        <div class="rule"><h3>Peatones</h3><p>En la senda peatonal el peatón siempre tiene prioridad, también cuando doblas con luz verde: la gente que cruza la calle a la que entras pasa primero. Ojo con quien cruza mirando el celular, con los chicos y con quien cruza por la mitad de la cuadra: aunque crucen mal, tienes que frenar. A las personas mayores espéralas sin tocar bocina.</p></div>
         <div class="rule"><h3>Señal PARE / ALTO</h3><p>Detención total antes de la línea blanca, aunque no venga nadie. Mira a ambos lados y avanza cuando sea seguro. Bajar a 5 km/h no cuenta.</p></div>
         <div class="rule"><h3>Semáforo</h3><p>Rojo: detente antes de la línea. Amarillo: detente si puedes hacerlo con seguridad; no es una señal para acelerar. Verde: avanza con precaución.</p></div>
         <div class="rule"><h3>Doblar</h3><p>Señaliza unos 30 m antes, reduce a 2ª y menos de 20 km/h, y dobla quedando en tu carril (el derecho). A la izquierda, abre la curva hasta el centro de la intersección.</p></div>
@@ -2586,62 +2587,173 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     }
   }
 
-  // ---------- pedestrians on the zebra crossings ----------
+  // ---------- pedestrians: on the zebra crossings, crossing mid-block, and walking along the sidewalks ----------
   const peds = [];
-  const pedLegsGeo = new THREE.BoxGeometry(0.34, 0.85, 0.24), pedBodyGeo = new THREE.BoxGeometry(0.46, 0.62, 0.28), pedHeadGeo = new THREE.SphereGeometry(0.13, 10, 8);
-  const pedCloth = [0x2f5d8a, 0x8a2f4a, 0x3f7a4a, 0xc58a2e, 0x6a4a8a, 0xd8d2c4].map(c => L({ color: c })), pedSkin = [0xc69a74, 0x8d5e3c, 0xe0b894].map(c => L({ color: c })), pedPants = L({ color: 0x2a2d33 });
-  function makePed() {
+  const pedLegGeo = new THREE.BoxGeometry(0.15, 0.85, 0.2); pedLegGeo.translate(0, -0.425, 0);
+  const pedBodyGeo = new THREE.BoxGeometry(0.46, 0.62, 0.28), pedHeadGeo = new THREE.SphereGeometry(0.13, 10, 8);
+  const pedHairGeo = new THREE.SphereGeometry(0.138, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+  const phoneGeo = new THREE.BoxGeometry(0.08, 0.14, 0.02), caneGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.92, 5), bagGeo = new THREE.BoxGeometry(0.3, 0.36, 0.14);
+  const pedCloth = [0x2f5d8a, 0x8a2f4a, 0x3f7a4a, 0xc58a2e, 0x6a4a8a, 0xd8d2c4].map(c => L({ color: c })), kidCloth = [0xe8443a, 0xf2c230, 0x3f8fe0, 0xffffff].map(c => L({ color: c }));
+  const pedSkin = [0xc69a74, 0x8d5e3c, 0xe0b894].map(c => L({ color: c })), pedPants = L({ color: 0x2a2d33 });
+  const hairMats = [0x2a1f18, 0x5a3b22, 0x1a1a1a].map(c => L({ color: c })), greyHair = L({ color: 0xcfccc4 });
+  const phoneMat = B({ color: 0xa8dcff }), caneMat = L({ color: 0x4a3a2c });
+  const pick = list => list[Math.floor(Math.random() * list.length)];
+  // how each kind of person walks: older people are slow, kids run, some look at the phone, some hesitate
+  const PED_SPEED = { adult: [1.1, 1.5], elder: [0.5, 0.7], phone: [0.9, 1.2], kid: [2.0, 2.6], doubt: [1.1, 1.4] };
+  function pickType(school) {
+    const r = Math.random();
+    if (school && r < 0.55) return "kid";
+    return r < 0.45 ? "adult" : r < 0.62 ? "elder" : r < 0.77 ? "phone" : r < 0.87 ? "kid" : "doubt";
+  }
+  function makePed(type) {
     const g = new THREE.Group();
-    const legs = new THREE.Mesh(pedLegsGeo, pedPants); legs.position.y = 0.43; g.add(legs);
-    const body = new THREE.Mesh(pedBodyGeo, pedCloth[Math.floor(Math.random() * pedCloth.length)]); body.position.y = 1.16; g.add(body);
-    const head = new THREE.Mesh(pedHeadGeo, pedSkin[Math.floor(Math.random() * pedSkin.length)]); head.position.y = 1.62; g.add(head);
+    const legs = [-0.1, 0.1].map(x => { const m = new THREE.Mesh(pedLegGeo, pedPants); m.position.set(x, 0.85, 0); g.add(m); return m; });
+    const body = new THREE.Mesh(pedBodyGeo, pick(type === "kid" ? kidCloth : pedCloth)); body.position.y = 1.16; g.add(body);
+    const head = new THREE.Mesh(pedHeadGeo, pick(pedSkin)); head.position.y = 1.62; g.add(head);
+    const hair = new THREE.Mesh(pedHairGeo, type === "elder" ? greyHair : pick(hairMats)); hair.position.y = 1.635; g.add(hair);
+    if (type === "elder") { body.rotation.x = 0.18; body.position.z = 0.04; head.position.z = hair.position.z = 0.12; head.position.y = hair.position.y = 1.56; const cane = new THREE.Mesh(caneGeo, caneMat); cane.position.set(0.28, 0.46, 0.22); g.add(cane); }
+    if (type === "phone") { const ph = new THREE.Mesh(phoneGeo, phoneMat); ph.position.set(0.1, 1.38, 0.24); ph.rotation.x = -0.6; g.add(ph); head.position.z = hair.position.z = 0.05; }
+    if (type === "adult" && Math.random() < 0.4) { const bag = new THREE.Mesh(bagGeo, pick(pedCloth)); bag.position.set(0.3, 0.95, 0); g.add(bag); }
+    if (type === "kid") g.scale.setScalar(0.62);
     g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+    g.legs = legs;
     return g;
   }
   const CROSS_A = -(HALF + 1.8), CROSS_END = HALF + 2.4;
-  function pedPose(pd) { const [x, z] = rel(pd.i * G, pd.j * G, pd.k * Math.PI / 2, CROSS_A, pd.b); return { x, z }; }
-  function spawnPed() {
-    const ap = approach();
-    let i, j, k;
-    // half of the time on the crossing you are about to drive over
-    if (ap && ap.dist > 30 && ap.dist < 90 && Math.random() < 0.6) { i = ap.i; j = ap.j; k = cardinal(S.th).k; }
-    else { i = Math.round(S.x / G) + Math.floor(Math.random() * 3) - 1; j = Math.round(S.z / G) + Math.floor(Math.random() * 3) - 1; k = Math.floor(Math.random() * 4); }
-    if (peds.some(o => o.i === i && o.j === j && o.k === k)) return;
-    const dir = Math.random() < 0.5 ? 1 : -1;
-    const pd = { i, j, k, b: -dir * CROSS_END, dir, speed: 1.1 + Math.random() * 0.4, wait: 0.5 + Math.random() * 2, obj: makePed(), yielded: false, flagged: false };
+  const pedPose = pd => { const [x, z] = rel(pd.cx, pd.cz, pd.th, pd.a, pd.b); return { x, z }; };
+  function addPed(pd) {
+    pd.speed = PED_SPEED[pd.type][0] + Math.random() * (PED_SPEED[pd.type][1] - PED_SPEED[pd.type][0]);
+    pd.obj = makePed(pd.type); pd.phase = Math.random() * 6; pd.yielded = false; pd.flagged = false; pd.prevIn = false; pd.onRoad = false;
     Object.assign(pd, pedPose(pd));
-    if (Math.hypot(pd.x - S.x, pd.z - S.z) < 25) return;
-    pd.obj.rotation.y = -(k * Math.PI / 2) - (dir > 0 ? Math.PI / 2 : -Math.PI / 2);
     scene.add(pd.obj); peds.push(pd);
   }
+  // a crossing as seen by a car: how far along the street (a), how far across (b), and how much it heads along the street (hk)
+  function relTo(pd, x, z, th, v) {
+    const d = dirOf(pd.th), r = rightOf(pd.th), dx = x - pd.cx, dz = z - pd.cz, hd = dirOf(th);
+    return { a: dx * d.x + dz * d.z, b: dx * r.x + dz * r.z, hk: (hd.x * d.x + hd.z * d.z) * Math.sign(v || 1) };
+  }
+  // seconds until a car reaches this crossing, if it is coming toward it
+  function arrival(pd, x, z, th, v) {
+    if (Math.abs(v) < 1.5) return Infinity;
+    const c = relTo(pd, x, z, th, v);
+    if (Math.abs(c.hk) < 0.5 || Math.abs(c.b) > HALF + 2) return Infinity;
+    const dist = (pd.a - c.a) * Math.sign(c.hk) - CAR_L / 2;
+    return dist < -1 ? Infinity : Math.max(0, dist) / Math.abs(v);
+  }
+  function carComing(pd) {
+    if (arrival(pd, S.x, S.z, S.th, S.v) < 4) return true;
+    return traffic.some(c => arrival(pd, c.x, c.z, c.th, c.v) < 3);
+  }
+  // does this person start crossing now?
+  function mayCross(pd) {
+    if (pd.reckless) return true;
+    if (pd.role === "zebra" && ctrlOf(pd.i, pd.j) === "light" && lightState(pd.i, pd.j, pd.k % 2 === 0 ? "NS" : "EW") !== "red") return false;
+    return !carComing(pd);
+  }
+  function spawnZebra() {
+    const ap = approach();
+    let i, j, k;
+    // most of the time on a crossing of the corner you are about to reach: the near one, or one you pass after turning
+    if (ap && ap.dist > 25 && ap.dist < 90 && Math.random() < 0.7) { i = ap.i; j = ap.j; k = Math.random() < 0.5 ? cardinal(S.th).k : Math.floor(Math.random() * 4); }
+    else { i = Math.round(S.x / G) + Math.floor(Math.random() * 3) - 1; j = Math.round(S.z / G) + Math.floor(Math.random() * 3) - 1; k = Math.floor(Math.random() * 4); }
+    if (peds.some(o => o.role === "zebra" && o.i === i && o.j === j && o.k === k)) return;
+    const sg = segAt(i * G + dirOf(k * Math.PI / 2).x * -20, j * G + dirOf(k * Math.PI / 2).z * -20), school = sg && segFeature(sg.axis, sg.line, sg.block) === "school";
+    const dir = Math.random() < 0.5 ? 1 : -1, type = pickType(school);
+    const pd = { role: "zebra", i, j, k, cx: i * G, cz: j * G, th: k * Math.PI / 2, a: CROSS_A, b: -dir * CROSS_END, dir, type, state: "wait", wait: 0.5 + Math.random() * 2.5, reckless: Math.random() < (type === "phone" ? 0.45 : type === "kid" ? 0.2 : 0.05) };
+    const p = pedPose(pd);
+    if (Math.hypot(p.x - S.x, p.z - S.z) < 25) return;
+    addPed(pd);
+  }
+  // someone who crosses in the middle of the block, where there is no crossing: wrong, but you still must not hit them
+  function spawnMid() {
+    const sg = segAt(S.x, S.z);
+    if (!sg || Math.abs(S.v) < 3 || inLot(S.x, S.z)) return;
+    const c = cardinal(S.th), d = dirOf(c.th), ahead = 40 + Math.random() * 30;
+    const along = sg.axis === "NS" ? S.z + d.z * ahead : S.x + d.x * ahead, s = along - sg.block * G;
+    if (s < 15 || s > G - 15) return;
+    const cx = sg.axis === "NS" ? sg.line * G : along, cz = sg.axis === "NS" ? along : sg.line * G;
+    const school = segFeature(sg.axis, sg.line, sg.block) === "school", dir = Math.random() < 0.5 ? 1 : -1;
+    addPed({ role: "mid", cx, cz, th: c.th, a: 0, b: -dir * (HALF + 1.6), dir, type: school ? "kid" : pick(["adult", "phone", "kid", "adult"]), state: "walk", wait: 0, reckless: true });
+  }
+  // people walking along the sidewalks, so the city is alive (and the sidewalk is not a place to drive)
+  function spawnWalker() {
+    const ci = Math.round(S.x / G), cj = Math.round(S.z / G);
+    for (let tries = 0; tries < 6; tries++) {
+      const ns = Math.random() < 0.5, line = (ns ? ci : cj) + Math.floor(Math.random() * 3) - 1, block = (ns ? cj : ci) + Math.floor(Math.random() * 3) - 2;
+      const s = 8 + Math.random() * (G - 16), side = Math.random() < 0.5 ? 1 : -1, b = side * (HALF + 1.9 + Math.random() * 0.6);
+      const cx = ns ? line * G : block * G + s, cz = ns ? block * G + s : line * G;
+      if (inLot(cx + (ns ? b : 0), cz + (ns ? 0 : b)) || (line === 0 && ns && block === -1 && side > 0)) continue;
+      const dist = Math.hypot(cx - S.x, cz - S.z);
+      if (dist < 30 || dist > 110) continue;
+      const school = segFeature(ns ? "NS" : "EW", line, block) === "school";
+      addPed({ role: "walker", ns, line, block, cx, cz, th: ns ? 0 : Math.PI / 2, a: 0, b, dir: Math.random() < 0.5 ? 1 : -1, type: pickType(school), state: "walk", wait: 0, reckless: false });
+      return;
+    }
+  }
   function removePed(pd) { scene.remove(pd.obj); }
-  let pedClock = 0;
+  let pedClock = 0, midClock = 0;
   function updatePeds(dt) {
-    const want = mode === "city" ? 3 + Math.round(S.trafficLevel / 5) : 0;
-    pedClock += dt;
-    if (peds.length < want && pedClock > 3) { pedClock = 0; spawnPed(); }
+    const city = mode === "city";
+    const wantZebra = city ? 4 + Math.round(S.trafficLevel / 4) : 0, wantWalk = city ? 10 : 0;
+    pedClock += dt; midClock += dt;
+    if (pedClock > 1.5) {
+      pedClock = 0;
+      if (peds.filter(p => p.role === "zebra").length < wantZebra) spawnZebra();
+      if (peds.filter(p => p.role === "walker").length < wantWalk) spawnWalker();
+    }
+    // mid-block crossings appear once you already drive well, a bit more often near schools
+    const sgNow = segAt(S.x, S.z), schoolNow = sgNow && segFeature(sgNow.axis, sgNow.line, sgNow.block) === "school";
+    if (city && midClock > (schoolNow ? 12 : 35) && (S.mission >= 3 || S.trafficLevel > 0) && !peds.some(p => p.role === "mid")) { midClock = 0; if (Math.random() < 0.6) spawnMid(); }
     for (let n = peds.length - 1; n >= 0; n--) {
       const pd = peds[n];
-      if (pd.wait > 0) pd.wait -= dt;
-      else if (!pd.hit) pd.b += pd.dir * pd.speed * dt;
+      let moving = false;
+      if (pd.hit) {}
+      else if (pd.role === "walker") { pd.a += pd.dir * pd.speed * dt; moving = true; }
+      else if (pd.state === "wait") {
+        pd.wait -= dt;
+        if (pd.wait <= 0 && mayCross(pd)) pd.state = pd.type === "doubt" && !pd.doubted ? "doubt" : "walk";
+      } else {
+        const prog = (pd.b + pd.dir * CROSS_END) * pd.dir; // meters walked from the curb
+        if (pd.state === "walk") { pd.b += pd.dir * pd.speed * dt; moving = true; }
+        else if (pd.state === "doubt") { pd.b += pd.dir * pd.speed * dt; moving = true; if (prog > CROSS_END - HALF + 1) { pd.state = "pause"; pd.wait = 1.1; } }
+        else if (pd.state === "pause") { pd.wait -= dt; if (pd.wait <= 0) pd.state = "back"; }
+        else if (pd.state === "back") { pd.b -= pd.dir * pd.speed * dt; moving = true; if (prog <= 0) { pd.state = "wait"; pd.wait = 1.5; pd.doubted = true; } }
+      }
       Object.assign(pd, pedPose(pd));
-      pd.obj.position.set(pd.x, Math.abs(Math.sin(S.t * 7 + n)) * (pd.wait > 0 ? 0 : 0.05), pd.z);
-      const onRoad = Math.abs(pd.b) < HALF + 0.4;
+      // walk animation: legs swing, a little bounce
+      if (moving) pd.phase += dt * pd.speed * 5.5;
+      const swing = moving ? Math.sin(pd.phase) * (pd.type === "kid" ? 0.7 : pd.type === "elder" ? 0.25 : 0.45) : 0;
+      pd.obj.legs[0].rotation.x = swing; pd.obj.legs[1].rotation.x = -swing;
+      pd.obj.position.set(pd.x, moving ? Math.abs(Math.cos(pd.phase)) * 0.04 : 0, pd.z);
+      const back = pd.state === "back" ? -1 : 1, wd = pd.role === "walker" ? dirOf(pd.th) : rightOf(pd.th);
+      pd.obj.rotation.y = Math.atan2(wd.x * pd.dir * back, wd.z * pd.dir * back);
+      const onRoad = pd.role !== "walker" && Math.abs(pd.b) < HALF + 0.4;
       pd.onRoad = onRoad;
-      // the player's car relative to this crossing
-      const th = pd.k * Math.PI / 2, d = dirOf(th), r = rightOf(th), cx = pd.i * G, cz = pd.j * G;
-      const a = (S.x - cx) * d.x + (S.z - cz) * d.z, bb = (S.x - cx) * r.x + (S.z - cz) * r.z, heading = Math.cos(S.th - th) > 0.7;
-      if (onRoad && heading && Math.abs(bb) < HALF + 1) {
-        const frontA = a + CAR_L / 2;
-        if (frontA > CROSS_A - 1.5 && a - CAR_L / 2 < CROSS_A + 1.5 && Math.abs(S.v) > 0.5 && !pd.flagged) { pd.flagged = true; infraction("No cediste el paso al peatón", -30); }
-        if (frontA < CROSS_A - 1.5 && frontA > CROSS_A - 14) {
-          if (Math.abs(S.v) < 0.3) pd.yielded = true;
-          if (S.v > 2) tip("Peatón cruzando adelante: detente antes de la senda peatonal y espera que termine de cruzar.", "ped-ahead" + n, 15);
+      if (pd.role !== "walker" && !pd.hit) {
+        const c = relTo(pd, S.x, S.z, S.th, S.v);
+        const across = Math.abs(c.hk) > 0.3, toLine = (pd.a - c.a) * Math.sign(c.hk) - CAR_L / 2;
+        if (pd.role === "zebra") {
+          // the car rolls onto the crossing while someone is walking on it
+          const inStrip = across && Math.abs(c.a - pd.a) < 1.3 + CAR_L / 2 && Math.abs(c.b) < HALF + 0.5;
+          if (inStrip && !pd.prevIn && onRoad && Math.abs(S.v) > 0.5 && !pd.flagged) {
+            pd.flagged = true; infraction("No cediste el paso al peatón", -30);
+            if (S.box) tip("Al doblar, la gente que cruza la calle a la que entras tiene prioridad, aunque tengas luz verde. Frena antes de la senda y espera que termine de cruzar.", "ped-turn", 20);
+          }
+          pd.prevIn = inStrip;
+          if (onRoad && across && toLine > -0.5 && toLine < 14 && Math.abs(S.v) < 0.3) pd.yielded = true;
+          if (onRoad && across && toLine > 0 && toLine < 30 && Math.abs(S.v) > 2) {
+            if (S.box || S.guide) tip("Al doblar: hay gente cruzando la calle a la que vas a entrar. Tienen prioridad: detente antes de la senda.", "ped-turn-ahead" + pd.i + "," + pd.j + "," + pd.k, 20);
+            else tip(pd.type === "elder" ? "Una persona mayor está cruzando despacio: espera con paciencia, sin tocar bocina." : pd.type === "phone" ? "Esa persona cruza mirando el celular y no te ve: frena tú." : "Peatón cruzando adelante: detente antes de la senda peatonal y espera que termine de cruzar.", "ped-ahead" + n + pd.type, 15);
+          }
+        } else if (onRoad && across && toLine > -1 && toLine < 35) {
+          if (Math.abs(S.v) > 2 && toLine < 30) tip("¡Atención! Alguien cruza por la mitad de la cuadra. No es por la senda, pero igual tienes que frenar: nunca hay que atropellar a nadie.", "ped-mid", 20);
+          if (toLine < 15 && Math.abs(S.v) < 1.5) pd.yielded = true;
         }
       }
-      const done = (pd.dir > 0 ? pd.b > CROSS_END : pd.b < -CROSS_END) && pd.wait <= 0;
-      if (done && pd.yielded && !pd.flagged) award(10, "Cediste el paso al peatón");
-      if (done || Math.hypot(pd.x - S.x, pd.z - S.z) > 160 || mode !== "city") { removePed(pd); peds.splice(n, 1); }
+      const done = pd.role !== "walker" && (pd.dir > 0 ? pd.b > CROSS_END : pd.b < -CROSS_END) && pd.state === "walk";
+      const walkerOut = pd.role === "walker" && (() => { const s = (pd.ns ? pd.cz - pd.a : pd.cx + pd.a) - pd.block * G; return s < 6 || s > G - 6; })();
+      if (done && pd.yielded && !pd.flagged) award(pd.role === "mid" ? 5 : 10, pd.role === "mid" ? "Frenaste para alguien que cruzaba mal" : pd.type === "elder" ? "Esperaste a una persona mayor que cruzaba" : "Cediste el paso al peatón");
+      if (done || walkerOut || Math.hypot(pd.x - S.x, pd.z - S.z) > 160 || mode !== "city") { removePed(pd); peds.splice(n, 1); }
     }
   }
 
@@ -3030,6 +3142,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     updateSound();
     requestAnimationFrame(frame);
   }
+  document.getElementById("mode").value = mode;
   applyWeather();
   renderMissions();
   renderScore();
