@@ -63,7 +63,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 }
 .top h1 span { color: var(--amber); }
 .top p { margin: 0; color: var(--muted); flex: 1 1 260px; min-width: 0; }
-.top-actions { display: flex; gap: 8px; }
+.top-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .btn {
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
   padding: 6px 12px; cursor: pointer; font-weight: 600;
@@ -447,6 +447,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       </label>
       <button class="btn" id="btn-help" aria-pressed="true">Ayudas</button>
       <button class="btn" id="btn-sound" aria-pressed="false">Sonido</button>
+      <button class="btn" id="btn-voice" aria-pressed="true" title="El instructor que lee los consejos en voz alta">Voz</button>
+      <button class="btn" id="btn-free" aria-pressed="false" title="Maneja por donde quieras, sin misiones">Modo libre</button>
       <button class="btn" id="btn-trip">Terminar viaje</button>
       <button class="btn" id="btn-reset" title="Empieza este lugar de nuevo, desde la primera misión. Los otros lugares no cambian.">Reiniciar</button>
     </div>
@@ -581,7 +583,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
           <span class="key">↑</span><span class="name">Acelerador</span>
         </button>
       </div>
-      <p class="caption">W deja el pie del embrague quieto. Rueda del mouse: control fino (arriba suelta, abajo pisa). El pedal se pone verde en el punto de roce.</p>
+      <p class="caption">Espacio o A pisa el embrague, W lo suelta (de a poco); el pedal queda donde lo dejas. También rueda del mouse o arrastrar el pedal (abajo pisa, arriba suelta). Verde = punto de roce.</p>
     </div>
 
     <div class="shifter">
@@ -627,8 +629,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         <span class="key">↑</span><span>Acelerar</span>
         <span class="key">↓</span><span>Frenar</span>
         <span class="key">← →</span><span>Volante</span>
-        <span class="key">Espacio</span><span>Embrague (mantener = pisar; al soltar, el pie sube despacio)</span>
-        <span class="key">W</span><span>Dejar el pie del embrague quieto donde está (para quedarte en el punto de roce)</span>
+        <span class="key">Espacio / A</span><span>Pisar el embrague (mantener)</span>
+        <span class="key">W</span><span>Soltar el embrague (mantener: empieza despacio y va más rápido). Si no tocas nada, el pedal queda donde está.</span>
         <span class="key">1 2 3 4 5 R N</span><span>Cambios (o la palanca con el mouse)</span>
         <span class="key">E</span><span>Encender / apagar</span>
       </div>
@@ -649,7 +651,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       <div class="options">
         <label for="opt-autoclutch"><input type="checkbox" id="opt-autoclutch"><span>Embrague automático<small>Para empezar: el auto maneja el embrague por ti. Solo aceleras, frenas y cambias.</small></span></label>
         <label for="opt-voice"><input type="checkbox" id="opt-voice"><span>Instructor por voz<small>Los consejos se escuchan, así no sacas la vista de la calle.</small></span></label>
-        <label for="opt-bite"><input type="checkbox" id="opt-bite"><span>Ayuda para el punto de roce<small>Como un instructor: al soltar despacio, el pedal se frena un momento en el punto de roce para que aceleres.</small></span></label>
+        <label for="opt-rise"><input type="checkbox" id="opt-rise"><span>El pedal de embrague sube solo<small>Más fácil: al soltar Espacio el pie sube despacio y se frena un momento en el punto de roce. Apagado (lo normal), el pedal queda donde lo dejas y lo sueltas tú con W.</small></span></label>
         <label for="opt-guide"><input type="checkbox" id="opt-guide"><span>Guía amarilla para doblar<small>Se apaga sola cuando ya doblaste bien 6 veces, como en la vida real.</small></span></label>
         <label for="opt-free"><input type="checkbox" id="opt-free"><span>Todo desbloqueado<small>Si ya sabes manejar: puedes elegir cualquier lugar sin seguir el camino.</small></span></label>
         <label for="opt-night"><input type="checkbox" id="opt-night"><span>De noche<small>Se ve poco: enciende las luces bajas (K). Los peatones y las bicis cuestan más de ver.</small></span></label>
@@ -929,7 +931,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   // the practice lot: its driveway opens on the right of the starting street
   const LOT_ENTRY = { x: 0, z: -45 }, LOT_DOOR = { x: 5, z: -45 };
   function lotWanted() {
-    if (mode !== "city" || inLot(S.x, S.z) || inRect(S.x, S.z, DRIVE)) return false;
+    if (mode !== "city" || opts.freeDrive || inLot(S.x, S.z) || inRect(S.x, S.z, DRIVE)) return false;
     return S.mission === 6 || S.mission === 7 || !!(S.exam && S.exam.phase === "park" && !S.exam.passed && !S.exam.failed);
   }
   function lotNav() {
@@ -1119,7 +1121,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     } else if (release != null && release < 1.6) {
       title = "Soltaste el embrague muy rápido";
       text = `El embrague pasó de pisado a agarrar del todo en ${release.toFixed(1).replace(".", ",")} segundos. El motor necesita tiempo para empezar a mover el auto: si el embrague agarra de golpe, las rpm caen y se apaga.`;
-      steps = ["Acelera hasta unas 1.500 rpm y mantenlo.", "Suelta A. Cuando las rpm bajen un poco y el auto tiemble, estás en el punto de roce.", "Ahí deja el embrague quieto con la rueda del mouse (hacia abajo lo vuelves a pisar un poco).", "Cuando el auto ya avanzó 1 o 2 metros, termina de soltar."];
+      steps = ["Acelera hasta unas 1.500 rpm y mantenlo.", "Suelta el embrague de a poco con W. Cuando las rpm bajen un poco y el auto tiemble, estás en el punto de roce.", "Ahí deja el embrague quieto con la rueda del mouse (hacia abajo lo vuelves a pisar un poco).", "Cuando el auto ya avanzó 1 o 2 metros, termina de soltar."];
     } else {
       title = "El embrague agarró con muy poca fuerza en el motor";
       text = "Las rpm bajaron mientras el embrague agarraba y no alcanzaron a recuperarse.";
@@ -1222,6 +1224,10 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       S.clutch += clamp(target - S.clutch, -3 * dt, 6 * dt);
       S.clutchManual = false;
     } else if (held("clutch")) { S.clutch = Math.min(1, S.clutch + 4 * dt); S.clutchManual = false; if (S.clutch > BITE_TOP) S.biteHeld = 0; }
+    else if (!opts.clutchRise) {
+      if (held("hold")) { S.liftT = (S.liftT || 0) + dt; S.clutch = Math.max(0, S.clutch - (0.25 + Math.min(1, S.liftT / 1.2) * 0.85) * dt); } else S.liftT = 0;
+      S.clutchManual = S.clutch > 0.02;
+    }
     else if (held("hold")) { S.clutchManual = false; } // W: the foot stays still where it is
     else if (!S.clutchManual) {
       const e = S.gear === "N" ? 0 : engage(S.clutch), moving = Math.abs(S.v) > 3;
@@ -1780,7 +1786,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   // ---------- missions ----------
   const CITY_MISSIONS = [
     { title: "Prepárate y enciende el motor", hint: "Como en el auto de verdad, antes de salir: abróchate el cinturón (C) y mira los espejos (V o clic en un espejo). Después mantén el embrague a fondo (Espacio o A) y pulsa E. El motor de arranque gira un momento antes de encender.", done: () => S.running && S.belt && S.mirrorT >= 0 },
-    { title: "Arranca en primera sin que se apague", hint: "Embrague a fondo, 1ª, quita el freno de mano (Q). Acelera hasta unas 1.500 rpm y mantenlo con toques de D. Recién ahí suelta A. Cuando las rpm bajen un poco y el auto tiemble, estás en el punto de roce: deja el pedal ahí (rueda del mouse) hasta que el auto avance y después termina de soltar.", done: () => S.running && S.gear === "1" && S.v * 3.6 > 8 && S.clutch < BITE_FULL },
+    { title: "Arranca en primera sin que se apague", hint: "Embrague a fondo, 1ª, quita el freno de mano (Q). Acelera hasta unas 1.500 rpm y mantenlo con toques de D. Recién ahí suelta el embrague de a poco con W. Cuando las rpm bajen un poco y el auto tiemble, estás en el punto de roce: deja el pedal ahí (rueda del mouse) hasta que el auto avance y después termina de soltar.", done: () => S.running && S.gear === "1" && S.v * 3.6 > 8 && S.clutch < BITE_FULL },
     { title: "Pasa a segunda", hint: "Cerca de 15–20 km/h: suelta el acelerador, embrague a fondo, 2ª, suelta el embrague y vuelve a acelerar.", done: () => S.running && S.gear === "2" && S.v * 3.6 > 18 && S.clutch < BITE_FULL },
     { title: "Respeta un PARE", hint: "Cada 90 m hay una esquina. El GPS marca en rojo las que tienen PARE. Detente por completo antes de la línea blanca y vuelve a arrancar en 1ª.", done: () => S.stopOk },
     { title: "Dobla a la derecha señalizando", hint: "Pon el señalizador derecho (X) unos 30 m antes de la esquina, baja a 2ª y menos de 20 km/h, y gira con → cuando tu auto llegue al cruce peatonal. Quédate en el carril derecho.", done: () => S.turned.right },
@@ -1803,7 +1809,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   const LESSON_MISSIONS = [
     { title: "Prepárate antes de encender", hint: "Lo primero, siempre: abróchate el cinturón (C), mira los espejos (V o clic en un espejo), fíjate que el freno de mano esté puesto (luz roja (P) del tablero) y que la palanca esté en el medio, en neutro (N).", done: () => S.belt && S.mirrorT >= 0 && S.hand && S.gear === "N" },
     { title: "Enciende el motor", hint: "Pisa el embrague a fondo y mantenlo (Espacio o A). Pulsa E. Escucha el motor: en reposo queda en unas 850 rpm (la aguja de la izquierda, un poco antes del 1).", done: () => S.running },
-    { title: "Encuentra el punto de roce", hint: "Con el embrague a fondo pon 1ª (tecla 1) y baja el freno de mano (Q). Sin acelerar, suelta A: el pedal sube solo, despacio. Cuando el pedal de embrague se ponga verde (dice Roce), las rpm bajan un poco y el auto tiembla o empieza a moverse: ese es el punto de roce. Mantén W para dejar el pie quieto ahí 2 segundos. Si se mueve mucho, vuelve a pisar un poco con A.", done: () => S.biteT >= 2 },
+    { title: "Encuentra el punto de roce", hint: "Con el embrague a fondo pon 1ª (tecla 1) y baja el freno de mano (Q). Sin acelerar, suelta el embrague de a poco con W (o la rueda del mouse). Cuando el pedal de embrague se ponga verde (dice Roce), las rpm bajan un poco y el auto tiembla o empieza a moverse: ese es el punto de roce. Mantén W para dejar el pie quieto ahí 2 segundos. Si se mueve mucho, vuelve a pisar un poco con A.", done: () => S.biteT >= 2 },
     { title: "Avanza 10 metros en 1ª", hint: "Desde el punto de roce acelera un poco, hasta unas 1.500 rpm, y termina de soltar el embrague de a poco. Mantén el acelerador suave y avanza derecho 10 metros.", done: () => S.fwd1 >= 10 },
     { title: "Detente sin que se apague", hint: "Suelta el acelerador. Pisa el embrague a fondo y después frena suave (↓) hasta que el auto pare. Con el embrague pisado el motor no se apaga. Ya detenida, pon neutro (N).", done: () => S.lessonStops >= 1 },
     { title: "Retrocede 5 metros", hint: "Detenida, con el embrague a fondo pon reversa (R). Mira el espejo de atrás (M lo agranda). Sin acelerar, suelta el embrague hasta el punto de roce y deja que el auto retroceda despacio.", done: () => S.rev >= 5 },
@@ -1834,7 +1840,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const prep = [["Abróchate el cinturón (C)", () => S.belt], ["Mira los espejos (V o clic en un espejo)", () => S.mirrorT >= 0]];
     LESSON_MISSIONS[0].steps = prep.concat([["Freno de mano puesto: luz roja (P) en el tablero", () => S.hand], ["Palanca en neutro (N)", () => S.gear === "N"]]);
     LESSON_MISSIONS[1].steps = [["Pisa el embrague a fondo (A o Espacio) y mantenlo", () => S.clutch > 0.9], ["Pulsa E para encender", () => S.crank > 0 || S.running], ["El motor quedó encendido, en unas 850 rpm", () => S.running]];
-    LESSON_MISSIONS[2].steps = [["Con el embrague a fondo, pon 1ª (tecla 1)", () => S.gear === "1"], ["Baja el freno de mano (Q)", () => !S.hand], ["Suelta A despacio hasta que el pedal se ponga verde (Roce)", () => e() > 0.03 && S.running], ["Mantén W para dejar el pie quieto ahí 2 segundos", () => S.biteT >= 1]];
+    LESSON_MISSIONS[2].steps = [["Con el embrague a fondo, pon 1ª (tecla 1)", () => S.gear === "1"], ["Baja el freno de mano (Q)", () => !S.hand], ["Suelta el embrague de a poco con W hasta que el pedal se ponga verde (Roce)", () => e() > 0.03 && S.running], ["Deja el pie quieto ahí 2 segundos (suelta W)", () => S.biteT >= 1]];
     LESSON_MISSIONS[3].steps = [["Acelera un poco, hasta unas 1.500 rpm (D)", () => S.gas > 0.1 && rpm() > 1250], ["Termina de soltar el embrague de a poco", () => S.clutch < BITE_FULL && S.running], ["Avanza derecho 10 metros", () => S.fwd1 >= 10]];
     LESSON_MISSIONS[4].steps = [["Suelta el acelerador", () => S.gas < 0.05 && Math.abs(S.v) > 0.5], ["Pisa el embrague a fondo", () => S.clutch > 0.9 && Math.abs(S.v) > 0.3], ["Frena suave (↓) hasta parar", () => S.lessonStops >= 1], ["Ya detenida, pon neutro (N)", () => S.v === 0 && S.gear === "N"]];
     LESSON_MISSIONS[5].steps = [["Detenida y con el embrague a fondo", () => S.v === 0 && S.clutch > 0.9], ["Pon reversa (R)", () => S.gear === "R"], ["Mira el espejo de atrás (M lo agranda)", () => mirrorNow()], ["Suelta el embrague hasta el punto de roce", () => S.gear === "R" && S.v < -0.2], ["Retrocede 5 metros", () => S.rev >= 5]];
@@ -1857,7 +1863,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   }
   function updateSteps() {
     const m = MISSIONS[S.mission];
-    if (!m || !m.steps || S.paused) return;
+    if (!m || !m.steps || S.paused || opts.freeDrive) return;
     let changed = false;
     m.steps.forEach(([, ok], n) => { const k = S.mission + "-" + n; if (!S.stepDone[k]) { let v = false; try { v = !!ok(); } catch (err) {} if (v) { S.stepDone[k] = true; changed = true; } } });
     if (changed) renderMissions();
@@ -1879,7 +1885,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   const missionOf = m => (m === mode && S ? S.mission : prog.modes[m] ? prog.modes[m].mission : 0);
   const stageDone = n => PATH[n].theory ? !!prog.theoryPassed : missionOf(PATH[n].mode) >= PATH[n].until;
   const stageOpen = n => n === 0 || prog.free || stageDone(n - 1);
-  const modeOpen = m => m === "ride" ? prog.free || stageDone(1) : PATH.some((st, n) => st.mode === m && stageOpen(n));
+  const modeOpen = m => opts.freeDrive || (m === "ride" ? prog.free || stageDone(1) : PATH.some((st, n) => st.mode === m && stageOpen(n)));
   const examOpen = () => prog.free || stageDone(6);
   const circuitOpen = () => prog.free || stageDone(5);
   function saveProgress() {
@@ -1915,6 +1921,13 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   function renderMissions() {
     missionsEl.innerHTML = "";
     renderPath();
+    if (opts.freeDrive) {
+      const li = document.createElement("li"); li.className = "current";
+      li.innerHTML = `<span class="n">★</span><span>Modo libre: maneja por donde quieras, sin misiones. Elige cualquier lugar arriba. Las reglas, las multas y el puntaje siguen contando; tus misiones quedan guardadas para cuando vuelvas.<button class="btn" type="button" style="margin-top:8px;display:block">Volver a las misiones</button></span>`;
+      li.querySelector("button").addEventListener("click", () => document.getElementById("btn-free").click());
+      missionsEl.appendChild(li);
+      return;
+    }
     MISSIONS.forEach((m, i) => {
       const li = document.createElement("li");
       const locked = (mode === "city" && i >= 8 && !examOpen()) || (mode === "parking" && i >= 3 && !circuitOpen());
@@ -1952,7 +1965,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     toast("Examen final: sigue el GPS hasta el primer punto verde.", "good", "exam-start" + S.t, 1);
   }
   function updateExam() {
-    if (mode === "city" && S.mission === MISSIONS.length - 1 && !S.exam && examOpen()) startExam();
+    if (mode === "city" && S.mission === MISSIONS.length - 1 && !S.exam && examOpen() && !opts.freeDrive) startExam();
     const ex = S.exam;
     if (!ex || ex.passed || ex.failed) return;
     const infr = S.counts.infr - ex.infr0;
@@ -2151,6 +2164,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     document.getElementById("road").focus();
   }
   function checkMissions() {
+    if (opts.freeDrive) return;
     if (mode === "city" && S.mission >= 8 && !examOpen()) return;
     if (mode === "parking" && S.mission >= 3 && !circuitOpen()) return;
     if (S.mission < MISSIONS.length && MISSIONS[S.mission].done()) {
@@ -2251,8 +2265,15 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 
   document.querySelectorAll(".pedal, .pedal-like").forEach(btn => {
     const p = btn.dataset.p;
-    btn.addEventListener("pointerdown", e => { touch[p] = true; btn.setPointerCapture(e.pointerId); e.preventDefault(); });
-    const up = () => { touch[p] = false; };
+    let drag = null;
+    btn.addEventListener("pointerdown", e => { touch[p] = true; btn.setPointerCapture(e.pointerId); e.preventDefault(); if (p === "clutch") drag = { y: e.clientY, c: S.clutch, on: false }; });
+    if (p === "clutch") btn.addEventListener("pointermove", e => {
+      if (!drag) return;
+      const dy = e.clientY - drag.y, hgt = btn.querySelector(".bar").getBoundingClientRect().height || 100;
+      if (!drag.on && Math.abs(dy) > 6) { drag.on = true; touch.clutch = false; drag.c = S.clutch; drag.y = e.clientY; return; }
+      if (drag.on) { S.clutch = clamp(drag.c + (e.clientY - drag.y) / hgt, 0, 1); S.clutchManual = S.clutch > 0.02; }
+    });
+    const up = () => { touch[p] = false; drag = null; };
     btn.addEventListener("pointerup", up);
     btn.addEventListener("pointercancel", up);
     btn.addEventListener("contextmenu", e => e.preventDefault());
@@ -2273,7 +2294,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   document.getElementById("ride-ok").addEventListener("click", closeRide);
   document.getElementById("ride-x").addEventListener("click", closeRide);
   document.getElementById("result-retry").addEventListener("click", () => { closeResult(); startExam(); });
-  const opts = { biteHelp: true, autoClutch: false, rain: false, night: false, voice: true, guide: true, sound: true, turnsOk: 0 };
+  const opts = { clutchRise: false, freeDrive: false, biteHelp: true, autoClutch: false, rain: false, night: false, voice: true, guide: true, sound: true, turnsOk: 0 };
   try { const saved = JSON.parse(localStorage.getItem("pm-opts") || "{}"); Object.assign(opts, saved); } catch (err) {}
   const optAuto = document.getElementById("opt-autoclutch"), optRain = document.getElementById("opt-rain");
   optAuto.checked = opts.autoClutch; optRain.checked = opts.rain;
@@ -2281,9 +2302,21 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   optAuto.addEventListener("change", () => { opts.autoClutch = optAuto.checked; saveOpts(); toast(opts.autoClutch ? "Embrague automático activado: solo acelera, frena y cambia." : "Embrague manual: ahora lo manejas tú (Espacio o A)."); document.getElementById("road").focus(); });
   const optVoice = document.getElementById("opt-voice"), optGuide = document.getElementById("opt-guide");
   optVoice.checked = opts.voice; optGuide.checked = opts.guide;
-  const optBite = document.getElementById("opt-bite"); optBite.checked = opts.biteHelp;
-  optBite.addEventListener("change", () => { opts.biteHelp = optBite.checked; saveOpts(); document.getElementById("road").focus(); });
-  optVoice.addEventListener("change", () => { opts.voice = optVoice.checked; saveOpts(); if (!opts.voice && "speechSynthesis" in window) speechSynthesis.cancel(); else say("Instructor por voz activado."); document.getElementById("road").focus(); });
+  const optRise = document.getElementById("opt-rise"); optRise.checked = opts.clutchRise;
+  optRise.addEventListener("change", () => { opts.clutchRise = optRise.checked; saveOpts(); toast(opts.clutchRise ? "El pedal sube solo al soltar Espacio. W lo deja quieto." : "Embrague manual: Espacio o A lo pisa, W lo suelta. El pedal queda donde lo dejas.", "", "rise" + opts.clutchRise, 1); document.getElementById("road").focus(); });
+  // voice and free mode, also as buttons at the top
+  const voiceBtn = document.getElementById("btn-voice"), freeBtn = document.getElementById("btn-free");
+  function setVoice(on) { opts.voice = on; optVoice.checked = on; voiceBtn.setAttribute("aria-pressed", on); saveOpts(); if (!on && "speechSynthesis" in window) speechSynthesis.cancel(); }
+  voiceBtn.setAttribute("aria-pressed", opts.voice);
+  voiceBtn.addEventListener("click", () => { setVoice(!opts.voice); toast(opts.voice ? "Voz del instructor activada." : "Voz del instructor apagada. Los consejos siguen apareciendo escritos.", "", "voice" + opts.voice, 1); if (opts.voice) say("Voz activada."); document.getElementById("road").focus(); });
+  function setFree(on) {
+    opts.freeDrive = on; saveOpts(); freeBtn.setAttribute("aria-pressed", on);
+    if (on && S.exam) S.exam = null;
+    renderMissions();
+  }
+  freeBtn.setAttribute("aria-pressed", opts.freeDrive);
+  freeBtn.addEventListener("click", () => { setFree(!opts.freeDrive); toast(opts.freeDrive ? "Modo libre: maneja por donde quieras, sin misiones. Todos los lugares están abiertos. Las reglas y las multas siguen valiendo." : "Volviste a las misiones: sigues donde las habías dejado.", "good", "free" + opts.freeDrive, 1); document.getElementById("road").focus(); });
+  optVoice.addEventListener("change", () => { opts.voice = optVoice.checked; saveOpts(); document.getElementById("btn-voice").setAttribute("aria-pressed", opts.voice); if (!opts.voice && "speechSynthesis" in window) speechSynthesis.cancel(); else say("Instructor por voz activado."); document.getElementById("road").focus(); });
   optGuide.addEventListener("change", () => { opts.guide = optGuide.checked; opts.turnsOk = 0; saveOpts(); document.getElementById("road").focus(); });
   // the yellow line is for learning: after 6 good turns it goes away, like the training wheels of a bike
   function countGoodTurn() {
@@ -3842,6 +3875,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (m === "off") return 0;
     if (m === "low") return 8;
     if (m === "high") return 20;
+    if (opts.freeDrive) return 10;
     if (S.mission >= MISSIONS.length || S.score >= 800) return 20;
     if (S.mission >= 4 || S.score >= 150) return 8;
     return 0;
@@ -4314,8 +4348,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   }
   function updateCoach() {
     let key = null;
-    if (help && mode === "parking") key = ["front", "back", "parallel"][S.mission] || null;
-    if (help && mode === "city") key = S.mission === 6 ? "front" : S.mission === 7 ? "parallel" : null;
+    if (help && mode === "parking" && !opts.freeDrive) key = ["front", "back", "parallel"][S.mission] || null;
+    if (help && mode === "city" && !opts.freeDrive) key = S.mission === 6 ? "front" : S.mission === 7 ? "parallel" : null;
     if (key && mode === "city" && !inLot(S.x, S.z)) key = null;
     if (key !== coachKey) { coachKey = key; coachStep = 0; }
     const showSensor = inLot(S.x, S.z) && Math.abs(S.v) < 3;
@@ -4411,13 +4445,13 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       placeCar(beamRoot, S.x, S.z, S.th); beamRoot.position.y = h0 + 0.04; beam.rotation.x = -Math.atan2(h1 - h0, 20);
     }
     updateGuide();
-    perpTarget.visible = mode === "city" ? S.mission === 6 || S.mission >= MISSIONS.length || (S.exam && S.exam.phase === "park" && !S.exam.passed) : mode === "parking" && (S.mission <= 1 || S.mission >= MISSIONS.length);
+    perpTarget.visible = opts.freeDrive ? mode === "parking" || mode === "lesson" : mode === "city" ? S.mission === 6 || S.mission >= MISSIONS.length || (S.exam && S.exam.phase === "park" && !S.exam.passed) : mode === "parking" && (S.mission <= 1 || S.mission >= MISSIONS.length);
     const exm = S.exam, cp = exm && exm.phase === "route" && !exm.failed ? exm.cps[exm.idx] : null;
     examMarker.visible = !!cp;
     if (cp) { examMarker.position.set(cp[0] * G, 3, cp[1] * G); examMarker.rotation.y += 0.01; }
     lotMarker.visible = lotWanted();
     if (lotMarker.visible) lotMarker.position.set(LOT_DOOR.x, 3, LOT_DOOR.z);
-    parTarget.visible = mode === "city" ? S.mission === 7 || S.mission >= MISSIONS.length : mode === "parking" && S.mission >= 2;
+    parTarget.visible = opts.freeDrive ? mode === "parking" || mode === "lesson" : mode === "city" ? S.mission === 7 || S.mission >= MISSIONS.length : mode === "parking" && S.mission >= 2;
     for (const [m, r] of [[perpTarget, PERP_RECT], [parTarget, PAR_RECT]]) { const pc = S.parkCheck, good = pc && !pc.out && pc.ang <= pc.tol && inRect(S.x, S.z, r); m.material.color.setHex(good ? 0x46e86c : 0xffd23d); }
 
     const amp = S.shake;
