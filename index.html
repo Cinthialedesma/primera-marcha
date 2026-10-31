@@ -394,6 +394,10 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 .coach ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; color: var(--muted); }
 .coach li.now { color: var(--ink); font-weight: 600; }
 .coach li.ok { color: var(--green); text-decoration: line-through; }
+.stage.head .dash, .stage.head .mirror { visibility: hidden; }
+.pillar { position: absolute; inset: 0; pointer-events: none; z-index: 1; display: none; background: linear-gradient(90deg, #0c0d0e 0 9%, rgba(12,13,14,.0) 16% 70%, #0c0d0e 78% 100%), linear-gradient(180deg, #0c0d0e 0 7%, transparent 14%); }
+.stage.head .pillar { display: block; }
+.stage.head-r .pillar { transform: scaleX(-1); }
 .coach .chk { display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--line); padding-top: 5px; }
 .coach .chk[hidden] { display: none; }
 .coach .chk i { font-style: normal; display: inline-block; width: 1.1em; }
@@ -435,6 +439,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
           <option value="parking">Estacionamiento</option>
           <option value="campo">Ruta en el campo</option>
           <option value="ride">Llevar a alguien</option>
+          <option value="autopista">Autopista</option>
         </select>
       </label>
       <label class="sel" for="traffic">Tránsito
@@ -474,6 +479,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         <rect x="492" y="152" width="16" height="12" rx="3" fill="#f0a535"></rect>
       </g>
     </svg>
+    <div class="pillar" aria-hidden="true"></div>
     <button class="mirror" id="m-rear" data-cam="rear" aria-label="Espejo retrovisor, clic para agrandar"><span>clic para agrandar</span></button>
     <button class="mirror" id="m-left" data-cam="left" aria-label="Espejo izquierdo, clic para agrandar"></button>
     <button class="mirror" id="m-right" data-cam="right" aria-label="Espejo derecho, clic para agrandar"></button>
@@ -604,6 +610,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         <button class="btn" id="btn-hand" type="button"><span class="key">Q</span> Freno de mano</button>
         <button class="btn" id="btn-horn" type="button"><span class="key">H</span> Bocina</button>
         <button class="btn" id="btn-wipers" type="button" aria-pressed="false"><span class="key">L</span> Limpiaparabrisas</button>
+        <button class="btn" id="btn-hazard" type="button" aria-pressed="false"><span class="key">B</span> Balizas</button>
+        <button class="btn pedal-like" data-p="head" type="button" title="Mantén apretado para mirar por encima del hombro, hacia el lado del guiño"><span class="key">G</span> Punto ciego</button>
       </div>
       <div class="steer">
         <button class="btn pedal-like" data-p="left" type="button"><span class="key">←</span> Volante</button>
@@ -643,6 +651,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         <span class="key">C</span><span>Cinturón de seguridad</span>
         <span class="key">K</span><span>Luces bajas (en ruta, siempre encendidas)</span>
         <span class="key">V</span><span>Mirar los espejos (antes de arrancar y de doblar)</span>
+        <span class="key">G</span><span>Mantener: mirar por encima del hombro al punto ciego, del lado del guiño (izquierdo si no hay guiño)</span>
+        <span class="key">B</span><span>Balizas (en un embotellamiento o una emergencia)</span>
         <span class="key">M</span><span>Agrandar el espejo (o clic en un espejo)</span>
         <span class="key">Rueda</span><span>Embrague fino con la rueda del mouse</span>
       </div>
@@ -800,6 +810,77 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     for (let w = u + 5; w < u + range; w += 5) { const k = routeInfo(w).k; if (Math.abs(k) > SHARP_K) return { dist: w - u, dir: k > 0 ? "right" : "left" }; }
     return null;
   }
+  // ---------- autopista (like the General Paz): three lanes each way, a concrete median, colectoras on the sides and ramps ----------
+  // offsets are measured from the median to the right of your direction: barrier, left shoulder, 3 lanes, right shoulder, grass, colectora, sidewalk
+  const HW = { MED: 0.4, IN: 1.2, LW: 3.5, OUT: 11.7, SH: 2.5, COL0: 19, COL1: 26, LIMIT: 100, MIN: 50, SLOW: 60, STEP: 1500, FIRST: -200 };
+  const hwLaneC = n => HW.IN + HW.LW * (n - 0.5); // 1 = left (fast) lane, 3 = right lane, 4 = the extra lane at a ramp
+  const hwColC = n => HW.COL0 + 1.75 + (n - 1) * 3.5; // colectora lanes
+  const HW_NAMES = ["Av. Rivadavia", "Av. Gaona", "Av. Álvarez Jonte", "Av. Beiró", "Av. San Martín", "Av. de los Constituyentes", "Av. Balbín", "Av. Cabildo", "Av. del Libertador", "Av. Lope de Vega", "Av. Emilio Castro", "Av. Juan B. Alberdi"];
+  // the road bends gently, as the real one does
+  const HWA = [[70, 700, 0], [30, 1700, 1.3]];
+  const hwCx = u => HWA.reduce((s, [a, p, f]) => s + a * Math.sin(u / p + f), 0);
+  const hwTh = u => Math.atan(HWA.reduce((s, [a, p, f]) => s + a / p * Math.cos(u / p + f), 0));
+  const hwPoint = (u, off) => { const th = hwTh(u); return { x: hwCx(u) + Math.cos(th) * off, z: -u + Math.sin(th) * off, th }; };
+  function hwLocal(px, pz) {
+    let u = -pz;
+    for (let n = 0; n < 3; n++) { const th = hwTh(u), dx = px - hwCx(u), dz = pz + u; u += dx * Math.sin(th) - dz * Math.cos(th); }
+    const th = hwTh(u), dx = px - hwCx(u), dz = pz + u;
+    return { u, off: dx * Math.cos(th) + dz * Math.sin(th), th };
+  }
+  // each interchange at b: deceleration lane (b-300..b), exit ramp to the colectora (b..b+130), a bridge (b+250),
+  // entry ramp from the colectora (b+350..b+480) and an acceleration lane (b+480..b+760)
+  function hwJ(u) { const k = Math.floor((u - HW.FIRST + 340) / HW.STEP), b = HW.FIRST + k * HW.STEP; return { k, b, rel: u - b, name: HW_NAMES[((k % HW_NAMES.length) + HW_NAMES.length) % HW_NAMES.length] }; }
+  const hwName = k => HW_NAMES[((k % HW_NAMES.length) + HW_NAMES.length) % HW_NAMES.length];
+  function hwAux(u) {
+    const r = hwJ(u).rel;
+    if (r >= -300 && r < -250) return (r + 300) / 50;
+    if (r >= -250 && r < 0) return 1;
+    if (r >= 480 && r < 700) return 1;
+    if (r >= 700 && r < 760) return 1 - (r - 700) / 60;
+    return 0;
+  }
+  const HW_RAMP_IN = hwLaneC(4), HW_RAMP_OUT = 22.5;
+  function hwRamp(u) {
+    const r = hwJ(u).rel;
+    if (r >= 0 && r <= 130) return HW_RAMP_IN + (HW_RAMP_OUT - HW_RAMP_IN) * sstep(r / 130);
+    if (r >= 350 && r <= 480) return HW_RAMP_OUT + (HW_RAMP_IN - HW_RAMP_OUT) * sstep((r - 350) / 130);
+    return null;
+  }
+  const hwGuard = u => { const r = hwJ(u).rel; return r > 780 && r < 1150; };
+  // what is under a point: lane, aux (acceleration or deceleration lane), ramp, gore (painted zone), shoulder, grass, colectora, curb or wall
+  function hwArea(u, off) {
+    if (off < HW.MED) return "wall";
+    if (off < HW.IN) return "shoulder";
+    if (off < HW.OUT) return "lane";
+    const w = hwAux(u), edge = HW.OUT + HW.LW * w;
+    if (w > 0 && off < edge) return "aux";
+    if (off >= HW.COL0 - 0.4 && off <= HW.COL1 + 0.4) return "col"; // where a ramp meets the colectora, it is the colectora
+    const rc = hwRamp(u);
+    if (rc != null) {
+      if (Math.abs(off - rc) <= 2) return "ramp";
+      if (Math.abs(off - rc) <= 3.6) return "shoulder";
+      if (off < rc - 2 && rc - 2 - HW.OUT < 6) return "gore";
+    }
+    if (off < edge + HW.SH) return "shoulder";
+    if (hwGuard(u) && off > 16.2 && off < 16.7) return "wall";
+    if (off < HW.COL0 - 0.4) return "grass";
+    if (off <= HW.COL1 + 0.4) return "col";
+    if (off <= HW.COL1 + 1.2) return "curb";
+    return "wall";
+  }
+  // which lane a point is in: 1..3 the autopista, 4 the extra lane, 5..6 the colectora
+  function hwLaneOf(u, off) {
+    const a = hwArea(u, off);
+    if (a === "lane") return clamp(1 + Math.floor((off - HW.IN) / HW.LW), 1, 3);
+    if (a === "aux") return 4;
+    if (a === "col") return off < HW.COL0 + 3.5 ? 5 : 6;
+    return a;
+  }
+  // how far the point is from the nearest lane line (to count a lane change only once the car is really in the other lane)
+  function hwLineDist(u, off) {
+    const lines = [HW.IN + HW.LW, HW.IN + 2 * HW.LW, HW.OUT, HW.COL0 + 3.5];
+    return Math.min(...lines.map(l => Math.abs(off - l)));
+  }
   const LEVELS = [[0, "Aprendiz"], [150, "Principiante"], [400, "Intermedia"], [800, "Canchera"]];
 
   const toRpm = w => w * 60 / (2 * Math.PI);
@@ -826,14 +907,14 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const dx = Math.abs(x - Math.round(x / G) * G), dz = Math.abs(z - Math.round(z / G) * G);
     return dx <= HALF || dz <= HALF;
   }
-  const inLot = (x, z) => mode !== "campo" && inRect(x, z, LOT);
+  const inLot = (x, z) => mode !== "campo" && mode !== "autopista" && inRect(x, z, LOT);
   const CORNER_R = 5; // street corners are rounded, as in real cities
   const ZONE = HALF + CORNER_R + 3;
   function inCornerArc(x, z) {
     const ax = Math.abs(x - Math.round(x / G) * G), az = Math.abs(z - Math.round(z / G) * G), e = HALF + CORNER_R;
     return ax > HALF && ax < e && az > HALF && az < e && Math.hypot(ax - e, az - e) > CORNER_R;
   }
-  const drivable = (x, z) => mode === "campo" ? Math.abs(routeLocal(x, z).off) <= HALF + SHOULDER : mode === "hill" ? Math.abs(x) <= HALF : (onRoad(x, z) || inCornerArc(x, z) || inLot(x, z) || inRect(x, z, DRIVE)) && !inIsle(x, z);
+  const drivable = (x, z) => mode === "autopista" ? (a => a !== "wall" && a !== "curb")((l => hwArea(l.u, l.off))(hwLocal(x, z))) : mode === "campo" ? Math.abs(routeLocal(x, z).off) <= HALF + SHOULDER : mode === "hill" ? Math.abs(x) <= HALF : (onRoad(x, z) || inCornerArc(x, z) || inLot(x, z) || inRect(x, z, DRIVE)) && !inIsle(x, z);
   function corners(x, z, th, hl = CAR_L / 2, hw = CAR_W / 2) {
     const d = dirOf(th), r = rightOf(th), out = [];
     for (const a of [hl, -hl]) for (const b of [hw, -hw]) out.push([x + d.x * a + r.x * b, z + d.z * a + r.z * b]);
@@ -969,7 +1050,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   let S;
   let mode = "city";
   const START = { city: { x: LANE, z: -14, th: 0 }, hill: { x: LANE, z: 25, th: 0 }, parking: { x: 22, z: -40, th: Math.PI / 2, limit: 20 }, lesson: { x: 22, z: -40, th: Math.PI / 2, limit: 20 } };
-  const heightAt = (x, z) => mode === "hill" ? hillH(z) : mode === "campo" ? 0 : cityHeight(x, z);
+  const heightAt = (x, z) => mode === "hill" ? hillH(z) : mode === "campo" || mode === "autopista" ? 0 : cityHeight(x, z);
   function freshState() {
     return Object.assign({
       t: 0, x: LANE, z: -14, th: 0, v: 0, dist: 0, steer: 0,
@@ -983,7 +1064,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       trip: { logStart: 0, t0: 0, dist0: 0, score0: 0, maxKmh: 0 },
       stepDone: {}, lights: false, belt: false, beltFlag: false, mirrorT: -99, parkedStop: true, biteT: 0, fwd1: 0, lessonStops: 0, moved: false, rev: 0, l2: false,
       hs: null, dh: null, launchRolled: false, lastRoll: -9, parkedFront: false, parkedBack: false,
-    }, mode === "campo" ? (() => { const p = routePoint(5, LANE); return { x: p.x, z: p.z, th: p.th, limit: ROUTE_LIMIT }; })() : START[mode]);
+      headT: { left: -99, right: -99 }, headYaw: 0, hazard: false,
+    }, mode === "autopista" ? (() => { const p = hwPoint(-60, hwColC(2)); return { x: p.x, z: p.z, th: p.th, limit: HW.SLOW, hwU: -60, hwOff: hwColC(2) }; })() : mode === "campo" ? (() => { const p = routePoint(5, LANE); return { x: p.x, z: p.z, th: p.th, limit: ROUTE_LIMIT }; })() : START[mode]);
   }
   S = freshState();
   let help = true;
@@ -1191,7 +1273,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     S.we = Math.max(0, S.we + (Te - Tc) / IE * dt);
 
     const Fd = Tc * ratio / R * EFF;
-    const hold = S.brake * (opts.rain ? 6500 : 9500) + (S.hand ? 5200 : 0) + 160 + (mode === "campo" ? [0, 500, 2200][S.surf || 0] : 0);
+    const hold = S.brake * (opts.rain ? 6500 : 9500) + (S.hand ? 5200 : 0) + 160 + (mode === "campo" ? [0, 500, 2200][S.surf || 0] : mode === "autopista" ? [0, 120, 2200][S.surf || 0] : 0);
     // on a slope gravity pulls the car downhill: this is what makes hill starts hard
     const dS = dirOf(S.th), slope = heightAt(S.x + dS.x * 0.5, S.z + dS.z * 0.5) - heightAt(S.x - dS.x * 0.5, S.z - dS.z * 0.5);
     const Fx = Fd - M * 9.81 * slope;
@@ -1238,6 +1320,10 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       } else S.clutch = Math.max(0, S.clutch - (moving ? 1.2 : 0.25) * dt); // after a shift, already moving, the foot comes up faster
     }
     S.brake = held("brake") ? Math.min(1, S.brake + 2 * dt) : Math.max(0, S.brake - 4 * dt);
+    // looking over the shoulder: toward the blinker side, the left one if there is none
+    const headWant = held("head") ? (S.blink === "right" ? 1 : -1) * 1.95 : 0;
+    S.headYaw = (S.headYaw || 0) + clamp(headWant - (S.headYaw || 0), -7 * dt, 7 * dt);
+    if (Math.abs(S.headYaw) > 1.5) S.headT[S.headYaw > 0 ? "right" : "left"] = S.t;
     S.gas = held("gas") ? Math.min(1, S.gas + 1.2 * dt) : Math.max(0, S.gas - 2.5 * dt);
     const steerIn = (held("right") ? 1 : 0) - (held("left") ? 1 : 0);
     const g = S.guide;
@@ -1273,6 +1359,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   function onCurb(x, z) {
     if (mode === "hill") return Math.abs(x) <= HALF + CURB_BAND;
     if (mode === "campo") return routeSoft(x, z);
+    if (mode === "autopista") { const l = hwLocal(x, z); return hwArea(l.u, l.off) === "curb"; }
     { const ci = Math.round(x / G) * G; if (Math.abs(x - ci) > HALF && cityHeight(ci, z) < -0.3) return false; } // the walls of a tunnel
     const dx = Math.abs(x - Math.round(x / G) * G), dz = Math.abs(z - Math.round(z / G) * G);
     return dx <= HALF + CURB_BAND || dz <= HALF + CURB_BAND;
@@ -1289,7 +1376,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     else {
       const trh = trainHits(me);
       if (trh) { hit = "train"; other = null; if (!trh.hitPlayer) { trh.hitPlayer = true; S.lastHit = -9; } else S.lastHit = S.t; }
-      if (!hit && mode !== "campo") for (const o of parked) if (Math.hypot(o.x - S.x, o.z - S.z) < 6 && worse(o)) { hit = "parked"; break; }
+      if (!hit && mode === "autopista") for (const c of hwCars) if (Math.hypot(c.x - S.x, c.z - S.z) < 9 && worse(c)) { hit = c.kind === "moto" ? "moto" : c.side < 0 ? "front" : "car"; other = c; break; }
+      if (!hit && mode !== "campo" && mode !== "autopista") for (const o of parked) if (Math.hypot(o.x - S.x, o.z - S.z) < 6 && worse(o)) { hit = "parked"; break; }
       if (!hit && mode === "campo") for (const c of routeCars) if (Math.hypot(c.x - S.x, c.z - S.z) < 7 && worse(c)) { hit = c.lane < 0 ? "front" : "car"; other = c; break; }
       if (!hit) for (const c of traffic) if (Math.hypot(c.x - S.x, c.z - S.z) < (c.hl ? 9 : 6) && worse(c)) { hit = "car"; other = c; break; }
       if (!hit && Math.abs(S.v) > 0.3) for (const pd of peds) {
@@ -1311,12 +1399,15 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     Object.assign(S, prev);
     S.v = 0;
     if (other) { other.v = 0; other.hitT = 2.5; }
+    if (mode === "autopista" && S.hwJam && inJam(S.hwU ?? 0)) S.jamCrash = true;
     if (S.t - S.lastHit > 2) {
       if (hit === "train") { S.counts.crash++; infraction("Te chocó el tren", -200); tip("El tren no puede frenar: necesita cientos de metros. En un paso a nivel, si hay luces, campanas o barreras bajando, siempre te detienes.", "train-hit", 10); }
       else if (hit === "ped") { S.counts.crash++; infraction("Atropellaste a un peatón", -100); tip("Frente a una senda peatonal, el peatón siempre tiene prioridad: ve despacio y detente si alguien está cruzando o por cruzar.", "ped-hit", 10); }
       else if (hit === "car") { S.counts.crash++; infraction("Chocaste con otro auto", -30); }
       else if (hit === "front") { S.counts.crash++; infraction("Choque frontal con un auto que venía de frente", -100); tip("Nunca adelantes si no ves con claridad que el carril contrario está libre hasta lejos.", "frontal", 10); }
+      else if (hit === "moto") { S.counts.crash++; infraction("Chocaste con una moto", -50); tip("Las motos pasan entre los carriles y en el punto ciego. Antes de moverte, espejo y mira por encima del hombro (G).", "moto-hit", 10); }
       else if (mode === "campo") infraction(speed > 8 ? "Chocaste contra el alambrado" : "Rozaste el alambrado");
+      else if (mode === "autopista") { if (speed > 8) S.counts.crash++; infraction(speed > 8 ? "Chocaste contra la barrera" : "Rozaste la barrera", speed > 8 ? -30 : -20); }
       else if (hit === "parked") { S.counts.crash++; infraction(speed > 3 ? "Chocaste un auto estacionado" : "Tocaste un auto estacionado", speed > 3 ? -30 : -20); }
       else infraction(speed > 8 ? "Chocaste contra una pared" : "Rozaste una pared");
       tip("Para despegarte: embrague a fondo, reversa (R) y retrocede despacio, o gira el volante hacia el otro lado y sal en 1ª.", "unstuck", 20);
@@ -1566,6 +1657,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     checkCommon(dt);
     if (mode === "hill") { checkHill(dt); return; }
     if (mode === "campo") { checkRoute(dt); return; }
+    if (mode === "autopista") { checkHighway(dt); return; }
     checkRail(dt);
     const kmh = Math.abs(S.v) * 3.6;
     const ap = approach();
@@ -1835,6 +1927,228 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     { title: "Examen de circuito: marcha atrás entre conos", hint: "El pasillo de conos a la izquierda de la entrada. Ponte adelante del pasillo, mirando hacia el fondo del estacionamiento, y retrocede derecho por adentro, de punta a punta, sin tocar los conos. Mira el espejo de adentro (M) y los laterales.", done: () => S.reverseOk },
   );
 
+  // ---------- autopista rules ----------
+  const hwOthers = () => hwCars.filter(c => c.side > 0);
+  // who is in your blind spot on one side: beside you or just behind, in the next lane
+  function hwBlind(side) {
+    const u = S.hwU ?? 0, off = (S.hwOff ?? 0) + (side === "right" ? HW.LW : -HW.LW);
+    return hwOthers().find(c => Math.abs(c.off - off) < c.hw + 1.4 && c.u - u < CAR_L / 2 + c.hl && c.u - u > -(CAR_L / 2 + c.hl + 6));
+  }
+  function hwLaneChange(a, b, u, off, kmh) {
+    if (Math.abs(b - a) !== 1 || (a <= 4) !== (b <= 4)) return;
+    const side = b > a ? "right" : "left";
+    const blinkOk = S.t - ((side === "left" ? S.lastLeftT : S.lastRightT) ?? -99) < 4;
+    const mirrorOk = S.t - S.mirrorT < 8, headOk = S.t - (S.headT[side] ?? -99) < 6;
+    const others = hwOthers().filter(c => Math.abs(c.off - off) < c.hw + 1.3);
+    const beside = others.find(c => c.u - u < CAR_L / 2 + c.hl && c.u - u > -(CAR_L / 2 + c.hl + 1));
+    const behind = others.filter(c => c.u < u && u - c.u < 30).sort((p, q) => q.u - p.u)[0];
+    if (!blinkOk) infraction("Cambiaste de carril sin poner el guiño", -10);
+    if (beside) {
+      infraction(`Te cambiaste de carril con ${beside.kind === "moto" ? "una moto" : "un auto"} al lado, en tu punto ciego`, -30);
+      beside.brakeT = 1.5; honk();
+      tip("Ese vehículo no se veía en el espejo: estaba en el punto ciego. Antes de cambiar de carril, mira por encima del hombro (G).", "blind-hit", 15);
+    } else if (behind && u - behind.u - behind.hl - CAR_L / 2 < Math.max(7, (behind.v - S.v) * 2.5)) {
+      infraction("Le cerraste el paso al auto que venía por ese carril", -20); behind.brakeT = 1.2; honk();
+      tip("Antes de cambiar de carril, el auto de atrás tiene que verse entero en el espejo y lejos. Si viene más rápido, deja que pase.", "cutoff", 15);
+    } else if (!headOk) tip("Para cambiar de carril: guiño, espejo y además mira por encima del hombro (G). Ahí está el punto ciego, lo que el espejo no muestra.", "head-tip", 30);
+    const clean = blinkOk && mirrorOk && headOk && !beside && !(behind && u - behind.u < 8);
+    if (clean && a <= 3 && b <= 3) { award(5, "Cambio de carril con guiño, espejo y punto ciego"); if (S.mission === 3) { S.goodLCside = S.goodLCside || {}; S.goodLCside[side] = true; } }
+    if (a === 4 && b === 3 && hwJ(u).rel > 300) {
+      if (kmh < 55) { infraction("Te incorporaste a la autopista muy despacio", -10); tip("En el carril de aceleración hay que llegar a una velocidad parecida a la de los autos de la autopista (70–80 km/h) antes de pasarte.", "slow-merge", 20); }
+      else { S.hwMerged = true; if (clean) award(10, "Te incorporaste bien a la autopista"); }
+    }
+    if (side === "right") S.lastLCRightT = S.t;
+    S.lastLC = { t: S.t, side, clean };
+  }
+  function checkHighway(dt) {
+    const kmh = Math.abs(S.v) * 3.6, hl = hwLocal(S.x, S.z), u = hl.u, off = hl.off, area = hwArea(u, off), j = hwJ(u);
+    const fwd = Math.cos(S.th - hl.th) > 0.3;
+    S.hwU = u; S.hwOff = off; S.hwArea = area;
+    S.surf = area === "grass" ? 2 : area === "shoulder" || area === "gore" ? 1 : 0;
+    if (S.surf === 1 && kmh > 5) S.shake = Math.max(S.shake, 0.35 * Math.min(1, kmh / 40));
+    if (S.surf === 2 && kmh > 3) S.shake = Math.max(S.shake, 1.1 * Math.min(1, kmh / 30));
+    const onHw = area === "lane" || area === "aux" || area === "gore" || (area === "shoulder" && off < HW.COL0 - 1);
+    // the entry ramp is where you speed up to join, so it has the autopista limit; the exit ramp and the colectora have 60
+    S.limit = onHw || (area === "ramp" && j.rel > 300) ? HW.LIMIT : HW.SLOW;
+    if (kmh > S.limit + 4) { S.overT += dt; if (S.overT > 1.5 && !S.speeding) { S.speeding = true; infraction(`Exceso de velocidad: ${Math.round(kmh)} km/h en zona de ${S.limit}`); } }
+    else if (kmh <= S.limit) { S.overT = 0; S.speeding = false; }
+    if (S.blink === "left") S.lastLeftT = S.t;
+    if (S.blink === "right") S.lastRightT = S.t;
+    if (!S.lights && S.running) tip("En la autopista circula siempre con las luces bajas encendidas (K), también de día.", "lights-hw", 60);
+    // lanes: a change counts once the car is really in the other lane
+    const ln = hwLaneOf(u, off), prevLane = S.hwLane;
+    if (typeof ln === "number") {
+      if (typeof prevLane !== "number") S.hwLane = ln;
+      else if (ln !== prevLane && hwLineDist(u, off) > 0.45) { hwLaneChange(prevLane, ln, u, off, kmh); S.hwLane = ln; }
+    } else S.hwLane = ln;
+    if (S.hwLane === "ramp" && prevLane !== "ramp" && j.rel > 300) tip("Rampa de entrada: acelera en la rampa y en el carril de aceleración hasta 70–80 km/h. Después guiño izquierdo (Z), espejo (V) y mira por encima del hombro (G) antes de pasarte.", "ramp-in", 60);
+    if (S.hwLane === "ramp" && prevLane === 4) S.hwFromDecel = true;
+    if (S.hwLane === 5 || S.hwLane === 6) {
+      if (S.hwFromDecel) S.hwOnColAfterExit = j.k;
+      if (S.hwOnColAfterExit === j.k && S.hwExitK === j.k && kmh <= 62) S.hwExitOk = true;
+    } else if (typeof S.hwLane === "number" && S.hwLane <= 3) S.hwFromDecel = false;
+    if (typeof S.hwLane === "number" && S.hwLane <= 4) S.everOnHw = true;
+    // the car ahead in your lane: how many seconds behind it you are
+    const me = hwMe(), others = hwOthers(), ld = typeof S.hwLane === "number" ? hwLeader(others, Object.assign(me, { toOff: me.off })) : null;
+    const jam = inJam(u) || (ld && inJam(ld.o.u));
+    S.hwGap = ld && ld.gap < 110 && kmh > 25 ? ld.gap / Math.max(1, S.v) : null;
+    if (S.hwGap != null && S.hwGap < 1 && kmh > 40 && !jam) {
+      S.closeT = (S.closeT || 0) + dt;
+      if (S.closeT > 1.5) tip(`Vas muy pegado al de adelante (${S.hwGap.toFixed(1).replace(".", ",")} s). Deja 2 segundos: cuando el auto de adelante pasa una marca, cuenta "mil uno, mil dos" hasta que la pases tú.`, "gap-tip", 25);
+      if (S.closeT > 5 && S.t - (S.closeFlagT ?? -99) > 30) { S.closeFlagT = S.t; infraction("No mantuviste la distancia de seguridad", -10); }
+    } else S.closeT = 0;
+    if (S.mission === 4 && S.hwGap != null && S.hwGap >= 1.8 && S.hwGap <= 4.5 && kmh >= 60 && !jam) S.gapOkT = (S.gapOkT || 0) + dt;
+    // lane rules on the autopista
+    const lane = typeof S.hwLane === "number" ? S.hwLane : 0;
+    if (lane >= 1 && lane <= 3 && !jam) {
+      // the left lane is for passing
+      if (lane === 1 && kmh > 40 && (!ld || ld.gap > 120) && hwFree(others, me, hwLaneC(2), 20, 40)) {
+        S.hogT = (S.hogT || 0) + dt;
+        if (S.hogT > 15) tip("El carril izquierdo es para adelantar. Si no estás pasando a nadie, vuelve al carril del medio o al derecho (guiño derecho X, espejo y punto ciego).", "hog", 40);
+        if (S.hogT > 40 && S.t - (S.hogFlagT ?? -99) > 60) { S.hogFlagT = S.t; infraction("Circulaste por el carril izquierdo sin adelantar", -5); }
+      } else S.hogT = 0;
+      // the minimum speed, when the road is clear
+      if (kmh < HW.MIN && (!ld || ld.gap > 120) && !(S.hwJam && u < S.hwJam.u1 + 400) && S.everOnHw && S.mission >= 2) {
+        S.slowT = (S.slowT || 0) + dt;
+        if (S.slowT > 3) tip("En la autopista la velocidad mínima es 50 km/h: ir muy despacio es peligroso porque los de atrás vienen rápido.", "min-tip", 30);
+        if (S.slowT > 10 && S.t - (S.slowFlagT ?? -99) > 30) { S.slowFlagT = S.t; infraction("Circulaste por debajo de la velocidad mínima (50 km/h)", -10); }
+      } else S.slowT = 0;
+    } else { S.hogT = 0; S.slowT = 0; }
+    // passing on the right: only counts as a fault when you went to the right to do it
+    for (const c of others) {
+      if (c.kind === "moto" || c.lane < 1 || c.lane > 3) { c.relP = null; continue; }
+      const rel = c.u - u;
+      if (c.relP != null && c.relP > 0 && rel <= 0 && lane >= 1 && lane <= 3 && c.lane < lane && kmh > 40 && !jam) {
+        if (S.t - (S.lastLCRightT ?? -99) < 10) infraction("Adelantaste por la derecha", -10);
+        else tip("Se adelanta por la izquierda. Si el de la izquierda va lento, no lo pases por la derecha: espera o hazle una seña de luces.", "right-pass", 30);
+      }
+      if (c === S.hwTruck && c.relP != null && c.relP > 0 && rel <= 0 && lane < c.lane) S.truckPassed = true;
+      c.relP = rel;
+    }
+    if (S.truckPassed && S.hwTruck && lane === S.hwTruck.lane && u - S.hwTruck.u > 10 && S.lastLC && S.lastLC.side === "right" && S.t - S.lastLC.t < 3) {
+      if (S.lastLC.clean) { S.truckOk = true; award(15, "Adelantaste al camión y volviste a tu carril"); }
+      else tip("Para que cuente, la vuelta a tu carril también tiene que ser con guiño derecho, espejo y mirando el punto ciego. Hay otro camión más adelante.", "truck-retry", 10);
+      S.truckPassed = false; S.hwTruck = null;
+    }
+    // stopping, going backward or the wrong way are very dangerous here
+    if ((onHw || area === "ramp") && S.v === 0 && !jam && (!ld || ld.gap > 15) && S.everOnHw) {
+      S.stopT = (S.stopT || 0) + dt;
+      if (S.stopT > 1.5) tip("En la autopista no se para. Si tienes una emergencia, ve a la banquina de la derecha, pon las balizas (B) y baja por el lado de la vereda.", "stop-tip", 30);
+      if (S.stopT > 5 && area !== "shoulder" && S.t - (S.stopFlagT ?? -99) > 60) { S.stopFlagT = S.t; infraction("Te detuviste en la autopista", -30); }
+    } else S.stopT = 0;
+    if (S.v < -0.4 && (onHw || area === "ramp") && S.t - (S.revFlagT ?? -99) > 30) { S.revFlagT = S.t; infraction("Marcha atrás en la autopista", -50); tip("Nunca retrocedas en una autopista, ni si te pasaste la salida: sigue hasta la próxima.", "rev-hw", 20); }
+    if (!fwd && S.v > 2 && area !== "grass" && S.t - (S.wrongFlagT ?? -99) > 30) { S.wrongFlagT = S.t; infraction("Circulaste a contramano", -100); }
+    if (area === "shoulder" && kmh > 15) { S.shT = (S.shT || 0) + dt; if (S.shT > 3 && !S.shFlag) { S.shFlag = true; infraction("Circulaste por la banquina", -10); } } else if (area !== "shoulder") { S.shT = 0; S.shFlag = false; }
+    if (area === "gore" && kmh > 5 && !S.goreFlag) { S.goreFlag = true; infraction("Pisaste la zona pintada entre la autopista y la rampa", -10); tip("Las líneas blancas inclinadas (el cebrado) no se pisan: entra a la rampa o sal de ella por donde termina la línea punteada.", "gore", 20); }
+    if (area !== "gore") S.goreFlag = false;
+    if (area === "grass" && kmh > 5 && !S.offFlag) { S.offFlag = true; infraction("Te saliste del camino", -20); }
+    if (area !== "grass") S.offFlag = false;
+    // hazard lights: for a jam or a danger, not to drive normally
+    if (S.hazard && kmh > 60 && !S.hwJam) { S.hazT = (S.hazT || 0) + dt; if (S.hazT > 15) tip("Apaga las balizas (B): son para avisar de un peligro, por ejemplo un embotellamiento adelante.", "haz-off", 40); } else S.hazT = 0;
+    // the jam
+    if (S.hwJam) {
+      if (u > S.hwJam.u0 - 220 && u < S.hwJam.u0 + 20 && S.hazard) S.jamHazardOk = true;
+      if (u > S.hwJam.u0 - 300 && u < S.hwJam.u0 - 120 && kmh > 60) tip("Embotellamiento adelante: suelta el acelerador, frena de a poco y pon las balizas (B) para avisar a los de atrás.", "jam-ahead", 30);
+      if (inJam(u)) {
+        S.inJamNow = true;
+        tip("En el embotellamiento: 1ª, deja un auto de distancia y avanza con el punto de roce. Embrague a fondo cuando pares, así no se apaga. Ojo con las motos entre los carriles.", "jam-in", 60);
+      }
+      if (u > S.hwJam.u1 + 5 && S.inJamNow) { S.inJamNow = false; if (!S.jamCrash) { S.jamDone = true; award(15, "Pasaste el embotellamiento sin chocar"); } else { S.jamCrash = false; S.hwJam = null; S.jamRetry = true; toast("Chocaste en el embotellamiento: hay otro más adelante para practicar.", "bad", "jam-retry", 10); } }
+    }
+    // the exit you were asked to take
+    if (S.hwExitK != null && !S.hwExitOk) {
+      const b = HW.FIRST + S.hwExitK * HW.STEP;
+      if (u > b + 140 && lane >= 1 && lane <= 3) { S.hwExitK++; toast("Te pasaste la salida. No frenes ni retrocedas: sigue hasta la próxima.", "bad", "missed-exit", 10); }
+      if (b - u < 600 && b - u > 260 && lane === 3 && kmh < 70 && S.brake > 0.3) tip("No frenes en la autopista: espera a estar en el carril de desaceleración, después de la línea blanca punteada ancha.", "brake-hw", 20);
+      if (lane === 4 && hwJ(u).k === S.hwExitK && hwJ(u).rel < 0 && S.t - (S.lastRightT ?? -99) < 5) S.decelIn = true;
+    }
+    const rpm = toRpm(S.we), e = S.gear === "N" ? 0 : engage(S.clutch), g = +S.gear;
+    if (g >= 1 && g <= 4 && rpm > 3300 && e > 0.9 && S.gas > 0.2) tip(`Puedes pasar a ${g + 1}ª.`, "up" + g, 25);
+    if (g >= 2 && rpm < 1200 && e > 0.9 && S.v > 0.5) tip(`El motor va muy bajo de vueltas: baja a ${g - 1}ª.`, "down" + g, 15);
+    if (S.hand && S.v > 2) toast("Vas con el freno de mano puesto.", "bad", "hand-moving", 8);
+    if (g === 5 && kmh >= 88 && kmh <= 104 && lane >= 1 && lane <= 3) S.cruiseT = (S.cruiseT || 0) + dt;
+    // on the autopista 400 m go by in seconds: the clean-driving bonus is every 2 km here
+    if (S.cleanDist >= 2000) { S.bestClean = Math.max(S.bestClean, 2000); S.cleanDist -= 2000; award(10, "2 km sin errores"); }
+    S.bestClean = Math.max(S.bestClean, Math.round(S.cleanDist));
+    hwMissionEvents(u);
+  }
+  // what each mission needs on the road: a car to follow, a truck to pass, a jam, an exit to take
+  function hwMissionEvents(u) {
+    const lane = typeof S.hwLane === "number" ? S.hwLane : 0;
+    if (S.mission === 4 && S.hwLeadFor !== 4 && lane >= 1 && lane <= 3 && trafficSel.value !== "off") {
+      S.hwLeadFor = 4;
+      spawnHw("car", u + 45, hwLaneC(lane), Math.max(20, S.v - 2), 1, { vdes: 24 });
+    }
+    if (S.mission === 5 && (!S.hwTruck || !hwCars.includes(S.hwTruck)) && S.everOnHw && trafficSel.value !== "off") {
+      S.hwTruck = spawnHw("truck", u + 130, hwLaneC(3), 17.5, 1, { vdes: 17.5 });
+      tip("Hay un camión lento adelante, en el carril derecho. Para adelantarlo: guiño izquierdo, espejo, punto ciego (G), pásate, y vuelve con guiño derecho cuando lo veas entero en el espejo de adentro.", "truck-ahead", 30);
+    }
+    if (((S.mission === 6 && !S.jamDone) || (S.mission >= HW_MISSIONS.length && S.dist > (S.nextJamAt ?? 4000))) && !S.hwJam && S.everOnHw) {
+      S.nextJamAt = S.dist + 5000;
+      const u0 = u + (S.jamRetry ? 500 : 650);
+      S.hwJam = { u0, u1: u0 + 200, filled: false };
+      S.jamRetry = false;
+    }
+    if (S.mission >= 7 && S.hwExitK == null) {
+      let k = hwJ(u).k; while (HW.FIRST + k * HW.STEP - u < 1300) k++;
+      S.hwExitK = k;
+      tip(`Ahora sal de la autopista en la salida ${hwName(k)}. El GPS la marca en azul y los carteles verdes avisan a 1000 y 500 m.`, "exit-go", 60);
+    }
+  }
+  const HW_MISSIONS = [
+    { title: "Prepárate y sal por la colectora", hint: "Empiezas en la colectora, la calle que corre al lado de la autopista. Cinturón (C), espejos (V) y luces bajas (K): en la autopista van siempre encendidas. Enciende el motor y sal en 1ª.", done: () => S.belt && S.mirrorT >= 0 && S.lights && S.running && S.v > 2 },
+    { title: "Incorpórate a la autopista", hint: "La rampa de entrada sale por la izquierda de la colectora (cartel verde ACCESO AUTOPISTA). Acelera en la rampa y en el carril de aceleración hasta 70–80 km/h. Guiño izquierdo, espejo izquierdo y mira por encima del hombro (G): si está libre, pásate de a poco al carril derecho de la autopista. Los que ya van por la autopista tienen prioridad. No frenes al final del carril salvo que no haya lugar.", done: () => S.hwMerged },
+    { title: "Ve a 90–100 km/h en 5ª", hint: "Sube los cambios de a uno hasta 5ª. En la autopista la máxima es 100 km/h y la mínima 50. Mantén entre 90 y 100 unos segundos, en tu carril.", done: () => (S.cruiseT || 0) >= 8 },
+    { title: "Cambia de carril a la izquierda y vuelve a la derecha", hint: "Cada cambio de carril: guiño, espejo de ese lado (V) y mirar por encima del hombro (G) al punto ciego, la zona al costado que el espejo no muestra. Si está libre, muévete de a poco, sin frenar. Haz uno a la izquierda y otro a la derecha.", done: () => !!(S.goodLCside && S.goodLCside.left && S.goodLCside.right) },
+    { title: "Mantén 2 segundos de distancia", hint: "Un auto va delante tuyo. Cuando pase una marca (un poste, un cartel), cuenta \"mil uno, mil dos\": tú tienes que pasarla después. El cartel de arriba te muestra los segundos. Mantén entre 2 y 4 segundos a más de 60 km/h durante 20 segundos.", done: () => (S.gapOkT || 0) >= 20 },
+    { title: "Adelanta a un camión y vuelve a tu carril", hint: "Quédate detrás del camión en el carril derecho, a distancia. Guiño izquierdo, espejo y punto ciego (G), pásate, acelera y pásalo. Para volver: guiño derecho, espejo, punto ciego, y vuelve cuando veas al camión entero en el espejo de adentro.", done: () => !!S.truckOk },
+    { title: "Pasa un embotellamiento sin chocar", hint: "En la General Paz, en hora pico, el tránsito se frena de golpe. Al ver autos parados: suelta el acelerador, frena de a poco y pon las balizas (B). Adentro, en 1ª, deja un auto de distancia, avanza con el punto de roce y pisa el embrague a fondo cuando pares. Las motos pasan entre los carriles: no te muevas de tu carril sin mirar.", done: () => !!S.jamDone },
+    { title: "Sal en la salida indicada", hint: "Mira el nombre de tu salida en el GPS. Pásate al carril derecho antes del cartel de 500 m. Cuando empiece el carril de desaceleración (la línea punteada ancha), guiño derecho y entra en él. Frena ahí, no en la autopista, y sigue la rampa hasta la colectora (máximo 60 km/h).", done: () => !!S.hwExitOk },
+  ];
+  {
+    const kmh = () => Math.abs(S.v) * 3.6, mirrorNow = () => S.t - S.mirrorT < 8 && S.mirrorT >= 0;
+    HW_MISSIONS[0].steps = [["Abróchate el cinturón (C)", () => S.belt], ["Mira los espejos (V)", () => S.mirrorT >= 0], ["Luces bajas (K)", () => S.lights], ["Enciende el motor y sal en 1ª", () => S.running && S.v > 2]];
+    HW_MISSIONS[1].steps = [["Pásate al carril izquierdo de la colectora (guiño Z)", () => S.hwLane === 5 || S.hwLane === "ramp" || S.hwLane === 4 || S.hwMerged], ["Toma la rampa de entrada, a la izquierda", () => S.hwLane === "ramp" || S.hwLane === 4 || S.hwMerged], ["En el carril de aceleración llega a 70–80 km/h", () => (S.hwLane === 4 && kmh() >= 65) || S.hwMerged], ["Guiño izquierdo (Z) y espejo izquierdo (V)", () => (S.blink === "left" && mirrorNow() && S.hwLane === 4) || S.hwMerged], ["Mira el punto ciego por encima del hombro (G)", () => (S.t - (S.headT.left ?? -99) < 6 && S.hwLane === 4) || S.hwMerged], ["Pásate a la autopista antes de que termine el carril", () => S.hwMerged]];
+    HW_MISSIONS[2].steps = [["3ª, 4ª y 5ª", () => S.gear === "5"], ["Entre 90 y 100 km/h", () => S.gear === "5" && kmh() >= 88 && kmh() <= 104], ["Mantenlo 8 segundos", () => (S.cruiseT || 0) >= 8]];
+    HW_MISSIONS[3].steps = [["Guiño izquierdo, espejo, punto ciego (G) y pásate a la izquierda", () => !!(S.goodLCside && S.goodLCside.left)], ["Guiño derecho, espejo, punto ciego (G) y vuelve a la derecha", () => !!(S.goodLCside && S.goodLCside.right)]];
+    HW_MISSIONS[4].steps = [["Ponte detrás del auto de adelante, en su carril", () => S.hwGap != null], ["Deja 2 segundos (el cartel de arriba te los muestra)", () => S.hwGap != null && S.hwGap >= 1.8], ["Mantén la distancia 20 segundos", () => (S.gapOkT || 0) >= 20]];
+    HW_MISSIONS[5].steps = [["Alcanza al camión del carril derecho, sin pegarte", () => !!S.hwTruck && S.hwTruck.u - (S.hwU ?? 0) < 60 || S.truckPassed || S.truckOk], ["Pásate a la izquierda (guiño, espejo, punto ciego) y adelántalo", () => S.truckPassed || S.truckOk], ["Vuelve a su carril con guiño derecho cuando lo veas entero en el espejo", () => S.truckOk]];
+    HW_MISSIONS[6].steps = [["Al ver el embotellamiento, frena de a poco y pon balizas (B)", () => S.jamHazardOk || S.jamDone], ["Adentro: 1ª, un auto de distancia, embrague a fondo al parar", () => S.inJamNow || S.jamDone], ["Sal del embotellamiento sin chocar", () => S.jamDone]];
+    HW_MISSIONS[7].steps = [["Pásate al carril derecho antes del cartel de 500 m", () => (S.hwLane === 3 && S.hwExitK != null && HW.FIRST + S.hwExitK * HW.STEP - (S.hwU ?? 0) < 700) || S.decelIn || S.hwExitOk], ["Guiño derecho (X) y entra al carril de desaceleración", () => S.decelIn || S.hwExitOk], ["Frena ahí, no en la autopista, hasta 60 km/h", () => (S.decelIn && kmh() <= 65) || S.hwExitOk], ["Sigue la rampa hasta la colectora", () => S.hwExitOk]];
+  }
+  // the coach panel on the autopista: lane changes, merging and the exit, step by step
+  function hwCoach() {
+    const lane = S.hwLane, kmh = Math.abs(S.v) * 3.6, j = hwJ(S.hwU ?? 0);
+    if ((lane === "ramp" && j.rel > 300) || (lane === 4 && j.rel > 400)) {
+      const left = j.b + 745 - (S.hwU ?? 0), blind = hwBlind("left");
+      return { id: "merge" + j.k, title: "Incorporarse a la autopista", note: lane === 4 ? `Te quedan ${Math.max(0, Math.round(left))} m de carril${S.t - (S.headT.left ?? -99) < 2 ? blind ? " · ¡hay alguien al lado! espera" : " · libre" : ""}` : "", steps: [
+        ["Acelera hasta 70–80 km/h", () => kmh >= 65],
+        ["Guiño izquierdo (Z)", () => S.blink === "left"],
+        ["Espejo izquierdo (V)", () => S.t - S.mirrorT < 8],
+        ["Mira por encima del hombro (G)", () => S.t - (S.headT.left ?? -99) < 6],
+        ["Si hay hueco, pásate de a poco, sin frenar", () => S.hwMerged],
+      ] };
+    }
+    if (S.blink && typeof lane === "number" && lane <= 6) {
+      const side = S.blink, blind = hwBlind(side), looked = S.t - (S.headT[side] ?? -99) < 2.5;
+      return { id: "lc" + side + lane, title: `Cambio de carril a la ${side === "right" ? "derecha" : "izquierda"}`, note: looked ? (blind ? "¡Hay un vehículo en tu punto ciego! Espera que pase." : "Libre: muévete con un toque suave del volante.") : "", steps: [
+        [`Guiño ${side === "right" ? "derecho" : "izquierdo"} puesto`, () => true],
+        ["Mira el espejo de ese lado (V)", () => S.t - S.mirrorT < 8],
+        ["Mira el punto ciego por encima del hombro (G)", () => S.t - (S.headT[side] ?? -99) < 6],
+        ["Si está libre, muévete de a poco, sin frenar", () => false],
+      ] };
+    }
+    if (S.hwExitK != null && !S.hwExitOk) {
+      const b = HW.FIRST + S.hwExitK * HW.STEP, d = b - (S.hwU ?? 0);
+      if (d < 1100 && d > -140) return { id: "exit" + S.hwExitK, title: `Salida ${hwName(S.hwExitK)}`, note: d > 0 ? `a ${Math.round(d)} m` : "", steps: [
+        ["Carril derecho antes del cartel de 500 m", () => lane === 3 || lane === 4 || lane === "ramp"],
+        ["Guiño derecho (X) donde empieza la línea punteada ancha", () => S.decelIn || lane === "ramp"],
+        ["Entra al carril de desaceleración y frena ahí", () => S.decelIn],
+        ["Sigue la rampa a 60 km/h o menos", () => S.hwExitOk],
+      ] };
+    }
+    return null;
+  }
   // ---------- each mission split into short steps that get crossed off as you do them ----------
   {
     const e = () => S.gear === "N" ? 0 : engage(S.clutch), kmh = () => Math.abs(S.v) * 3.6, rpm = () => toRpm(S.we);
@@ -1881,13 +2195,13 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     { mode: "parking", title: "Examen de circuito con conos", until: 5 },
     { mode: "city", title: "Examen final en la calle", until: 9 },
   ];
-  const MODE_NAMES = { lesson: "Primera clase", city: "Ciudad", hill: "Subidas y bajadas", parking: "Estacionamiento", campo: "Ruta en el campo", ride: "Llevar a alguien" };
+  const MODE_NAMES = { lesson: "Primera clase", city: "Ciudad", hill: "Subidas y bajadas", parking: "Estacionamiento", campo: "Ruta en el campo", ride: "Llevar a alguien", autopista: "Autopista (tipo General Paz)" };
   let prog = { modes: {}, free: false, last: null };
   try { Object.assign(prog, JSON.parse(localStorage.getItem("pm-progress") || "{}")); } catch (err) {}
   const missionOf = m => (m === mode && S ? S.mission : prog.modes[m] ? prog.modes[m].mission : 0);
   const stageDone = n => PATH[n].theory ? !!prog.theoryPassed : missionOf(PATH[n].mode) >= PATH[n].until;
   const stageOpen = n => n === 0 || prog.free || stageDone(n - 1);
-  const modeOpen = m => opts.freeDrive || (m === "ride" ? prog.free || stageDone(1) : PATH.some((st, n) => st.mode === m && stageOpen(n)));
+  const modeOpen = m => opts.freeDrive || (m === "ride" ? prog.free || stageDone(1) : m === "autopista" ? prog.free || stageDone(4) : PATH.some((st, n) => st.mode === m && stageOpen(n)));
   const examOpen = () => prog.free || stageDone(6);
   const circuitOpen = () => prog.free || stageDone(5);
   function saveProgress() {
@@ -1952,7 +2266,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       li.innerHTML = mode === "city"
         ? `<span class="n">★</span><span>¡Aprobaste el examen! Ya tienes tu licencia de práctica. Sigue manejando con tránsito, con lluvia o sin ayudas para subir tu puntaje.</span>`
         : mode === "ride" ? `<span class="n">★</span><span>¡Ya sos chofer de confianza! Siguen apareciendo pasajeros: prueba con mucho tránsito, de noche o con lluvia.</span>`
-        : mode === "campo" ? `<span class="n">★</span><span>¡Completaste la ruta! Prueba con más tránsito o con lluvia.</span>`
+        : mode === "campo" ? `<span class="n">★</span><span>¡Completaste la ruta! Se abrió la Autopista (tipo General Paz): elígela en Lugar, arriba.</span>`
+        : mode === "autopista" ? `<span class="n">★</span><span>¡Ya manejas en autopista! Sigue practicando con mucho tránsito, de noche o con lluvia: cada tanto aparece un embotellamiento.</span>`
         : mode === "lesson" ? `<span class="n">★</span><span>¡Terminaste la primera clase! Ya sabes lo básico del embrague. Ahora elige Ciudad en Lugar, arriba.</span>`
         : `<span class="n">★</span><span>Completaste las misiones de este lugar. Prueba otro en el selector Lugar, arriba.</span>`;
       missionsEl.appendChild(li);
@@ -2226,7 +2541,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   }));
 
   // ---------- input ----------
-  const KEYMAP = { w: "hold", a: "clutch", " ": "clutch", s: "brake", arrowdown: "brake", d: "gas", arrowup: "gas", arrowleft: "left", arrowright: "right" };
+  const KEYMAP = { w: "hold", a: "clutch", " ": "clutch", s: "brake", arrowdown: "brake", d: "gas", arrowup: "gas", arrowleft: "left", arrowright: "right", g: "head" };
   window.addEventListener("keydown", e => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target && e.target.tagName === "SELECT") return;
@@ -2247,6 +2562,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     else if (k === "k") { S.lights = !S.lights; toast(S.lights ? "Luces bajas encendidas." : "Luces apagadas.", "", "lights" + S.lights, 1); }
     else if (k === "h") honk(true);
     else if (k === "l") toggleWipers();
+    else if (k === "b") toggleHazard();
     else if ("12345".includes(k) && k.length === 1) shiftTo(k);
     else if (k === "r") shiftTo("R");
     else if (k === "n" || k === "0") shiftTo("N");
@@ -2351,9 +2667,11 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   optNight.checked = opts.night;
   optNight.addEventListener("change", () => { opts.night = optNight.checked; saveOpts(); applyWeather(); if (opts.night && !S.lights) tip("Es de noche: enciende las luces bajas con K.", "night-on", 5); document.getElementById("road").focus(); });
   optRain.addEventListener("change", () => { opts.rain = optRain.checked; saveOpts(); applyWeather(); if (opts.rain) tip("Está lloviendo: enciende el limpiaparabrisas (L) y frena antes, el auto tarda más en detenerse.", "rain", 30); document.getElementById("road").focus(); });
+  function toggleHazard() { S.hazard = !S.hazard; toast(S.hazard ? "Balizas encendidas." : "Balizas apagadas.", "", "haz" + S.hazard, 1); document.getElementById("btn-hazard").setAttribute("aria-pressed", S.hazard); }
   function toggleWipers() { S.wipers = !S.wipers; document.getElementById("btn-wipers").setAttribute("aria-pressed", S.wipers); }
   document.getElementById("btn-wipers").addEventListener("click", toggleWipers);
   document.getElementById("btn-horn").addEventListener("click", () => honk(true));
+  document.getElementById("btn-hazard").addEventListener("click", toggleHazard);
   const helpBtn = document.getElementById("btn-help");
   helpBtn.addEventListener("click", () => { help = !help; helpBtn.setAttribute("aria-pressed", help); });
   const trafficSel = document.getElementById("traffic");
@@ -3037,7 +3355,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     if (Math.hypot(S.x - g.bx, S.z - g.bz) > 45 || (g.cued && bi > g.exitI + 25)) { S.guide = null; guideDots.forEach(m => { m.visible = false; }); }
   }
   function updateGuide() {
-    if (mode === "hill" || mode === "campo") { S.guide = null; guideDots.forEach(m => { m.visible = false; }); return; }
+    if (mode === "hill" || mode === "campo" || mode === "autopista") { S.guide = null; guideDots.forEach(m => { m.visible = false; }); return; }
     // the blinker switches off by itself after the turn, so keep the guide until the turn is finished
     if (!help || !opts.guide || (!S.blink && !(S.guide && (S.guide.cued || S.guide.round)))) {
       S.guide = null;
@@ -3381,7 +3699,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   }
   let bellT = 0;
   function updateTrains(dt) {
-    const cityWorld = mode !== "hill" && mode !== "campo";
+    const cityWorld = mode !== "hill" && mode !== "campo" && mode !== "autopista";
     // city: a train now and then on the nearest line
     if (cityWorld && !S.paused) {
       let best = null; for (let j = Math.floor(S.z / G) - 4; j <= Math.floor(S.z / G) + 4; j++) if (isRailRow(j) && (best == null || Math.abs(railZ(j) - S.z) < Math.abs(railZ(best) - S.z))) best = j;
@@ -3411,7 +3729,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       const ps = (S.x - L.x0) * L.dx + (S.z - L.z0) * L.dz, pa = Math.abs((S.x - L.x0) * L.dz - (S.z - L.z0) * L.dx);
       if (!tr.horned && pa < 200 && (ps - tr.s) * tr.dir > 0 && (ps - tr.s) * tr.dir < 260) { tr.horned = true; trainHorn(); }
       const tailS = tr.s - tr.dir * tr.len;
-      if ((tailS - ps) * tr.dir > 520 || (ps - tr.s) * tr.dir > 900 || mode === "hill" || (L.city ? mode === "campo" : mode !== "campo")) removeTrain(n);
+      if ((tailS - ps) * tr.dir > 520 || (ps - tr.s) * tr.dir > 900 || mode === "hill" || (L.city ? mode === "campo" || mode === "autopista" : mode !== "campo")) removeTrain(n);
     }
     // barriers and red lights
     bellT -= dt;
@@ -3438,6 +3756,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   function updateCells() {
     if (mode === "hill") { updateHill(); return; }
     if (mode === "campo") { updateRoute(); return; }
+    if (mode === "autopista") { updateHw(); return; }
     const ci = Math.floor(S.x / G), cj = Math.floor(S.z / G);
     for (const [key, g] of cells) {
       const [i, j] = key.split(",").map(Number);
@@ -3612,6 +3931,327 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const cu = Math.floor(S.routeU != null ? S.routeU / ROUTE_CH : -S.z / ROUTE_CH);
     for (const [c, g] of routeChunks) if (c < cu - 3 || c > cu + 6) { routeRoot.remove(g); disposeGroup(g); routeChunks.delete(c); }
     for (let c = cu - 3; c <= cu + 6; c++) if (!routeChunks.has(c)) { routeChunks.set(c, buildRouteChunk(c)); if (c > cu + 1) return; }
+  }
+  // ---- autopista: built in 60 m chunks around you ----
+  const hwRoot = new THREE.Group(); hwRoot.visible = false; scene.add(hwRoot);
+  const hwChunks = new Map(), HW_CH = 60;
+  const hwShoulderMat = L({ map: canvasTex(128, 128, (ctx, w, h) => noise(ctx, w, h, "#3f4143", 0.2, 2500)) });
+  const barrierGeo = new THREE.BoxGeometry(0.62, 0.85, 6.02), barrierTopGeo = new THREE.BoxGeometry(0.24, 0.1, 6.02);
+  const guardRailGeo = new THREE.BoxGeometry(0.08, 0.32, 4.02), guardRailMat = L({ color: 0xb4b8bc }), guardPostGeo = new THREE.BoxGeometry(0.12, 0.8, 0.12);
+  const deckGeo = new THREE.BoxGeometry(72, 1.1, 14), parapetGeo = new THREE.BoxGeometry(72, 0.9, 0.3), pierGeo = new THREE.BoxGeometry(1.2, 6.1, 9);
+  const walkDeckGeo = new THREE.BoxGeometry(62, 0.35, 2.4), walkRailGeo = new THREE.BoxGeometry(62, 1.1, 0.08), walkRailMat = L({ color: 0x2f6fae }), walkPierGeo = new THREE.BoxGeometry(0.5, 5.8, 0.5);
+  const gantryPostGeo = new THREE.CylinderGeometry(0.18, 0.2, 7.6, 10), gantryBeamGeo = new THREE.BoxGeometry(16.6, 0.4, 0.4), bigSignGeo = new THREE.PlaneGeometry(7.6, 2.5), smallSignGeo = new THREE.PlaneGeometry(2.2, 1.1);
+  const hwLampArmGeo = new THREE.BoxGeometry(2.6, 0.08, 0.08);
+  const greenSignMats = new Map();
+  // green direction signs, like the real ones: exit name, distance and an arrow
+  function greenSign(top, mid, arrow) {
+    const key = top + "|" + mid + "|" + arrow;
+    if (!greenSignMats.has(key)) greenSignMats.set(key, L({ map: canvasTex(512, 168, (ctx, w, h) => {
+      ctx.fillStyle = "#11633a"; ctx.fillRect(0, 0, w, h); ctx.strokeStyle = "#f4f1ea"; ctx.lineWidth = 6; ctx.strokeRect(8, 8, w - 16, h - 16);
+      ctx.fillStyle = "#f4f1ea"; ctx.textAlign = "left"; ctx.font = "bold 40px 'Saira Semi Condensed', Arial"; ctx.fillText(top, 28, 62);
+      ctx.font = "bold 52px 'Saira Semi Condensed', Arial"; ctx.fillText(mid, 28, 128);
+      if (arrow) { ctx.save(); ctx.translate(w - 70, h / 2); ctx.rotate(arrow === "up" ? 0 : Math.PI / 4); ctx.beginPath(); ctx.moveTo(0, -46); ctx.lineTo(30, -10); ctx.lineTo(10, -10); ctx.lineTo(10, 44); ctx.lineTo(-10, 44); ctx.lineTo(-10, -10); ctx.lineTo(-30, -10); ctx.closePath(); ctx.fill(); ctx.restore(); }
+    }, false) }));
+    return greenSignMats.get(key);
+  }
+  const textSignMat = (lines, bg, fg) => L({ map: canvasTex(256, 160, (ctx, w, h) => { ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h); ctx.strokeStyle = fg; ctx.lineWidth = 5; ctx.strokeRect(6, 6, w - 12, h - 12); ctx.fillStyle = fg; ctx.textAlign = "center"; ctx.font = "bold 34px 'Saira Semi Condensed', Arial"; lines.forEach((t, n) => ctx.fillText(t, w / 2, h / 2 + (n - (lines.length - 1) / 2) * 40 + 12)); }, false) });
+  const keepRightMat = textSignMat(["MANTENGA", "SU DERECHA"], "#1f4f8a", "#f4f1ea"), accessMat = textSignMat(["ACCESO", "AUTOPISTA"], "#11633a", "#f4f1ea");
+  const minSpeedMat = signMat((ctx, w) => { ctx.translate(w / 2, w / 2); ctx.fillStyle = "#1f4f8a"; ctx.beginPath(); ctx.arc(0, 0, 120, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = "#f4f1ea"; ctx.font = "bold 110px 'Saira Semi Condensed', Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("50", 0, 6); });
+  const limit100Mat = signMat(SIGN_DRAW.limit(100));
+  const cut = u => Math.round(u * 1000) / 1000;
+  // a strip between two offsets, which can change along the road (tapers, ramps)
+  function hwStrip(u0, u1, o0, o1, y, step = 3, vs = 6) {
+    const f0 = typeof o0 === "function" ? o0 : () => o0, f1 = typeof o1 === "function" ? o1 : () => o1;
+    const n = Math.max(1, Math.ceil((u1 - u0) / step)), pos = [], uv = [], nor = [];
+    const P = [];
+    for (let k = 0; k <= n; k++) { const u = u0 + (u1 - u0) * k / n, a = f0(u), b = f1(u); P.push([hwPoint(u, a), hwPoint(u, b), u, b - a]); }
+    for (let k = 0; k < n; k++) {
+      const [a0, a1, ua, wa] = P[k], [b0, b1, ub, wb] = P[k + 1];
+      if (wa <= 0.01 && wb <= 0.01) continue;
+      for (const [p, uu, vv] of [[a0, 0, ua], [a1, wa, ua], [b0, 0, ub], [a1, wa, ua], [b1, wb, ub], [b0, 0, ub]]) { pos.push(p.x, y, p.z); uv.push(uu / vs, vv / vs); nor.push(0, 1, 0); }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+    return g;
+  }
+  // something standing at (u, off), turned with the road (ry) or facing you
+  const hwAt = (bd, geo, mat, u, off, y, turn = 0, sx = 1, sy = 1, sz = 1) => { const p = hwPoint(u, off); bd.add(geo, mat, p.x, y, p.z, -p.th + turn, sx, sy, sz); };
+  function buildHwChunk(c) {
+    const grp = new THREE.Group(), flat = makeBuilder(), solid = makeBuilder(), u0 = c * HW_CH, u1 = u0 + HW_CH;
+    const add = (g, m) => { flat.add(g, m, 0, 0, 0); g.dispose(); };
+    const aux = u => HW.OUT + HW.LW * hwAux(u);
+    for (const sd of [1, -1]) {
+      const o = v => typeof v === "function" ? (u => sd * v(u)) : sd * v;
+      const strip = (a, b, y, m, step, vs) => add(sd > 0 ? hwStrip(u0, u1, o(a), o(b), y, step, vs) : hwStrip(u0, u1, o(b), o(a), y, step, vs), m);
+      // asphalt: lanes, shoulders and (on your side) the extra lane at the ramps
+      strip(HW.MED, HW.IN, 0, hwShoulderMat, 6, 4);
+      strip(HW.IN, HW.OUT, 0, boxMat, 6, 7);
+      if (sd > 0) { strip(HW.OUT, aux, 0.001, boxMat, 3, 7); strip(aux, u => aux(u) + HW.SH, 0, hwShoulderMat, 3, 4); }
+      else strip(HW.OUT, HW.OUT + HW.SH, 0, hwShoulderMat, 6, 4);
+      strip(HW.COL0 - 0.4, HW.COL1 + 0.4, 0, boxMat, 6, 7);
+      strip(HW.COL1 + 0.4, HW.COL1 + 3.6, 0.15, walkMat, 6, 3);
+      // painted lines: yellow on the left edge, dashed between lanes, white on the right edge
+      strip(HW.IN + 0.05, HW.IN + 0.2, 0.012, yellowLineMat, 6);
+      if (sd < 0) strip(HW.OUT - 0.2, HW.OUT - 0.05, 0.012, paintMat, 3);
+      strip(HW.COL0 - 0.1, HW.COL0 + 0.05, 0.012, paintMat, 6); strip(HW.COL1 - 0.05, HW.COL1 + 0.1, 0.012, paintMat, 6);
+      for (let u = Math.ceil(u0 / 12) * 12; u < u1; u += 12) for (const l of [HW.IN + HW.LW, HW.IN + 2 * HW.LW, HW.COL0 + 3.5]) add(sd > 0 ? hwStrip(u, Math.min(u1, u + 4.5), l - 0.08, l + 0.08, 0.012, 4.5) : hwStrip(u, Math.min(u1, u + 4.5), -l - 0.08, -l + 0.08, 0.012, 4.5), paintMat);
+      // the colectora curb and the sidewalk trees and lamps
+      for (let u = Math.ceil(u0 / 15) * 15; u < u1; u += 15) {
+        const r = hwJ(u).rel; if (r > 205 && r < 295) continue;
+        const p = hwPoint(u, sd * (HW.COL1 + 2.6)); if (hash2(Math.round(u / 15), sd) < 0.7) addTree(solid, p.x, p.z, hash(u * 0.37 + sd));
+        if (((u % 45) + 45) % 45 === 0) { const q = hwPoint(u + 7, sd * (HW.COL1 + 1.0)); addLamp(solid, q.x, q.z, hwTh(u) + (sd > 0 ? -Math.PI / 2 : Math.PI / 2)); }
+      }
+      // buildings behind the sidewalk, facing the road
+      for (let u = Math.ceil(u0 / 20) * 20; u < u1; u += 20) {
+        const r = hwJ(u).rel, s = hash2(Math.round(u / 20), sd * 5 + 1); if ((r > 200 && r < 300) || s < 0.15) continue;
+        const d = 12, p = hwPoint(u + 10, sd * (HW.COL1 + 4.2 + d / 2)), th = hwTh(u);
+        addBuilding(solid, p.x, p.z, sd > 0 ? Math.atan2(-Math.cos(th), -Math.sin(th)) : Math.atan2(Math.cos(th), Math.sin(th)), 19, d, 1 + Math.floor(s * 6), s);
+      }
+    }
+    // your side: the extra lane is marked with a wide dashed line; its outer edge and the ramps with solid lines
+    for (let u = Math.ceil(u0 / 4) * 4; u < u1; u += 4) if (hwAux(u + 1) > 0.5 && hwAux(u + 3) > 0.5) add(hwStrip(u, u + 2, HW.OUT - 0.05, HW.OUT + 0.25, 0.013, 2), paintMat);
+    for (let u = u0; u < u1; u += 3) {
+      const e = Math.min(u1, u + 3);
+      if (hwAux(u + 1.5) > 0) add(hwStrip(u, e, u2 => aux(u2) - 0.15, u2 => aux(u2), 0.012, 3), paintMat);
+      else add(hwStrip(u, e, HW.OUT - 0.2, HW.OUT - 0.05, 0.012, 3), paintMat);
+    }
+    for (let u = u0; u < u1; u += 3) {
+      const rc = hwRamp(u + 1.5);
+      if (rc == null) continue;
+      const e = Math.min(u1, u + 3);
+      add(hwStrip(u, e, u2 => (hwRamp(u2) ?? rc) - 2.2, u2 => (hwRamp(u2) ?? rc) + 2.2, 0.004, 3, 7), boxMat);
+      for (const s of [-1, 1]) add(hwStrip(u, e, u2 => (hwRamp(u2) ?? rc) + (s < 0 ? -3.6 : 2.2), u2 => (hwRamp(u2) ?? rc) + (s < 0 ? -2.2 : 3.6), 0.003, 3, 4), hwShoulderMat);
+      for (const s of [-1, 1]) if (rc + s * 2 < HW.COL0 - 0.5 && rc + s * 2 > HW.OUT + 0.3) add(hwStrip(u, e, u2 => (hwRamp(u2) ?? rc) + s * 2 - 0.08, u2 => (hwRamp(u2) ?? rc) + s * 2 + 0.08, 0.014, 3), paintMat);
+      // the gore: the painted zone between the autopista and the ramp, which you must not cross
+      if (rc - 2 - HW.OUT > 0.4 && rc - 2 - HW.OUT < 6 && ((u % 6) + 6) % 6 === 0) add(hwStrip(u, u + 0.6, HW.OUT, rc - 2, 0.014, 0.6), paintMat);
+    }
+    // the New Jersey barrier in the middle and its lamp posts
+    for (let u = Math.ceil(u0 / 6) * 6; u < u1; u += 6) { hwAt(solid, barrierGeo, concreteMat, u + 3, 0, 0.42); hwAt(solid, barrierTopGeo, concreteMat, u + 3, 0, 0.9); }
+    for (let u = Math.ceil(u0 / 40) * 40; u < u1; u += 40) {
+      hwAt(solid, poleGeo, poleMat, u, 0, 5, 0, 1.6, 10, 1.6);
+      hwAt(solid, hwLampArmGeo, poleMat, u, 0, 9.95);
+      for (const s of [-1, 1]) hwAt(solid, lampHeadGeo, lampGlassMat, u, s * 1.2, 9.85, Math.PI / 2);
+    }
+    // guardrails between the junctions
+    for (let u = Math.ceil(u0 / 4) * 4; u < u1; u += 4) if (hwGuard(u) && hwGuard(u + 4)) for (const s of [1, -1]) { hwAt(solid, guardRailGeo, guardRailMat, u + 2, s * 16.45, 0.6); hwAt(solid, guardPostGeo, poleMat, u, s * 16.55, 0.4); }
+    // bridges, footbridges, direction signs and speed signs, from the interchanges that reach this chunk
+    const k0 = hwJ(u0 - 1100).k, k1 = hwJ(u1 + 1100).k;
+    for (let k = k0; k <= k1; k++) {
+      const b = HW.FIRST + k * HW.STEP, inC = u => u >= u0 && u < u1;
+      if (inC(b + 250)) {
+        hwAt(solid, deckGeo, concreteMat, b + 250, 0, 6.65);
+        for (const s of [-1, 1]) hwAt(solid, parapetGeo, concreteMat, b + 250 + s * 6.85, 0, 7.6);
+        for (const off of [0, 16.9, -16.9, 31.5, -31.5]) hwAt(solid, pierGeo, concreteMat, b + 250, off, 3.05);
+      }
+      if (inC(b + 960)) {
+        hwAt(solid, walkDeckGeo, walkRailMat, b + 960, 0, 5.9);
+        for (const s of [-1, 1]) hwAt(solid, walkRailGeo, walkRailMat, b + 960 + s * 1.15, 0, 6.6);
+        for (const off of [0, 17.6, -17.6, 30, -30]) hwAt(solid, walkPierGeo, poleMat, b + 960, off, 2.9);
+      }
+      // overhead signs 1000 m and 500 m before the exit, and the exit sign on the gore
+      for (const [du, top, mid, arrow] of [[-1000, "SALIDA 1000 m", hwName(k), "up"], [-500, "SALIDA 500 m", hwName(k), "up"]]) {
+        if (!inC(b + du)) continue;
+        for (const off of [0.75, 16.9]) hwAt(solid, gantryPostGeo, poleMat, b + du, off, 3.8);
+        hwAt(solid, gantryBeamGeo, poleMat, b + du, 8.8, 7.2);
+        hwAt(solid, bigSignGeo, greenSign(top, mid, arrow), b + du - 0.2, 8.6, 7.95);
+      }
+      if (inC(b + 12)) { hwAt(solid, poleGeo, poleMat, b + 12, 14.6, 1.1, 0, 1.2, 2.2, 1.2); hwAt(solid, smallSignGeo, greenSign("SALIDA", "", "right"), b + 11.8, 14.6, 2.6); }
+      if (inC(b + 330)) { hwAt(solid, poleGeo, poleMat, b + 330, HW.COL1 + 1.4, 1.2, 0, 1, 2.4, 1); hwAt(solid, smallSignGeo, accessMat, b + 329.8, HW.COL1 + 1.4, 2.6); }
+      if (inC(b + 820)) { hwAt(solid, poleGeo, poleMat, b + 820, 15.2, 1.2, 0, 1, 2.4, 1); hwAt(solid, signGeo, limit100Mat, b + 819.95, 15.2, 2.4); }
+      if (inC(b + 840)) { hwAt(solid, poleGeo, poleMat, b + 840, 15.2, 1.2, 0, 1, 2.4, 1); hwAt(solid, signGeo, minSpeedMat, b + 839.95, 15.2, 2.4); }
+      if (inC(b + 900)) { hwAt(solid, poleGeo, poleMat, b + 900, 15.4, 1.2, 0, 1.2, 2.4, 1.2); hwAt(solid, smallSignGeo, keepRightMat, b + 899.9, 15.4, 2.7); }
+    }
+    flat.build(grp, false, true); solid.build(grp, true, true);
+    hwRoot.add(grp);
+    return grp;
+  }
+  function updateHw() {
+    const cu = Math.floor((S.hwU ?? -S.z) / HW_CH);
+    for (const [c, g] of hwChunks) if (c < cu - 3 || c > cu + 7) { hwRoot.remove(g); disposeGroup(g); hwChunks.delete(c); }
+    for (let c = cu - 3; c <= cu + 7; c++) if (!hwChunks.has(c)) { hwChunks.set(c, buildHwChunk(c)); if (c > cu + 1) return; }
+  }
+  // ---- autopista traffic: lanes, lane changes with blinkers, trucks on the right, motos between the lanes, a traffic jam ----
+  const hwCars = [];
+  const motoMats = [0xc0392b, 0x1f3e66, 0x2f3338, 0xd0d3d6].map(c => L({ color: c })), riderMat = L({ color: 0x2a2d31 });
+  const helmetMats = [0xe9e4d8, 0xc0392b, 0x111111, 0xf2c230].map(c => L({ color: c })), deliveryMat = L({ color: 0xe8732a });
+  const motoWheelGeo = new THREE.CylinderGeometry(0.31, 0.31, 0.12, 14), motoBodyGeo = new THREE.BoxGeometry(0.3, 0.35, 1.25), riderGeo = new THREE.BoxGeometry(0.42, 0.62, 0.32);
+  const helmetGeo = new THREE.SphereGeometry(0.15, 10, 8), barGeo = new THREE.BoxGeometry(0.6, 0.06, 0.06), motoHeadGeo = new THREE.BoxGeometry(0.16, 0.12, 0.05), motoTailGeo = new THREE.BoxGeometry(0.14, 0.08, 0.04), boxGeo46 = new THREE.BoxGeometry(0.46, 0.42, 0.46);
+  function makeMoto(delivery, bodyMat) {
+    const g = new THREE.Group(), part = (geo, mat, x, y, z, rx = 0, rz = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, 0, rz); m.castShadow = true; g.add(m); return m; };
+    for (const z of [0.72, -0.72]) part(motoWheelGeo, darkMat, 0, 0.31, z, 0, Math.PI / 2);
+    part(motoBodyGeo, bodyMat || motoMats[Math.floor(Math.random() * motoMats.length)], 0, 0.62, 0);
+    part(riderGeo, riderMat, 0, 1.18, -0.12, -0.25);
+    part(helmetGeo, helmetMats[Math.floor(Math.random() * 4)], 0, 1.62, 0.02);
+    part(barGeo, darkMat, 0, 1.05, 0.55);
+    part(motoHeadGeo, headMat, 0, 0.9, 0.78);
+    g.tail = part(motoTailGeo, tailOff, 0, 0.8, -0.78);
+    if (delivery) part(boxGeo46, deliveryMat, 0, 1.12, -0.62);
+    return g;
+  }
+  const HW_V = { 1: [27, 30], 2: [24, 27], 3: [21, 24] };
+  function spawnHw(kind, u, off, v, side = 1, extra) {
+    const c = Object.assign({ kind, side, u, off, toOff: off, v, vdes: v, hl: CAR_L / 2, hw: CAR_W / 2, blink: null, lcT: 0, hitT: 0, brakeT: 0, think: Math.random() * 2, shadowT: 0, lane: side > 0 && kind !== "moto" ? hwLaneOf(u, off) : 0 }, extra);
+    c.obj = kind === "truck" ? makeTruck() : kind === "bus" ? makeBus() : kind === "moto" ? makeMoto(Math.random() < 0.5) : makeCarMesh(carBodyMats[Math.floor(Math.random() * carBodyMats.length)]);
+    if (kind === "truck") { c.hl = 3.36; c.hw = 1.1; }
+    if (kind === "bus") { c.hl = 6; c.hw = 1.25; }
+    if (kind === "moto") { c.hl = 1.05; c.hw = 0.4; }
+    if (kind === "car" || kind === "truck") { addHazards(c.obj); c.obj.hazards.forEach(m => { m.visible = false; }); }
+    scene.add(c.obj); hwCars.push(c);
+    return c;
+  }
+  function removeHw(n) { scene.remove(hwCars[n].obj); hwCars.splice(n, 1); }
+  function hwTarget() {
+    const m = trafficSel.value;
+    return m === "off" ? 0 : m === "low" ? 8 : m === "high" ? 24 : S.mission >= 3 ? 16 : 10;
+  }
+  const hwMe = () => ({ me: true, u: S.hwU ?? 0, off: S.hwOff ?? 0, v: S.v, hl: CAR_L / 2, hw: CAR_W / 2, kind: "car" });
+  // the traffic jam: inside it everybody creeps and stops in waves
+  const jamV = (u, t) => Math.max(0, 2.2 + 3.6 * Math.sin(0.42 * t - 0.035 * u));
+  const inJam = u => S.hwJam && u >= S.hwJam.u0 && u <= S.hwJam.u1;
+  // is there room in a lane (an offset) from a little behind to a little ahead?
+  function hwFree(list, c, off, back, ahead) {
+    return !list.some(o => o !== c && Math.abs(o.off - off) < o.hw + c.hw + 0.5 && o.u - c.u > -(back + Math.max(0, o.v - c.v) * 2.5) && o.u - c.u < ahead);
+  }
+  function hwLeader(list, c) {
+    let best = null, gap = Infinity;
+    for (const o of list) {
+      if (o === c || o.u <= c.u) continue;
+      const w = c.hw + o.hw + 0.2;
+      if (Math.abs(o.off - c.off) > w && Math.abs(o.off - c.toOff) > w) continue;
+      const g = o.u - o.hl - c.u - c.hl;
+      if (g < gap) { gap = g; best = o; }
+    }
+    return best ? { o: best, gap } : null;
+  }
+  // intelligent driver model: speeds up toward the speed it wants and keeps a safe time gap to the one ahead
+  function idm(v, vd, gap, dv) {
+    const a = 1.6, b = 2.4, s0 = 2.2, T = 1.3;
+    const ss = s0 + Math.max(0, v * T + v * dv / (2 * Math.sqrt(a * b)));
+    return clamp(a * (1 - Math.pow(v / Math.max(0.5, vd), 4) - (gap < 250 ? (ss / Math.max(0.3, gap)) ** 2 : 0)), -9, a);
+  }
+  function updateHwCars(dt) {
+    if (mode !== "autopista") return;
+    const pu = S.hwU ?? 0, me = hwMe(), mine = hwCars.filter(c => c.side > 0), list = mine.concat([me]);
+    const playerLane = typeof S.hwLane === "number" ? S.hwLane : 0, onMain = playerLane >= 1 && playerLane <= 4;
+    const target = hwTarget();
+    // new cars: ahead (slower, to catch up with) or behind (faster, they pass you)
+    const main = mine.filter(c => c.lane >= 1 && c.lane <= 4 && c.u > pu - 220 && c.u < pu + 470).length;
+    if (target && main < target && Math.random() < dt * 1.5) {
+      const ahead = Math.random() < 0.55 || S.v < 8, lane = 1 + Math.floor(Math.random() * 3), u = ahead ? pu + 380 + Math.random() * 80 : pu - 200 - Math.random() * 40;
+      const truck = lane === 3 && Math.random() < 0.35, bus = !truck && lane === 3 && Math.random() < 0.12;
+      const [v0, v1] = HW_V[lane], vd = truck ? 19 + Math.random() * 3 : bus ? 20 : v0 + Math.random() * (v1 - v0);
+      const off = hwLaneC(lane);
+      if (!list.some(o => Math.abs(o.off - off) < 2 && Math.abs(o.u - u) < 35) && !inJam(u)) {
+        const k = hwJ(u + 450).k, c = spawnHw(truck ? "truck" : bus ? "bus" : "car", u, off, ahead ? vd - 2 : vd, 1, { vdes: vd });
+        if (Math.random() < 0.25) c.exitK = k + (hwJ(u + 450).rel > -300 ? 1 : 0);
+      }
+    }
+    // cars on the other side of the barrier, coming toward you
+    if (target && hwCars.filter(c => c.side < 0).length < target / 2 && Math.random() < dt) {
+      const lane = 1 + Math.floor(Math.random() * 3), u = pu + 420 + Math.random() * 60;
+      if (!hwCars.some(o => o.side < 0 && o.lane === lane && Math.abs(o.u - u) < 40)) { const c = spawnHw(lane === 3 && Math.random() < 0.3 ? "truck" : "car", u, -hwLaneC(lane), 22 + lane * -1 + Math.random() * 6, -1); c.lane = lane; }
+    }
+    // a few cars on the colectora
+    if (target && mine.filter(c => c.lane >= 5 && Math.abs(c.u - pu) < 300).length < 3 && Math.random() < dt * 0.4) {
+      const u = pu + (Math.random() < 0.5 ? 260 : -200), off = hwColC(1 + Math.floor(Math.random() * 2));
+      if (!list.some(o => Math.abs(o.off - off) < 2 && Math.abs(o.u - u) < 30)) spawnHw("car", u, off, 13, 1, { vdes: 12 + Math.random() * 3 });
+    }
+    // someone joining from the next entry ramp
+    { const j = hwJ(pu + 300); if (target && j.rel > 360 && j.rel < 700 && S.hwRampSpawn !== j.k && Math.random() < dt * 0.6) {
+      S.hwRampSpawn = j.k;
+      const u = j.b + 350;
+      if (Math.abs(u - pu) > 50) spawnHw("car", u, HW_RAMP_OUT, 14, 1, { path: "entry", vdes: 26 });
+    } }
+    // a moto filtering between the lanes, coming from behind you (look at the mirror!)
+    if (target && S.mission >= 2 && S.t > (S.nextMotoT ?? 30) && onMain && playerLane <= 3) {
+      S.nextMotoT = S.t + 25 + Math.random() * 25;
+      const line = playerLane > 1 ? hwLaneC(playerLane) - 1.75 : hwLaneC(1) + 1.75;
+      spawnHw("moto", pu - 110, line, Math.max(8, S.v + 6), 1, { vdes: inJam(pu) ? 9 : Math.max(26, S.v + 6), filter: true });
+    }
+    // a car that rides for a while right in your blind spot, in the lane next to you
+    if (target && S.mission >= 3 && onMain && playerLane <= 3 && S.v > 14 && S.t > (S.nextShadowT ?? 40)) {
+      S.nextShadowT = S.t + 30 + Math.random() * 25;
+      const side = playerLane === 1 ? 1 : playerLane === 3 ? -1 : (Math.random() < 0.5 ? -1 : 1), lane = playerLane + side, off = hwLaneC(lane);
+      if (!list.some(o => !o.me && Math.abs(o.off - off) < 2 && Math.abs(o.u - (pu - 14)) < 15)) spawnHw("car", pu - 18, off, S.v + 3, 1, { vdes: S.v + 3, shadowT: 8 + Math.random() * 5 });
+    }
+    // the jam: when you get close, it fills with cars
+    if (S.hwJam && !S.hwJam.filled && S.hwJam.u0 - pu < 420) {
+      S.hwJam.filled = true;
+      for (const c of mine.slice()) if (c.u > S.hwJam.u0 - 20 && c.u < S.hwJam.u1 + 40) removeHw(hwCars.indexOf(c));
+      for (let lane = 1; lane <= 3; lane++) for (let u = S.hwJam.u0 + Math.random() * 6; u < S.hwJam.u1; u += 9 + Math.random() * 4) {
+        const truck = lane === 3 && Math.random() < 0.3, c = spawnHw(truck ? "truck" : "car", u, hwLaneC(lane), 0, 1, { vdes: 24 });
+        if (truck) u += 3;
+        if (u < S.hwJam.u0 + 30) c.hazard = true; // the last ones put the hazard lights on, to warn the ones behind
+      }
+      spawnHw("moto", S.hwJam.u0 - 60, hwLaneC(2) + 1.75, 9, 1, { vdes: 9, filter: true });
+    }
+    const blinkOn = Math.floor(S.t * 2.5) % 2 === 0;
+    for (let n = hwCars.length - 1; n >= 0; n--) {
+      const c = hwCars[n];
+      if (c.side < 0) {
+        // the other side: they just follow each other
+        let lead = null; for (const o of hwCars) if (o.side < 0 && o !== c && o.lane === c.lane && o.u < c.u && (!lead || o.u > lead.u)) lead = o;
+        const gap = lead ? c.u - lead.u - c.hl - lead.hl : 999;
+        c.v = Math.max(0, c.v + idm(c.v, c.vdes, gap, c.v - (lead ? lead.v : 0)) * dt); c.u -= c.v * dt;
+        const p = hwPoint(c.u, c.off); c.x = p.x; c.z = p.z; c.th = p.th + Math.PI;
+        placeCar(c.obj, c.x, c.z, c.th);
+        if (c.u < pu - 260 || c.u > pu + 600) removeHw(n);
+        continue;
+      }
+      const j = hwJ(c.u);
+      // ramps: the car follows the ramp line, then joins the extra lane or the colectora
+      if (c.path === "entry") { if (j.rel >= 350 && j.rel <= 480) c.off = c.toOff = hwRamp(c.u); else if (j.rel > 480) { c.path = null; c.lane = 4; c.off = c.toOff = hwLaneC(4); c.blink = "left"; } }
+      if (c.path === "exit") { if (j.rel >= 0 && j.rel <= 130) c.off = c.toOff = hwRamp(c.u); else if (j.rel > 130) { c.path = null; c.lane = 5; c.toOff = hwColC(1); c.vdes = 13; c.blink = null; } }
+      if (c.lane === 4 && c.exitK === j.k && j.rel >= 0 && j.rel < 130 && !c.path) { c.path = "exit"; c.blink = "right"; }
+      let vd = c.vdes;
+      if (c.yieldT > 0) { c.yieldT -= dt; vd = Math.min(vd, Math.max(8, S.v - 4)); }
+      if (c.shadowT > 0) { c.shadowT -= dt; vd = clamp(S.v + (pu - 4.5 - c.u) * 0.7, 0, 36); if (c.shadowT <= 0) c.vdes = S.v + 5; }
+      if (inJam(c.u)) vd = c.filter ? 9 : Math.min(vd, jamV(c.u, S.t));
+      if (c.lane === 4 && !c.path && (j.rel > 0 && j.rel < 760) && c.exitK !== j.k) vd = Math.min(vd, j.rel > 640 ? Math.max(0, (745 - j.rel) * 0.4) : vd);
+      if (c.lane === 4 && c.exitK === j.k && j.rel > -200) vd = Math.min(vd, 17);
+      if (c.lane >= 5) vd = Math.min(vd, 14);
+      const ld = hwLeader(list, c);
+      let a = idm(c.v, vd, ld ? ld.gap : 999, c.v - (ld ? ld.o.v : 0));
+      if (c.lane === 4 && j.rel > 600 && j.rel < 760 && c.exitK !== j.k) a = Math.min(a, idm(c.v, vd, j.b + 745 - c.u - c.hl, c.v));
+      if (c.hitT > 0) { c.hitT -= dt; a = -7; }
+      if (c.brakeT > 0) { c.brakeT -= dt; a = Math.min(a, -5); }
+      c.v = Math.max(0, c.v + a * dt); c.u += c.v * dt;
+      // a moto blocked by you: it honks so you keep to the middle of your lane
+      if (c.kind === "moto" && ld && ld.o.me && ld.gap < 8 && S.t - (c.honkT ?? -9) > 4) { c.honkT = S.t; honk(); toast("Una moto viene entre los carriles: quédate en el centro de tu carril, no la encierres.", "tip", "moto-block", 15); }
+      // lane changes: think every second or two, blink first, then move over slowly
+      if (c.kind !== "moto" && !c.path) {
+        if (c.lcT > 0) { c.lcT -= dt; if (c.lcT <= 0) c.toOff = c.lane <= 4 ? hwLaneC(c.lane) : hwColC(c.lane - 4); }
+        c.think -= dt;
+        if (c.think <= 0 && c.lcT <= 0 && Math.abs(c.off - c.toOff) < 0.05 && c.shadowT <= 0 && !inJam(c.u)) {
+          c.think = 1 + Math.random() * 1.5;
+          const L0 = c.lane, free = n2 => (n2 !== 4 || hwAux(c.u + 15) > 0.9) && hwFree(list, c, hwLaneC(n2), 12, 18 + c.hl);
+          let want = 0;
+          if (L0 === 4 && !c.exitK) want = free(3) ? 3 : 0;
+          else if (L0 === 4 && c.exitK != null && j.k !== c.exitK && j.rel > 400) want = free(3) ? 3 : 0;
+          else if (L0 >= 1 && L0 <= 3) {
+            const ex = c.exitK != null ? HW.FIRST + c.exitK * HW.STEP - c.u : Infinity;
+            if (ex < 900 && ex > 30) want = L0 < 3 ? (free(L0 + 1) ? L0 + 1 : 0) : ex < 250 && hwAux(c.u + 10) > 0.9 && free(4) ? 4 : 0;
+            else if (ld && !ld.o.me && ld.gap < 55 && ld.o.v < vd - 2 && L0 > 1 && (c.kind === "car" || L0 === 3) && free(L0 - 1)) want = L0 - 1;
+            else if (ld && ld.o.me && ld.gap < 40 && S.v < vd - 3 && L0 > 1 && free(L0 - 1)) want = L0 - 1;
+            else if (L0 < 3 && Math.random() < 0.35 && free(L0 + 1)) { const l2 = hwLeader(list, Object.assign({}, c, { off: hwLaneC(L0 + 1), toOff: hwLaneC(L0 + 1) })); if (!l2 || l2.gap > 70 || l2.o.v >= vd - 1) want = L0 + 1; }
+          }
+          // courtesy: someone is joining from the extra lane with the blinker on, so make room (move left, or let them in)
+          if (!want && L0 === 3 && S.hwLane === 4 && S.blink === "left" && c.u > pu - 45 && c.u < pu + 3) { if (free(2)) want = 2; else c.yieldT = 4; }
+          if (want) { c.blink = want < L0 ? "left" : "right"; c.lane = want; c.lcT = 1.4; }
+        }
+        // flashing the lights at you when you sit in the left lane and it wants to go faster
+        if (ld && ld.o.me && playerLane === 1 && ld.gap < 25 && vd > S.v + 3 && S.t - (S.flashedT ?? -99) > 25) { S.flashedT = S.t; toast("El auto de atrás te hace luces: el carril izquierdo es para adelantar. Cuando puedas, guiño derecho y pásate a la derecha.", "bad", "hw-flash", 20); }
+      }
+      if (Math.abs(c.off - c.toOff) >= 0.05) { const st = clamp(c.toOff - c.off, -1.1 * dt, 1.1 * dt); c.off += st; c.dOff = st / dt; } else c.dOff = 0;
+      if (c.blink && Math.abs(c.off - c.toOff) < 0.05 && c.lcT <= 0 && c.lane !== 4 && !c.path) c.blink = null;
+      const p = hwPoint(c.u, c.off);
+      c.x = p.x; c.z = p.z; c.th = p.th + Math.atan2(c.dOff || 0, Math.max(3, c.v));
+      placeCar(c.obj, c.x, c.z, c.th);
+      if (c.obj.hazards) c.obj.hazards.forEach((m, k) => { m.visible = blinkOn && (c.hazard ? true : c.blink === "right" ? k % 2 === 0 : c.blink === "left" ? k % 2 === 1 : false); });
+      if (c.obj.tail && c.obj.tail.material !== undefined && c.obj.tail.material !== null) c.obj.tail.material = a < -1 ? tailOn : tailOff;
+      if (c.u - pu > (S.hwJam ? 800 : 560) || c.u - pu < -280) removeHw(n);
+    }
+    if (S.hwJam && S.hwJam.filled && pu > S.hwJam.u1 + 150) S.hwJam = null;
   }
   // ---- vehicles on the road: oncoming cars, and slow ones to overtake (a tractor, a truck) ----
   const routeCars = [];
@@ -3837,7 +4477,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     for (const pd of peds) removePed(pd);
     peds.length = 0;
     clearRide(); document.getElementById("ride-card").hidden = true;
-    MISSIONS = m === "ride" ? RIDE_MISSIONS : m === "campo" ? CAMPO_MISSIONS : m === "hill" ? HILL_MISSIONS : m === "parking" ? PARK_MISSIONS : m === "lesson" ? LESSON_MISSIONS : CITY_MISSIONS;
+    MISSIONS = m === "autopista" ? HW_MISSIONS : m === "ride" ? RIDE_MISSIONS : m === "campo" ? CAMPO_MISSIONS : m === "hill" ? HILL_MISSIONS : m === "parking" ? PARK_MISSIONS : m === "lesson" ? LESSON_MISSIONS : CITY_MISSIONS;
     for (const c of traffic) removeCar(c);
     traffic.length = 0;
     for (const [, g] of cells) { scene.remove(g); disposeGroup(g); }
@@ -3849,7 +4489,10 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     routeChunks.clear();
     for (const c of routeCars) scene.remove(c.obj);
     routeCars.length = 0;
-    lot.visible = m !== "hill" && m !== "campo"; ground.visible = m !== "hill"; hillRoot.visible = m === "hill"; routeRoot.visible = m === "campo"; skyline.visible = m !== "campo";
+    for (const [, g] of hwChunks) { hwRoot.remove(g); disposeGroup(g); }
+    hwChunks.clear();
+    while (hwCars.length) removeHw(hwCars.length - 1);
+    lot.visible = m !== "hill" && m !== "campo" && m !== "autopista"; hwRoot.visible = m === "autopista"; ground.visible = m !== "hill"; hillRoot.visible = m === "hill"; routeRoot.visible = m === "campo"; skyline.visible = m !== "campo";
     S = freshState(); knob.x = 100; knob.y = 100; toastsEl.innerHTML = "";
     const saved = prog.modes[m];
     if (saved) {
@@ -3862,7 +4505,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     document.getElementById("stall-card").hidden = true; document.getElementById("result-card").hidden = true; document.getElementById("trip-card").hidden = true;
     document.getElementById("mode").value = m;
     renderMissions(); renderScore();
-    const intro = { ride: "Llevar a alguien: un familiar o un amigo te pide que lo lleves. Búscalo, maneja suave y déjalo en su destino. Al final te pone estrellas.", campo: "Ruta en el campo: dos carriles, curvas, banquina y autos de frente. Luces bajas siempre encendidas (K) y máximo 80 km/h.", lesson: "Primera clase: un estacionamiento sin tránsito para aprender el embrague paso a paso. Sigue la pestaña Misiones.", city: "Ciudad: misiones de manejo y examen final.", hill: "Subidas y bajadas: empiezas parada en una subida con el freno de mano puesto. Practica arrancar sin irte para atrás.", parking: "Estacionamiento: practica estacionar de frente, de culata y en paralelo. Ve despacio, solo con el punto de roce." };
+    const intro = { autopista: "Autopista, como la General Paz: tres carriles por mano, máximo 100 y mínimo 50 km/h. Empiezas en la colectora. Para cambiar de carril: guiño, espejo y mirar por encima del hombro (G).", ride: "Llevar a alguien: un familiar o un amigo te pide que lo lleves. Búscalo, maneja suave y déjalo en su destino. Al final te pone estrellas.", campo: "Ruta en el campo: dos carriles, curvas, banquina y autos de frente. Luces bajas siempre encendidas (K) y máximo 80 km/h.", lesson: "Primera clase: un estacionamiento sin tránsito para aprender el embrague paso a paso. Sigue la pestaña Misiones.", city: "Ciudad: misiones de manejo y examen final.", hill: "Subidas y bajadas: empiezas parada en una subida con el freno de mano puesto. Practica arrancar sin irte para atrás.", parking: "Estacionamiento: practica estacionar de frente, de culata y en paralelo. Ve despacio, solo con el punto de roce." };
     toast(intro[m], "tip", "intro" + m + S.t, 1);
   }
   function updateLights() {
@@ -4285,7 +4928,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     return Math.abs(diff) < 0.08 ? "Volante: bien así" : diff > 0 ? "Volante: más a la derecha →" : "Volante: más a la izquierda ←";
   }
   function liveCoach() {
-    if (!help || mode === "hill" || mode === "campo") return null;
+    if (help && mode === "autopista") return hwCoach();
+    if (!help || mode === "hill" || mode === "campo" || mode === "autopista") return null;
     const kmh = Math.abs(S.v) * 3.6, g = S.guide;
     if (g && !g.round) {
       const side = g.side, arrow = side === "right" ? "→" : "←";
@@ -4440,7 +5084,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   const v3 = (x, y, z) => new THREE.Vector3(x, y, z);
   function render3d() {
     // in the city the far ground sits lower, so it never covers the tunnels; each block has its own grass
-    ground.position.set(Math.round(S.x / 16) * 16, mode === "campo" || mode === "hill" ? -0.06 : -6.5, Math.round(S.z / 16) * 16);
+    ground.position.set(Math.round(S.x / 16) * 16, mode === "campo" || mode === "hill" || mode === "autopista" ? -0.06 : -6.5, Math.round(S.z / 16) * 16);
     sun.position.set(S.x + 50, 90, S.z + 35); sun.target.position.set(S.x, 0, S.z); sun.target.updateMatrixWorld();
     placeCar(myCar, S.x, S.z, S.th); myCar.position.y = heightAt(S.x, S.z);
     beamRoot.visible = opts.night && S.lights;
@@ -4474,10 +5118,12 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const jx = (Math.random() - 0.5) * 0.02 * amp + Math.sin(S.t * 31) * 0.004 * amp;
     const jy = (Math.random() - 0.5) * 0.03 * amp + Math.sin(S.t * 47) * 0.006 * amp + Math.sin(S.dist * 1.7) * 0.003 * Math.min(1, Math.abs(S.v) / 10);
     const d = dirOf(S.th), r = rightOf(S.th);
-    const ex = S.x + d.x * 0.1 - r.x * 0.37 + r.x * jx, ez = S.z + d.z * 0.1 - r.z * 0.37 + r.z * jx, hy = heightAt(S.x, S.z), ey = hy + 1.22 + jy;
+    const hy0 = S.headYaw || 0, lean = Math.sin(hy0) * 0.12; // turning the head moves it a little to that side
+    const ex = S.x + d.x * (0.1 - Math.abs(lean)) - r.x * 0.37 + r.x * (jx + lean), ez = S.z + d.z * (0.1 - Math.abs(lean)) - r.z * 0.37 + r.z * (jx + lean), hy = heightAt(S.x, S.z), ey = hy + 1.22 + jy;
     camera.position.set(ex, ey, ez);
     sky.position.set(ex, 0, ez); skyline.position.set(ex, 30, ez);
-    const look = dirOf(S.th + S.steer * 0.6);
+    const look = dirOf(S.th + S.steer * 0.6 * (1 - Math.min(1, Math.abs(hy0))) + hy0);
+    stage.classList.toggle("head", Math.abs(hy0) > 0.5); stage.classList.toggle("head-r", hy0 > 0.5);
     const pitch = -S.brake * 0.35 * Math.min(1, Math.abs(S.v) / 3);
     camera.lookAt(ex + look.x * 20, heightAt(ex + look.x * 20, ez + look.z * 20) + 1.22 + jy - 0.9 + pitch, ez + look.z * 20);
     wheelEl.setAttribute("transform", `rotate(${(S.steer / MAX_STEER * 450).toFixed(1)} 500 390) translate(${(jx * 900).toFixed(1)},${(jy * 900).toFixed(1)})`);
@@ -4575,6 +5221,21 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       for (const L of RURAL_LINES) if (Math.abs(L.uR - u) < 200) { gctx.beginPath(); gctx.moveTo(X(L.x0 - L.dx * 200), Z(L.z0 - L.dz * 200)); gctx.lineTo(X(L.x0 + L.dx * 200), Z(L.z0 + L.dz * 200)); gctx.stroke(); }
       for (const tr of trains) { const L = tr.L; gctx.strokeStyle = "#e2553f"; gctx.lineWidth = 3 * dpr; gctx.beginPath(); gctx.moveTo(X(L.x0 + L.dx * tr.s), Z(L.z0 + L.dz * tr.s)); gctx.lineTo(X(L.x0 + L.dx * (tr.s - tr.dir * tr.len)), Z(L.z0 + L.dz * (tr.s - tr.dir * tr.len))); gctx.stroke(); }
       for (const c of routeCars) { gctx.fillStyle = c.kind === "tractor" ? "#f0a535" : "#d9d4c8"; gctx.beginPath(); gctx.arc(X(c.x), Z(c.z), (c.kind === "tractor" ? 2.8 : 1.8) * dpr, 0, Math.PI * 2); gctx.fill(); }
+      gctx.translate(w / 2, h / 2); gctx.rotate(S.th);
+      gctx.fillStyle = "#4fc3f7"; gctx.beginPath(); gctx.moveTo(0, -8 * dpr); gctx.lineTo(5 * dpr, 6 * dpr); gctx.lineTo(-5 * dpr, 6 * dpr); gctx.closePath(); gctx.fill();
+      return;
+    }
+    if (mode === "autopista") {
+      const u = S.hwU ?? 0, line = (a, b, f, col, wd) => { gctx.strokeStyle = col; gctx.lineWidth = wd * sc; gctx.beginPath(); let first = true; for (let w = a; w <= b; w += 5) { const o = f(w); if (o == null) { first = true; continue; } const p = hwPoint(w, o); first ? gctx.moveTo(X(p.x), Z(p.z)) : gctx.lineTo(X(p.x), Z(p.z)); first = false; } gctx.stroke(); };
+      for (const sd of [1, -1]) { line(u - 160, u + 160, () => sd * 7.3, "#6b6e72", 14); line(u - 160, u + 160, () => sd * 22.5, "#5c5f63", 7.8); }
+      line(u - 160, u + 160, () => 0, "#c9c4b8", 0.8);
+      line(u - 160, u + 160, w => hwAux(w) > 0 ? hwLaneC(4) : null, "#6b6e72", 3.5 * 1);
+      line(u - 160, u + 160, w => hwRamp(w), "#6b6e72", 4);
+      const exK = S.hwExitK != null && !S.hwExitOk ? S.hwExitK : null, wantIn = S.mission <= 1 && !S.hwMerged;
+      if (exK != null) { const b = HW.FIRST + exK * HW.STEP; line(Math.max(u - 160, b - 250), Math.min(u + 160, b + 130), w => w < b ? hwLaneC(4) : hwRamp(w), "#3f8fe0", 2.4); }
+      if (wantIn) { const j = hwJ(u + 200); line(Math.max(u - 160, j.b + 350), Math.min(u + 160, j.b + 760), w => w <= j.b + 480 ? hwRamp(w) : hwLaneC(4), "#11a35a", 2.4); }
+      if (S.hwJam) line(Math.max(u - 160, S.hwJam.u0), Math.min(u + 160, S.hwJam.u1), () => 7.3, "rgba(255,59,36,.55)", 10);
+      for (const c of hwCars) { gctx.fillStyle = c.kind === "moto" ? "#f0a535" : c.kind === "truck" || c.kind === "bus" ? "#b8bcc0" : "#d9d4c8"; gctx.beginPath(); gctx.arc(X(c.x), Z(c.z), (c.kind === "moto" ? 1.4 : 1.8) * dpr, 0, Math.PI * 2); gctx.fill(); }
       gctx.translate(w / 2, h / 2); gctx.rotate(S.th);
       gctx.fillStyle = "#4fc3f7"; gctx.beginPath(); gctx.moveTo(0, -8 * dpr); gctx.lineTo(5 * dpr, 6 * dpr); gctx.lineTo(-5 * dpr, 6 * dpr); gctx.closePath(); gctx.fill();
       return;
@@ -4692,8 +5353,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     el("lamp-belt").className = "lamp" + (S.belt ? "" : " on red");
     el("lamp-lights").className = "lamp" + (S.lights ? " on beam" : "");
     const blinkOn = Math.floor(S.t * 3) % 2 === 0;
-    el("lamp-left").className = "lamp blink" + (S.blink === "left" && blinkOn ? " on" : "");
-    el("lamp-right").className = "lamp blink" + (S.blink === "right" && blinkOn ? " on" : "");
+    el("lamp-left").className = "lamp blink" + ((S.blink === "left" || S.hazard) && blinkOn ? " on" : "");
+    el("lamp-right").className = "lamp blink" + ((S.blink === "right" || S.hazard) && blinkOn ? " on" : "");
     el("btn-engine").lastChild.textContent = S.running || S.crank > 0 ? " Apagar" : " Encender";
     el("btn-hand").setAttribute("aria-pressed", S.hand);
     gearTexts.forEach(t => t.classList.toggle("active", t.dataset.gear === S.gear));
@@ -4705,7 +5366,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     knobDot.setAttribute("cx", knob.x); knobDot.setAttribute("cy", knob.y);
     if (S.limit !== lastLimit) { lastLimit = S.limit; el("limit-sign").textContent = S.limit; }
     tickScoreStats();
-    const chip = el("next-chip"), ap = help && mode !== "hill" && mode !== "campo" ? approach() : null;
+    const chip = el("next-chip"), ap = help && mode !== "hill" && mode !== "campo" && mode !== "autopista" ? approach() : null;
     const setChip = (txt, col) => { if (chip.dataset.t !== txt) { chip.dataset.t = txt; chip.innerHTML = `<i style="background:${col}"></i>`; chip.appendChild(document.createTextNode(txt)); } chip.hidden = false; };
     if (mode === "campo") {
       const u = S.routeU ?? -S.z, ca = help ? curveAhead(u, 250) : null, slow = help && routeCars.find(c => c.lane > 0 && c.u - u > 0 && c.u - u < 220);
@@ -4713,6 +5374,16 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       if (rr) { const near = trainNear(rr, 0, 25); setChip(`Paso a nivel con PARE · ${Math.max(0, Math.round(rr.uR - u))} m${near ? " · ¡viene el tren!" : ""}`, near ? "#ff3b24" : "#f2c230"); return; }
       const txt = ca ? `Curva a la ${ca.dir === "right" ? "derecha" : "izquierda"} en ${Math.round(ca.dist)} m · baja a 60 km/h` : slow ? `${slow.kind === "tractor" ? "Tractor" : "Camión"} adelante · ${Math.round(slow.u - u)} m${noPass(u) ? " · doble línea: no adelantar" : ""}` : help && noPass(u) ? "Doble línea amarilla: prohibido adelantar" : "";
       if (txt) setChip(txt, ca ? "#f2c230" : slow ? "#f0a535" : "#e8b62a"); else chip.hidden = true;
+      return;
+    }
+    if (mode === "autopista") {
+      const u = S.hwU ?? 0, jam = S.hwJam, ex = S.hwExitK != null && !S.hwExitOk ? HW.FIRST + S.hwExitK * HW.STEP - u : null;
+      if (jam && jam.u0 - u < 600 && u < jam.u1) setChip(u < jam.u0 ? `Tránsito detenido a ${Math.round(jam.u0 - u)} m · frena de a poco y pon balizas (B)` : "Embotellamiento: 1ª, un auto de distancia, ojo con las motos", "#ff3b24");
+      else if (S.hwGap != null && (S.mission === 4 || S.hwGap < 1.5)) setChip(`Distancia con el de adelante: ${S.hwGap.toFixed(1).replace(".", ",")} s${S.hwGap < 2 ? " · deja 2 segundos" : " · bien"}`, S.hwGap < 1 ? "#ff3b24" : S.hwGap < 2 ? "#f2c230" : "#46e86c");
+      else if (ex != null && ex > -140 && ex < 2000) setChip(`Tu salida: ${hwName(S.hwExitK)} · ${ex > 0 ? Math.round(ex) + " m" : "ahora"}${ex < 700 && S.hwLane !== 3 && S.hwLane !== 4 && S.hwLane !== "ramp" ? " · pásate al carril derecho" : ""}`, "#3f8fe0");
+      else if (S.mission <= 1 && !S.hwMerged) { const j = hwJ(u); setChip(j.rel < 350 ? `Rampa de entrada a la izquierda en ${Math.round(350 - j.rel)} m` : "Acelera en el carril de aceleración y pásate con guiño, espejo y punto ciego (G)", "#11a35a"); }
+      else if (help) setChip(`Autopista · máx. 100 · mín. 50 km/h${typeof S.hwLane === "number" && S.hwLane <= 3 ? ` · carril ${["izquierdo", "del medio", "derecho"][S.hwLane - 1]}` : ""}`, "#11a35a");
+      else chip.hidden = true;
       return;
     }
     if (mode === "hill") {
@@ -4794,6 +5465,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     while (S.hist.length && S.hist[0].t < S.t - 4.5) S.hist.shift();
     updateTraffic(dt);
     updateRouteCars(dt);
+    updateHwCars(dt);
     updateTrains(dt);
     updatePeds(dt);
     collide(prev);
