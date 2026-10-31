@@ -63,7 +63,16 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 }
 .top h1 span { color: var(--amber); }
 .top p { margin: 0; color: var(--muted); flex: 1 1 260px; min-width: 0; }
-.top-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.top-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.menu-wrap { position: relative; }
+.menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: min(320px, calc(100vw - 32px)); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+.menu[hidden] { display: none; }
+.menu-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.menu .btn { width: 100%; text-align: center; }
+.menu .sel { justify-content: space-between; }
+.menu-trip { display: none; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.ghost:hover { color: var(--ink); }
 .btn {
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
   padding: 6px 12px; cursor: pointer; font-weight: 600;
@@ -134,6 +143,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   font-family: var(--font-num); font-size: .72rem; padding: 2px 5px; border-radius: 4px;
   border: 1px solid var(--line); color: #4b5057;
 }
+button.lamp { background: transparent; cursor: pointer; font-family: var(--font-num); }
+button.lamp:hover { border-color: var(--amber-dim); }
 .lamp.on { color: #1b1407; background: var(--amber); border-color: var(--amber); }
 .lamp.on.red { background: var(--red); border-color: var(--red); color: #fff; }
 .lamp.on.beam { background: #3f8fe0; border-color: #3f8fe0; color: #fff; }
@@ -283,6 +294,9 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 .controls .key { justify-self: start; }
 .sel { display: inline-flex; align-items: center; gap: 6px; font-size: .85rem; color: var(--muted); }
 .sel select { font: inherit; color: var(--ink); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+.hud-score[hidden] { display: none; }
+.hud-speed { display: none; background: rgba(16,18,20,.82); border: 1px solid var(--line); border-radius: 8px; padding: 3px 7px; font-family: var(--font-num); font-size: .8rem; color: var(--ink); }
+.hud-speed b { color: var(--amber); font-weight: 400; }
 .hud-score { background: rgba(16,18,20,.82); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; display: flex; gap: 6px; align-items: baseline; }
 .hud-score b { font-family: var(--font-num); font-weight: 400; color: var(--amber); font-size: 1.1rem; }
 .hud-score span { font-size: .75rem; color: var(--muted); }
@@ -302,6 +316,46 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   .gps { width: 96px; height: 96px; }
   #m-left, #m-right { width: 22%; height: 13%; bottom: 28%; }
   #m-rear { width: 34%; }
+}
+/* phones: compact header, a smaller view and the controls ordered as you use them */
+@media (max-width: 719px) {
+  body { padding: 8px max(8px, env(safe-area-inset-left, 0px)) 16px; }
+  .app { gap: 8px; }
+  .top { align-items: center; gap: 6px 10px; }
+  .top h1 { font-size: 1.25rem; }
+  .top p, .sel-l { display: none; }
+  .top { flex-wrap: nowrap; }
+  .top-actions { flex: 1 1 auto; justify-content: flex-end; gap: 6px; flex-wrap: nowrap; min-width: 0; }
+  .top-actions .sel { min-width: 0; flex: 1 1 auto; justify-content: flex-end; }
+  .top-actions .sel select { min-width: 0; max-width: 100%; }
+  .top-actions .btn { padding: 6px 9px; font-size: .85rem; white-space: nowrap; }
+  #btn-trip { display: none; }
+  .menu-trip { display: block; }
+  .stage { height: clamp(230px, 44vh, 420px); }
+  .limit-sign { width: 38px; height: 38px; font-size: .95rem; border-width: 4px; }
+  .gps { width: 84px; height: 84px; }
+  .hud { gap: 6px; left: 8px; top: 8px; }
+  .hud-speed { display: block; }
+  .coach { width: 50%; font-size: .68rem; max-height: 55%; overflow: auto; top: 38px; right: 8px; padding: 6px 8px; }
+  .next-chip { font-size: .7rem; max-width: 62%; top: 8px; right: 8px; }
+  .toasts { max-width: 94%; bottom: 6px; }
+  .toast { font-size: .76rem; padding: 4px 8px; }
+  .toast:nth-child(n+2) { display: none; }
+  .coach .meter { flex-wrap: wrap; gap: 4px 8px; }
+  .cockpit { padding: 8px; gap: 10px; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: center; }
+  .cluster, .steer, .aux { grid-column: 1 / -1; }
+  .cluster { grid-template-columns: minmax(0, 1fr); }
+  .cluster canvas { display: none; }
+  .center-read { flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 6px; }
+  .gear-big { font-size: 1.6rem; width: 44px; padding: 2px 0; }
+  .lamp { font-size: .8rem; padding: 4px 7px; }
+  .caption { display: none; }
+  .shifter { display: contents; }
+  .cluster { order: 0; } .steer { order: 1; } .pedals-wrap { order: 2; } .shifter svg { order: 3; max-width: 150px; justify-self: center; } .aux { order: 4; }
+  .steer .btn { flex: 1; min-height: 52px; justify-content: center; font-size: 1rem; }
+  .pedal .bar { height: 104px; width: 30px; }
+  .pedal .key { display: none; }
+  .pedal { padding: 6px 2px; }
 }
 /* desktop: everything fits in one screen, no page scroll */
 @media (min-width: 1000px) and (min-height: 560px) {
@@ -390,7 +444,10 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 .pedal .key { font-size: .72rem; }
 .coach { position: absolute; top: 46px; right: 12px; z-index: 2; width: min(270px, 36%); background: rgba(16,18,20,.88); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: .78rem; display: flex; flex-direction: column; gap: 4px; }
 .coach[hidden] { display: none; }
-.coach b { font-size: .82rem; }
+.coach b { font-size: .82rem; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
+.coach b::after { content: "▾"; color: var(--muted); }
+.coach.min b::after { content: "▸"; }
+.coach.min ol, .coach.min .chk, .coach.min .meter { display: none; }
 .coach ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; color: var(--muted); }
 .coach li.now { color: var(--ink); font-weight: 600; }
 .coach li.ok { color: var(--green); text-decoration: line-through; }
@@ -435,7 +492,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     <h1>Primera <span>Marcha</span></h1>
     <p>Maneja un auto mecánico desde el asiento del conductor: embrague, cambios, volante, espejos y reglas de tránsito.</p>
     <div class="top-actions">
-      <label class="sel" for="mode">Lugar
+      <label class="sel" for="mode"><span class="sel-l">Lugar</span>
         <select id="mode">
           <option value="lesson">Primera clase</option>
           <option value="city">Ciudad</option>
@@ -446,7 +503,11 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
           <option value="autopista">Autopista</option>
         </select>
       </label>
-      <label class="sel" for="traffic">Tránsito
+      <button class="btn" id="btn-trip">Terminar viaje</button>
+      <div class="menu-wrap">
+        <button class="btn" id="btn-menu" type="button" aria-expanded="false" aria-controls="menu">⚙ Menú</button>
+        <div class="menu" id="menu" hidden>
+          <label class="sel" for="traffic">Tránsito
         <select id="traffic">
           <option value="auto">Según mi nivel</option>
           <option value="off">Sin autos</option>
@@ -454,12 +515,19 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
           <option value="high">Mucho</option>
         </select>
       </label>
-      <button class="btn" id="btn-help" aria-pressed="true">Ayudas</button>
-      <button class="btn" id="btn-sound" aria-pressed="false">Sonido</button>
-      <button class="btn" id="btn-voice" aria-pressed="true" title="El instructor que lee los consejos en voz alta">Voz</button>
-      <button class="btn" id="btn-free" aria-pressed="false" title="Maneja por donde quieras, sin misiones">Modo libre</button>
-      <button class="btn" id="btn-trip">Terminar viaje</button>
-      <button class="btn" id="btn-reset" title="Empieza este lugar de nuevo, desde la primera misión. Los otros lugares no cambian.">Reiniciar</button>
+          <div class="menu-row">
+            <button class="btn" id="btn-help" aria-pressed="true" title="Consejos, guía amarilla y paneles de ayuda">Ayudas</button>
+            <button class="btn" id="btn-sound" aria-pressed="false">Sonido</button>
+            <button class="btn" id="btn-voice" aria-pressed="true" title="El instructor que lee los consejos en voz alta">Voz</button>
+            <button class="btn" id="btn-free" aria-pressed="false" title="Maneja por donde quieras, sin misiones">Modo libre</button>
+            <button class="btn" id="menu-night" type="button" aria-pressed="false">De noche</button>
+            <button class="btn" id="menu-rain" type="button" aria-pressed="false">Lluvia</button>
+          </div>
+          <button class="btn menu-trip" id="menu-trip" type="button">Terminar viaje</button>
+          <button class="btn" id="btn-reset" title="Empieza este lugar de nuevo, desde la primera misión. Los otros lugares no cambian.">Empezar este lugar de nuevo</button>
+          <button class="btn ghost" id="menu-controls" type="button">Teclas, joystick y más opciones →</button>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -490,7 +558,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     <div class="hud">
       <div class="limit-sign" id="limit-sign">50</div>
       <canvas class="gps" id="gps" aria-label="GPS"></canvas>
-      <div class="hud-score"><b id="hud-score">0</b><span id="hud-level">Aprendiz</span></div>
+      <div class="hud-score" hidden><b id="hud-score">0</b><span id="hud-level">Aprendiz</span></div>
+      <div class="hud-speed" id="hud-speed"></div>
     </div>
     <div class="next-chip" id="next-chip" hidden></div>
     <div class="coach" id="coach" hidden>
@@ -582,20 +651,20 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       <div class="center-read">
         <div class="gear-big" id="gear-big">N</div>
         <div class="lights">
-          <span class="lamp blink" id="lamp-left">◀</span>
-          <span class="lamp" id="lamp-belt" title="Cinturón de seguridad">CINTURÓN</span>
-          <span class="lamp blink" id="lamp-right">▶</span>
+          <button type="button" class="lamp blink" id="lamp-left" title="Guiño izquierdo (Z)">◀</button>
+          <button type="button" class="lamp" id="lamp-belt" title="Cinturón de seguridad (C)">CINTURÓN</button>
+          <button type="button" class="lamp blink" id="lamp-right" title="Guiño derecho (X)">▶</button>
         </div>
         <div class="lights">
-          <span class="lamp" id="lamp-engine">MOTOR</span>
-          <span class="lamp" id="lamp-hand">(P)</span>
-          <span class="lamp" id="lamp-lights" title="Luces bajas">LUCES</span>
+          <button type="button" class="lamp" id="lamp-engine" title="Encender o apagar el motor (E)">MOTOR</button>
+          <button type="button" class="lamp" id="lamp-hand" title="Freno de mano (Q)">(P)</button>
+          <button type="button" class="lamp" id="lamp-lights" title="Luces bajas (K)">LUCES</button>
         </div>
       </div>
       <canvas id="speedo" aria-label="Velocímetro"></canvas>
     </div>
 
-    <div>
+    <div class="pedals-wrap">
       <div class="pedals">
         <button class="pedal" data-p="clutch" type="button">
           <span class="bar"><span class="bite"></span><span class="fill"></span></span>
@@ -2607,7 +2676,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       renderMissions();
       // a step of the path finished: say what opens now
       PATH.forEach((st, n) => { if (!before[n] && stageDone(n)) toast(n + 1 < PATH.length ? `¡Completaste "${st.title}"! Se abrió: ${PATH[n + 1].title}. Tócalo en Tu camino, en la pestaña Misiones.` : "¡Completaste todo el camino!", "good", "stage" + n, 999); });
-      if (S.mission < MISSIONS.length) { const nx = MISSIONS[S.mission]; tip(nx.steps ? `Siguiente: ${nx.title}. Primer paso: ${nx.steps[0][0]}. Los pasos se tachan solos en la pestaña Misiones.` : "Siguiente: " + nx.title + ". " + nx.hint, "next" + S.mission, 999); }
+      if (S.mission < MISSIONS.length) { const nx = MISSIONS[S.mission]; toast(`Ahora: ${nx.title}.${nx.steps ? " Los pasos están en el panel de la derecha." : " " + nx.hint}`, "tip", "next" + S.mission, 999); }
     }
   }
 
@@ -2713,6 +2782,12 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     btn.addEventListener("contextmenu", e => e.preventDefault());
   });
   document.getElementById("btn-engine").addEventListener("click", toggleEngine);
+  document.getElementById("lamp-left").addEventListener("click", () => { S.blink = S.blink === "left" ? null : "left"; });
+  document.getElementById("lamp-right").addEventListener("click", () => { S.blink = S.blink === "right" ? null : "right"; });
+  document.getElementById("lamp-belt").addEventListener("click", () => { S.belt = !S.belt; if (S.belt) toast("Cinturón abrochado.", "", "belt-on", 2); });
+  document.getElementById("lamp-engine").addEventListener("click", toggleEngine);
+  document.getElementById("lamp-hand").addEventListener("click", () => { S.hand = !S.hand; });
+  document.getElementById("lamp-lights").addEventListener("click", () => { S.lights = !S.lights; toast(S.lights ? "Luces bajas encendidas." : "Luces apagadas.", "", "lights" + S.lights, 1); });
   document.getElementById("btn-hand").addEventListener("click", () => { S.hand = !S.hand; });
   document.getElementById("stall-ok").addEventListener("click", closeStall);
   document.getElementById("stall-x").addEventListener("click", closeStall);
@@ -2948,6 +3023,17 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   document.getElementById("btn-wipers").addEventListener("click", toggleWipers);
   document.getElementById("btn-horn").addEventListener("click", () => honk(true));
   document.getElementById("btn-hazard").addEventListener("click", toggleHazard);
+  // the ⚙ menu: opens and closes with its button, closes when you click outside or press Esc
+  const menuBtn = document.getElementById("btn-menu"), menuEl = document.getElementById("menu");
+  const setMenu = open => { menuEl.hidden = !open; menuBtn.setAttribute("aria-expanded", open); if (open) syncMenu(); };
+  function syncMenu() { document.getElementById("menu-night").setAttribute("aria-pressed", !!opts.night); document.getElementById("menu-rain").setAttribute("aria-pressed", !!opts.rain); }
+  menuBtn.addEventListener("click", e => { e.stopPropagation(); setMenu(menuEl.hidden); });
+  document.addEventListener("pointerdown", e => { if (!menuEl.hidden && !e.target.closest(".menu-wrap")) setMenu(false); });
+  window.addEventListener("keydown", e => { if (e.key === "Escape" && !menuEl.hidden) setMenu(false); }, true);
+  document.getElementById("menu-trip").addEventListener("click", () => { setMenu(false); document.getElementById("btn-trip").click(); });
+  document.getElementById("menu-night").addEventListener("click", () => { document.getElementById("opt-night").click(); syncMenu(); });
+  document.getElementById("menu-rain").addEventListener("click", () => { document.getElementById("opt-rain").click(); syncMenu(); });
+  document.getElementById("menu-controls").addEventListener("click", () => { setMenu(false); const t = document.querySelector('.tab[data-pane="controls"]'); t.click(); t.scrollIntoView({ behavior: "smooth", block: "start" }); });
   const helpBtn = document.getElementById("btn-help");
   helpBtn.addEventListener("click", () => { help = !help; helpBtn.setAttribute("aria-pressed", help); });
   const trafficSel = document.getElementById("traffic");
@@ -5276,15 +5362,20 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     el.hidden = !h;
     if (el.innerHTML !== h) el.innerHTML = h;
   }
+  document.getElementById("coach-title").addEventListener("click", () => { opts.coachMin = !opts.coachMin; saveOpts(); });
   function updateCoach() {
     let key = null;
     if (help && mode === "parking" && !opts.freeDrive) key = ["front", "back", "parallel"][S.mission] || null;
     if (help && mode === "city" && !opts.freeDrive) key = S.mission === 6 ? "front" : S.mission === 7 ? "parallel" : null;
     if (key && mode === "city" && !inLot(S.x, S.z)) key = null;
     if (key !== coachKey) { coachKey = key; coachStep = 0; }
-    const showSensor = inLot(S.x, S.z) && Math.abs(S.v) < 3;
+    // the parking sensors: in the parking place always, elsewhere in the lot only when something is close
+    const showSensor = inLot(S.x, S.z) && Math.abs(S.v) < 3 && (mode === "parking" || sensorDist(S.gear === "R") < 2.2);
     const live = !key && !showSensor ? liveCoach() : null;
-    coachEl.hidden = !key && !showSensor && !live && !S.parkCheck;
+    // with nothing else to show, the panel shows the steps of the current mission
+    const mis = !key && !showSensor && !live && !S.parkCheck && help && !opts.freeDrive && S.mission < MISSIONS.length ? MISSIONS[S.mission] : null;
+    coachEl.hidden = !key && !showSensor && !live && !S.parkCheck && !(mis && mis.steps);
+    coachEl.classList.toggle("min", !!opts.coachMin);
     ghost.visible = false;
     if (coachEl.hidden) return;
     let html = "";
@@ -5304,6 +5395,15 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       live.steps.forEach(([text], n) => { html += `<li class="${liveDone.has(n) ? "ok" : n === now ? "now" : ""}">${text}</li>`; });
       document.getElementById("coach-angle").textContent = live.note;
       if (coachSteps.innerHTML !== html) coachSteps.innerHTML = html;
+      document.getElementById("coach-sensor").innerHTML = ""; document.getElementById("coach-dist").textContent = "";
+      parkCheckHtml();
+      return;
+    } else if (mis && mis.steps) {
+      document.getElementById("coach-title").textContent = mis.title;
+      const now = mis.steps.findIndex((st, n) => !S.stepDone[S.mission + "-" + n]);
+      mis.steps.forEach(([text], n) => { html += `<li class="${S.stepDone[S.mission + "-" + n] ? "ok" : n === now ? "now" : ""}">${text}</li>`; });
+      if (coachSteps.innerHTML !== html) coachSteps.innerHTML = html;
+      document.getElementById("coach-angle").textContent = "";
       document.getElementById("coach-sensor").innerHTML = ""; document.getElementById("coach-dist").textContent = "";
       parkCheckHtml();
       return;
@@ -5641,10 +5741,12 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   const fills = {}; document.querySelectorAll(".pedal").forEach(b => fills[b.dataset.p] = { b, f: b.querySelector(".fill") });
   const gearTexts = svg.querySelectorAll("text[data-gear]");
   let lastLimit = null;
+  const hudSpeed = document.getElementById("hud-speed");
   function updateDom() {
     { const e = S.gear === "N" ? 0 : engage(S.clutch), on = S.running && e > 0.03 && e < 0.6 && Math.abs(S.v) < 4; fills.clutch.b.classList.toggle("bite-on", on); const nm = fills.clutch.b.querySelector(".name"); const t = on ? "Roce" : "Embrague"; if (nm.textContent !== t) nm.textContent = t; }
     for (const p of ["clutch", "brake", "gas"]) { fills[p].f.style.height = (S[p] * 100).toFixed(1) + "%"; fills[p].b.classList.toggle("held", held(p) || (p === "clutch" && S.clutchManual)); }
     el("gear-big").textContent = S.gear;
+    if (hudSpeed.offsetParent) { const t = `<b>${Math.round(Math.abs(S.v) * 3.6)}</b> km/h · <b>${S.gear}</b> · ${Math.round(toRpm(S.we) / 100) * 100} rpm`; if (hudSpeed.dataset.t !== t) { hudSpeed.dataset.t = t; hudSpeed.innerHTML = t; } }
     el("lamp-engine").className = "lamp" + (S.running ? " on green" : "");
     el("lamp-hand").className = "lamp" + (S.hand ? " on red" : "");
     el("lamp-belt").className = "lamp" + (S.belt ? "" : " on red");
@@ -5795,8 +5897,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   applyWeather();
   const firstTime = !Object.keys(prog.modes).length;
   setMode(prog.last && modeOpen(prog.last) ? prog.last : "lesson");
-  if (firstTime) tip("Hola. Empezamos por la Primera clase: en un estacionamiento vacío aprendes el embrague paso a paso. Después se van abriendo los otros lugares (mira Tu camino, en la pestaña Misiones).", "welcome", 999);
-  else tip(`Hola de nuevo. Sigues donde quedaste: ${MODE_NAMES[mode]}, misión ${Math.min(S.mission + 1, MISSIONS.length)} de ${MISSIONS.length}.`, "welcome", 999);
+  if (firstTime) { toastsEl.innerHTML = ""; tip("Hola. Empezamos por la Primera clase: en un estacionamiento vacío aprendes el embrague paso a paso. Los pasos están en el panel de la derecha y se tachan solos. Después se van abriendo los otros lugares.", "welcome", 999); }
+  else { toastsEl.innerHTML = ""; tip(`Hola de nuevo. Sigues donde quedaste: ${MODE_NAMES[mode]}, misión ${Math.min(S.mission + 1, MISSIONS.length)} de ${MISSIONS.length}.`, "welcome", 999); }
   requestAnimationFrame(frame);
 })();
 </script>
