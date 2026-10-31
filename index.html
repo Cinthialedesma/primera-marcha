@@ -1081,6 +1081,63 @@ button.lamp:hover { border-color: var(--amber-dim); }
 
   // left turn forbidden for this approach (only at some traffic lights)
   const noLeft = (i, j, k) => ctrlOf(i, j) === "light" && hash2(i * 5 + k, j * 3 + 1) < 0.3;
+  // ---------- one-way streets: like in Buenos Aires, most streets go one way with two lanes, alternating; the avenues are two-way ----------
+  // directions: k = 0 north (-z), 1 east (+x), 2 south (+z), 3 west (-x). NS streets are the lines x = i*G, EW streets z = j*G
+  const oneWay = line => !isAvenue(line);
+  // may you leave the corner (i, j) going in direction k? (the same as: may you drive along that street in that direction)
+  function kOK(k, i, j) {
+    const line = k % 2 === 0 ? i : j;
+    if (isAvenue(line)) return true;
+    const even = ((line % 2) + 2) % 2 === 0;
+    return k % 2 === 0 ? k === (even ? 0 : 2) : k === (even ? 1 : 3);
+  }
+  const lineDirs = (axis, line) => isAvenue(line) ? (axis === "NS" ? [0, 2] : [1, 3]) : [axis === "NS" ? (((line % 2) + 2) % 2 === 0 ? 0 : 2) : (((line % 2) + 2) % 2 === 0 ? 1 : 3)];
+  // the shortest legal way between corners: never against a one-way street, no U-turns, no left where it is forbidden
+  const routeCache = new Map();
+  function cityRoute(fi, fj, kIn, ti, tj, toK) {
+    const ck = [fi, fj, kIn, ti, tj, toK].join(",");
+    if (routeCache.has(ck)) return routeCache.get(ck);
+    const key = (i, j, k) => i + "," + j + "," + k, seen = new Set([key(fi, fj, kIn)]), q = [{ i: fi, j: fj, k: kIn, prev: null }];
+    let found = null;
+    for (let h = 0; h < q.length && !found; h++) {
+      const n = q[h];
+      const leaveOK = k2 => kOK(k2, n.i, n.j) && k2 !== (n.k + 2) % 4 && !(k2 === (n.k + 3) % 4 && noLeft(n.i, n.j, n.k));
+      if (n.i === ti && n.j === tj && (toK == null || leaveOK(toK))) { found = n; break; }
+      if (Math.abs(n.i - fi) > 9 || Math.abs(n.j - fj) > 9) continue;
+      for (const k2 of [n.k, (n.k + 1) % 4, (n.k + 3) % 4]) {
+        if (!leaveOK(k2)) continue;
+        const d = dirOf(k2 * Math.PI / 2), ni = n.i + Math.round(d.x), nj = n.j + Math.round(d.z), kk = key(ni, nj, k2);
+        if (seen.has(kk)) continue;
+        seen.add(kk); q.push({ i: ni, j: nj, k: k2, prev: n });
+      }
+    }
+    const out = [];
+    for (let n = found; n; n = n.prev) out.unshift({ i: n.i, j: n.j });
+    const res = found ? out : null;
+    if (routeCache.size > 300) routeCache.clear();
+    routeCache.set(ck, res);
+    return res;
+  }
+  // where you are, as a corner ahead and a direction (for the route search)
+  function myCorner() {
+    const ap = approach(), c0 = cardinal(S.th);
+    return ap ? { i: ap.i, j: ap.j, k: c0.k } : { i: Math.round(S.x / G), j: Math.round(S.z / G), k: c0.k };
+  }
+  // a route from you to a corner (and then along a street in direction toK), as points to draw and follow
+  function pathTo(ti, tj, toK, tail) {
+    const me = myCorner(), nodes = cityRoute(me.i, me.j, me.k, ti, tj, toK) || [{ i: me.i, j: me.j }, { i: ti, j: tj }];
+    const pts = [{ x: S.x, z: S.z }, ...nodes.map(n => ({ x: n.i * G, z: n.j * G })), ...(tail || [])];
+    const out = [pts[0]];
+    for (let n = 1; n < pts.length; n++) { const a = out[out.length - 1], p = pts[n]; if (Math.hypot(p.x - a.x, p.z - a.z) > 1) out.push(p); }
+    for (let n = out.length - 2; n >= 1; n--) { const a = out[n - 1], b = out[n], c = out[n + 1]; if (Math.abs((b.x - a.x) * (c.z - b.z) - (b.z - a.z) * (c.x - b.x)) < 1 && (b.x - a.x) * (c.x - b.x) + (b.z - a.z) * (c.z - b.z) > 0) out.splice(n, 1); }
+    let len = 0; for (let n = 1; n < out.length; n++) len += Math.hypot(out[n].x - out[n - 1].x, out[n].z - out[n - 1].z);
+    return { pts: out, len };
+  }
+  // which turns the next corner allows, for the messages
+  function turnsAt(ap) {
+    const k = cardinal(S.th).k;
+    return { right: kOK((k + 1) % 4, ap.i, ap.j), left: kOK((k + 3) % 4, ap.i, ap.j) && !noLeft(ap.i, ap.j, k) };
+  }
   // what each block of street has: a school zone or a speed bump in the middle
   function segFeature(axis, line, block) {
     if (axis === "NS" && line === 0 && block === -1) return null; // the first street stays simple
@@ -1116,13 +1173,9 @@ button.lamp:hover { border-color: var(--amber-dim); }
   }
   function lotNav() {
     if (!lotWanted()) return null;
-    const pts = [{ x: S.x, z: S.z }];
-    if (!(Math.abs(S.x) <= HALF && S.z < 0 && S.z > -G)) {
-      // along the streets: to the next corner, then to the starting street, then along it
-      const ap = approach(), ci = ap ? ap.i : Math.round(S.x / G), cj = ap ? ap.j : Math.round(S.z / G);
-      pts.push({ x: ci * G, z: cj * G });
-      if (ci !== 0) pts.push({ x: 0, z: cj * G });
-    }
+    let pts = [{ x: S.x, z: S.z }];
+    // along the streets, the legal way, to the corner where the lot's street starts
+    if (!(Math.abs(S.x) <= HALF && S.z < 0 && S.z > LOT_DOOR.z - 2 && cardinal(S.th).k === 0)) pts = pathTo(0, 0, 0).pts;
     pts.push(LOT_ENTRY, LOT_DOOR);
     let dist = 0;
     for (let k = 1; k < pts.length; k++) dist += Math.hypot(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z);
@@ -1861,7 +1914,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
       }
       if (S.blink === "left" && noLeft(ap.i, ap.j, cardinal(S.th).k)) tip("En esta esquina está prohibido girar a la izquierda (mira el cartel redondo). Sigue derecho o dobla a la derecha.", "noleft" + ap.i + "," + ap.j, 30);
       if (S.blink && ap.dist < 40 && S.t - S.mirrorT > 6) tip("Antes de doblar mira el espejo (V) de ese lado: puede venir una moto o una bici.", "mirror-turn" + ap.i + "," + ap.j, 30);
-      if (ap.dist < 45 && !S.blink && cc !== "round" && !(S.turned.left && S.turned.right)) tip("Esquina adelante: puedes seguir derecho o doblar. Para doblar, señaliza (Z izquierda / X derecha): aparece una guía amarilla en el piso y te aviso cuándo girar.", "corner", 45);
+      if (ap.dist < 45 && !S.blink && cc !== "round" && !(S.turned.left && S.turned.right)) tip((t => t.right && t.left ? "" : t.right ? "En esta esquina solo se puede doblar a la DERECHA (la calle de la izquierda es contramano). " : t.left ? "En esta esquina solo se puede doblar a la IZQUIERDA (la de la derecha es contramano). " : "En esta esquina no se puede doblar: sigue derecho. ")(turnsAt(ap)) + "Esquina adelante: puedes seguir derecho o doblar. Para doblar, señaliza (Z izquierda / X derecha): aparece una guía amarilla en el piso y te aviso cuándo girar.", "corner", 45);
     }
     if (ap && ap.dist < 25 && Math.abs(S.steer) > 0.15 && !S.blink && S.v > 0.5 && ctrlOf(ap.i, ap.j) !== "round") tip("¿Vas a doblar? Pon el señalizador: Z izquierda, X derecha.", "blink-tip", 20);
     if (ap && ctrlOf(ap.i, ap.j) === "light" && S.v === 0 && ap.dist < 9 && lightState(ap.i, ap.j, ap.axis) === "red") {
@@ -1873,7 +1926,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
     const box = boxAt(S.x, S.z), zi = Math.round(S.x / G), zj = Math.round(S.z / G);
     const inZone = Math.abs(S.x - zi * G) <= ZONE && Math.abs(S.z - zj * G) <= ZONE && !inLot(S.x, S.z);
     if (inZone && (!S.box || S.box.key !== zi + "," + zj)) {
-      S.box = { key: zi + "," + zj, i: zi, j: zj, th: S.th, blink: S.blink, judged: false };
+      const r0 = rightOf(cardinal(S.th).th);
+      S.box = { key: zi + "," + zj, i: zi, j: zj, th: S.th, blink: S.blink, judged: false, lat: (S.x - zi * G) * r0.x + (S.z - zj * G) * r0.z };
     }
     if (S.box && !S.box.judged && S.v > 0) {
       // judge PARE / red light once the front of the car passes the stop line
@@ -1944,6 +1998,11 @@ button.lamp:hover { border-color: var(--amber-dim); }
       if (Math.abs(turn) > Math.PI / 4 && S.v > 0) {
         const side = turn > 0 ? "right" : "left", name = side === "right" ? "derecha" : "izquierda";
         if (side === "left" && noLeft(S.box.i, S.box.j, cardinal(S.box.th).k)) infraction("Giraste a la izquierda donde está prohibido", -20);
+        // on a one-way street you turn from the lane on that side
+        if (oneWay(cardinal(S.box.th).k % 2 === 0 ? S.box.i : S.box.j)) {
+          if (side === "left" && S.box.lat > 0.6) { infraction("Doblaste a la izquierda desde el carril derecho", -10); tip("En una calle de mano única, para doblar a la izquierda ponte en el carril izquierdo antes de la esquina: guiño, espejo y punto ciego (G).", "lane-left", 30); }
+          if (side === "right" && S.box.lat < -0.6) { infraction("Doblaste a la derecha desde el carril izquierdo", -10); tip("Para doblar a la derecha ponte en el carril derecho antes de la esquina: guiño, espejo y punto ciego (G).", "lane-right", 30); }
+        }
         if (S.box.blink !== side && S.blink !== side) infraction(`Doblaste a la ${name} sin señalizar`);
         else { award(10, `Doblaste a la ${name} señalizando`); toast(`Bien: doblaste a la ${name} señalizando (+10).`, "good", "turned" + S.box.key); S.turned[side] = true; countGoodTurn(); }
         if (S.t - S.mirrorT > 12) infraction("Doblaste sin mirar el espejo", -5);
@@ -1967,11 +2026,22 @@ button.lamp:hover { border-color: var(--amber-dim); }
       }
       blocker.prevA = a;
     }
+    // against a one-way street
+    { const sg = segAt(S.x, S.z);
+      if (sg && S.v > 1 && !inLot(S.x, S.z)) {
+        const c0 = cardinal(S.th), along = Math.abs(wrap(S.th - c0.th)) < 0.6 && (c0.k % 2 === 0) === (sg.axis === "NS"), wk = sg.axis + sg.line + "," + sg.block;
+        if (along && !lineDirs(sg.axis, sg.line).includes(c0.k)) {
+          S.wwT = (S.wwT || 0) + dt;
+          if (S.wwT > 0.5) toast("¡Vas a contramano! Esta calle es de mano única en el otro sentido: mira los carteles azules con flecha de las esquinas y las flechas del piso.", "bad", "ww-tip", 8);
+          if (S.wwT > 1.2 && S.wwKey !== wk) { S.wwKey = wk; infraction("Circulaste a contramano", -50); }
+        } else S.wwT = 0;
+      } }
     if (!S.box && S.t - S.boxExitT > 3 && onRoad(S.x, S.z) && !inLot(S.x, S.z) && S.v > 2 && !(blocker && Math.hypot(blocker.x - S.x, blocker.z - S.z) < 30)) {
       const i = Math.round(S.x / G), j = Math.round(S.z / G), r = rightOf(S.th);
       let off = null;
-      if (Math.abs(S.x - i * G) <= HALF && Math.abs(r.x) > 0.7) off = (S.x - i * G) * r.x;
-      else if (Math.abs(S.z - j * G) <= HALF && Math.abs(r.z) > 0.7) off = (S.z - j * G) * r.z;
+      // on a one-way street both lanes are yours; only two-way streets have a "wrong side"
+      if (Math.abs(S.x - i * G) <= HALF && Math.abs(r.x) > 0.7) off = oneWay(i) ? null : (S.x - i * G) * r.x;
+      else if (Math.abs(S.z - j * G) <= HALF && Math.abs(r.z) > 0.7) off = oneWay(j) ? null : (S.z - j * G) * r.z;
       if (off != null && off < -0.6) {
         S.wrongT += dt;
         if (S.wrongT > 0.8) tip("Te estás yendo al carril contrario: vuelve a la derecha de la línea del medio.", "wrong-soon", 8);
@@ -3324,7 +3394,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
 
   // ---- materials ----
   const SEG = G - 2 * HALF;
-  const roadTex = canvasTex(256, 330, (ctx, w, h) => {
+  const roadTexOf = twoWay => canvasTex(256, 330, (ctx, w, h) => {
     noise(ctx, w, h, "#4b4d50", 0.22, 9000);
     const px = w / 7;
     for (let i = 0; i < 6; i++) { ctx.fillStyle = `rgba(0,0,0,${0.06 + Math.random() * 0.06})`; ctx.fillRect(Math.random() * w, Math.random() * h, 20 + Math.random() * 60, 10 + Math.random() * 40); }
@@ -3332,10 +3402,12 @@ button.lamp:hover { border-color: var(--amber-dim); }
     for (let i = 0; i < 5; i++) { ctx.beginPath(); let x = Math.random() * w, y = Math.random() * h; ctx.moveTo(x, y); for (let k = 0; k < 6; k++) { x += (Math.random() - 0.5) * 30; y += Math.random() * 18; ctx.lineTo(x, y); } ctx.stroke(); }
     ctx.fillStyle = "#e8e6df";
     ctx.fillRect(0.15 * px, 0, 0.12 * px, h); ctx.fillRect(w - 0.27 * px, 0, 0.12 * px, h);
-    ctx.fillRect(w / 2 - 0.06 * px, 0, 0.12 * px, h / 2);
+    // two-way: a double yellow line in the middle (no crossing); one-way: a white dashed line between the two lanes
+    if (twoWay) { ctx.fillStyle = "#e8b62a"; ctx.fillRect(w / 2 - 0.2 * px, 0, 0.1 * px, h); ctx.fillRect(w / 2 + 0.1 * px, 0, 0.1 * px, h); }
+    else ctx.fillRect(w / 2 - 0.06 * px, 0, 0.12 * px, h / 2);
     ctx.fillStyle = "rgba(0,0,0,.13)"; ctx.fillRect(1.1 * px, 0, 0.9 * px, h); ctx.fillRect(5.0 * px, 0, 0.9 * px, h);
   });
-  const roadMat = L({ map: roadTex });
+  const roadMat = L({ map: roadTexOf(false) }), roadMat2 = L({ map: roadTexOf(true) });
   const plainTex = canvasTex(128, 128, (ctx, w, h) => noise(ctx, w, h, "#4b4d50", 0.22, 2500));
   const boxMat = L({ map: plainTex });
   const lotTex = canvasTex(128, 128, (ctx, w, h) => noise(ctx, w, h, "#55575a", 0.2, 2500));
@@ -3495,14 +3567,26 @@ button.lamp:hover { border-color: var(--amber-dim); }
   SIGN_DRAW.school = SIGN_DRAW.warn(ctx => { for (const [x, h] of [[-26, 1], [22, 0.8]]) { ctx.beginPath(); ctx.arc(x, -40 * h, 12 * h, 0, Math.PI * 2); ctx.fill(); ctx.fillRect(x - 10 * h, -26 * h, 20 * h, 40 * h); ctx.fillRect(x - 10 * h, 14 * h, 7 * h, 26 * h); ctx.fillRect(x + 3 * h, 14 * h, 7 * h, 26 * h); } }, "ESCUELA");
   SIGN_DRAW.round = SIGN_DRAW.warn(ctx => { ctx.lineWidth = 9; ctx.strokeStyle = "#111"; for (let n = 0; n < 3; n++) { const a0 = n * 2.09 + 0.3, a1 = a0 + 1.45; ctx.beginPath(); ctx.arc(0, -8, 30, -a1, -a0); ctx.stroke(); const ax = Math.cos(-a1) * 30, ay = -8 + Math.sin(-a1) * 30, t = -a1 - Math.PI / 2; ctx.beginPath(); ctx.moveTo(ax + Math.cos(t) * 13, ay + Math.sin(t) * 13); ctx.lineTo(ax + Math.cos(t + 2.4) * 11, ay + Math.sin(t + 2.4) * 11); ctx.lineTo(ax + Math.cos(t - 2.4) * 11, ay + Math.sin(t - 2.4) * 11); ctx.closePath(); ctx.fill(); } }, "ROTONDA");
   SIGN_DRAW.bump = SIGN_DRAW.warn(ctx => { ctx.fillRect(-60, 20, 120, 10); ctx.beginPath(); ctx.moveTo(-34, 20); ctx.quadraticCurveTo(0, -36, 34, 20); ctx.closePath(); ctx.fill(); }, "LOMO DE BURRO");
-  const signMat = draw => L({ map: canvasTex(256, 256, draw, false), transparent: true, alphaTest: 0.5 });
+  // signs show their face only to the drivers they are for; from behind they are a plain gray plate, like real ones
+  const grayBack = m => { m.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace("#include <dithering_fragment>", "#include <dithering_fragment>\n  if (!gl_FrontFacing) gl_FragColor.rgb = vec3(0.36, 0.37, 0.39);"); }; m.customProgramCacheKey = () => "grayback"; return m; };
+  const signMat = draw => grayBack(L({ map: canvasTex(256, 256, draw, false), transparent: true, alphaTest: 0.5 }));
+  // "sentido de circulación": a blue sign with a white arrow; "contramano / no entrar": red circle with a white bar
+  const sentidoDraw = right => (ctx, w) => {
+    ctx.fillStyle = "#1f4f8a"; ctx.fillRect(10, 74, 236, 108); ctx.strokeStyle = "#f4f1ea"; ctx.lineWidth = 6; ctx.strokeRect(16, 80, 224, 96);
+    ctx.save(); ctx.translate(w / 2, 128); if (!right) ctx.scale(-1, 1);
+    ctx.fillStyle = "#f4f1ea"; ctx.beginPath(); ctx.moveTo(-86, -14); ctx.lineTo(36, -14); ctx.lineTo(36, -34); ctx.lineTo(88, 0); ctx.lineTo(36, 34); ctx.lineTo(36, 14); ctx.lineTo(-86, 14); ctx.closePath(); ctx.fill(); ctx.restore();
+  };
+  const sentidoRMat = signMat(sentidoDraw(true)), sentidoLMat = signMat(sentidoDraw(false));
+  const noEntryMat = signMat((ctx, w) => { ctx.translate(w / 2, w / 2); ctx.fillStyle = "#f4f1ea"; ctx.beginPath(); ctx.arc(0, 0, 122, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = "#c62f22"; ctx.beginPath(); ctx.arc(0, 0, 112, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = "#f4f1ea"; ctx.fillRect(-78, -20, 156, 40); });
+  const arrowGeo = new THREE.PlaneGeometry(1.1, 4); arrowGeo.rotateX(-Math.PI / 2);
+  const laneArrowMat = L({ map: canvasTex(64, 256, (ctx, w, h) => { ctx.clearRect(0, 0, w, h); ctx.fillStyle = "#eae7de"; ctx.beginPath(); ctx.moveTo(w / 2, 4); ctx.lineTo(w - 4, 92); ctx.lineTo(w * 0.66, 92); ctx.lineTo(w * 0.66, h - 4); ctx.lineTo(w * 0.34, h - 4); ctx.lineTo(w * 0.34, 92); ctx.lineTo(4, 92); ctx.closePath(); ctx.fill(); }, false), transparent: true, alphaTest: 0.4 });
   const roundSignMat = signMat(SIGN_DRAW.round);
   const isleGeo = new THREE.CylinderGeometry(ISLE_R, ISLE_R, 0.18, 32), isleTopGeo = new THREE.CircleGeometry(ISLE_R - 0.2, 32); isleTopGeo.rotateX(-Math.PI / 2);
   const isleGrass = L({ color: 0x5b7a43 });
   const cedaMat = signMat(SIGN_DRAW.ceda), schoolMat = signMat(SIGN_DRAW.school), bumpSignMat = signMat(SIGN_DRAW.bump), noLeftMat = signMat(SIGN_DRAW.noLeft);
   const limitMats = { 20: signMat(SIGN_DRAW.limit(20)), 40: signMat(SIGN_DRAW.limit(40)), 60: signMat(SIGN_DRAW.limit(60)) };
   const bumpMat = L({ map: canvasTex(128, 32, (ctx, w, h) => { for (let x = 0; x < w; x += 32) { ctx.fillStyle = "#f2c230"; ctx.fillRect(x, 0, 16, h); ctx.fillStyle = "#1a1a1a"; ctx.fillRect(x + 16, 0, 16, h); } }) });
-  const bumpGeo = (() => { const g = new THREE.BoxGeometry(7, 0.09, 1.2); const uv = g.attributes.uv; for (let n = 0; n < uv.count; n++) uv.setX(n, uv.getX(n) * 4); return g; })();
+  const bumpGeo = (() => { const g = new THREE.BoxGeometry(2 * HALF, 0.09, 1.2); const uv = g.attributes.uv; for (let n = 0; n < uv.count; n++) uv.setX(n, uv.getX(n) * 4); return g; })();
   const dashGeo = new THREE.PlaneGeometry(0.45, 0.35); dashGeo.rotateX(-Math.PI / 2);
   // fill the Rules tab with the signs as you see them in the street
   setTimeout(() => {
@@ -3526,7 +3610,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
       list.appendChild(row);
     }
   }, 0);
-  const stopSignMat = L({ map: stopTex, transparent: true, alphaTest: 0.5 }), roadWordMat = L({ map: roadWordTex, transparent: true, alphaTest: 0.3 });
+  const stopSignMat = grayBack(L({ map: stopTex, transparent: true, alphaTest: 0.5 })), roadWordMat = L({ map: roadWordTex, transparent: true, alphaTest: 0.3 });
   const signGeo = new THREE.PlaneGeometry(1.25, 1.25), wordGeo = new THREE.PlaneGeometry(3.4, 4.2); wordGeo.rotateX(-Math.PI / 2);
   const lineGeo = new THREE.PlaneGeometry(HALF - 0.4, 0.6); lineGeo.rotateX(-Math.PI / 2);
   const zebraGeo = new THREE.PlaneGeometry(0.5, 3.0); zebraGeo.rotateX(-Math.PI / 2);
@@ -3688,18 +3772,21 @@ button.lamp:hover { border-color: var(--amber-dim); }
     return { x: a * P[0].x + b * P[1].x + c * P[2].x, z: a * P[0].z + b * P[1].z + c * P[2].z };
   }
   function makeGuide(ap, side) {
-    const th = cardinal(S.th).th, d = dirOf(th), r = rightOf(th), Bx = ap.i * G, Bz = ap.j * G;
+    const c0 = cardinal(S.th), th = c0.th, d = dirOf(th), r = rightOf(th), Bx = ap.i * G, Bz = ap.j * G;
     const at = (a, b) => ({ x: Bx + d.x * a + r.x * b, z: Bz + d.z * a + r.z * b });
+    // from the lane you are in; after a left turn into a one-way street, its left lane
+    const lat = (S.x - Bx) * r.x + (S.z - Bz) * r.z, so = oneWay(c0.k % 2 === 0 ? ap.i : ap.j) && lat < 0 ? -LANE : LANE;
+    const k2 = (c0.k + (side === "right" ? 1 : 3)) % 4, e = side === "left" && oneWay(k2 % 2 === 0 ? ap.i : ap.j) ? -LANE : LANE;
     // right turns start a little before the corner; left turns go to the middle of the crossing first
-    const P = side === "right" ? [at(-(LANE + 5), LANE), at(-LANE, LANE), at(-LANE, LANE + 5)]
-      : [at(-(HALF + 1), LANE), at(LANE, LANE), at(LANE, -(HALF + 2.5))];
+    const P = side === "right" ? [at(-e - 5, so), at(-e, so), at(-e, so + 5)]
+      : [at(-(HALF + 1), so), at(e, so), at(e, -(HALF + 2.5))];
     const out = side === "right" ? r : { x: -r.x, z: -r.z };
     // the full line: straight approach, the curve, and the first meters of the new street
     const path = [];
     for (let k = 30; k >= 1; k--) path.push({ x: P[0].x - d.x * k, z: P[0].z - d.z * k });
     for (let k = 0; k <= 30; k++) path.push(bezier(P, k / 30));
     for (let k = 1; k <= 60; k++) path.push({ x: P[2].x + out.x * k, z: P[2].z + out.z * k });
-    return { key: ap.i + "," + ap.j + side, side, P, d, out, path, target: wrap(th + (side === "right" ? 1 : -1) * Math.PI / 2), bx: Bx, bz: Bz, cued: false };
+    return { key: ap.i + "," + ap.j + side + so, side, P, d, out, path, target: wrap(th + (side === "right" ? 1 : -1) * Math.PI / 2), bx: Bx, bz: Bz, cued: false, so, srcOne: oneWay(c0.k % 2 === 0 ? ap.i : ap.j) };
   }
   function makeRoundGuide(ap) {
     const th = cardinal(S.th).th, exit = S.blink === "right" ? 1 : S.blink === "left" ? 3 : 2, bx = ap.i * G, bz = ap.j * G;
@@ -3739,8 +3826,9 @@ button.lamp:hover { border-color: var(--amber-dim); }
       const ap0 = approach();
       if (ap0 && ap0.dist > 0 && ap0.dist < 40 && ctrlOf(ap0.i, ap0.j) === "round") { S.guide = makeRoundGuide(ap0); }
       else {
-      const ap = approach();
-      S.guide = ap && ap.dist > 0 && ap.dist < 40 && !(S.box && S.box.key === ap.i + "," + ap.j && S.box.judged) ? makeGuide(ap, S.blink) : null;
+      const ap = approach(), ta = ap ? turnsAt(ap) : null, can = ta && (S.blink === "right" ? ta.right : ta.left);
+      if (ap && ap.dist > 0 && ap.dist < 45 && !can) tip(`En esta esquina no se puede doblar a la ${S.blink === "right" ? "derecha" : "izquierda"}: ${S.blink === "left" && noLeft(ap.i, ap.j, cardinal(S.th).k) ? "hay un cartel de prohibido girar a la izquierda" : "esa calle es contramano (mira el cartel azul con la flecha)"}. Sigue derecho y dobla en la próxima.`, "noturn" + ap.i + "," + ap.j + S.blink, 20);
+      S.guide = ap && can && ap.dist > 0 && ap.dist < 40 && !(S.box && S.box.key === ap.i + "," + ap.j && S.box.judged) ? makeGuide(ap, S.blink) : null;
       }
     }
     if (S.guide && S.guide.round) { updateRoundGuide(S.guide); return; }
@@ -3769,7 +3857,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
   const roadGeoNS = new THREE.PlaneGeometry(2 * HALF, SEG); roadGeoNS.rotateX(-Math.PI / 2);
   { const uv = roadGeoNS.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * SEG / 9); }
   const roadGeoEW = roadGeoNS.clone(); roadGeoEW.rotateY(Math.PI / 2);
-  const boxGeo = new THREE.PlaneGeometry(7, 7); boxGeo.rotateX(-Math.PI / 2);
+  const boxGeo = new THREE.PlaneGeometry(2 * HALF, 2 * HALF); boxGeo.rotateX(-Math.PI / 2);
   // asphalt piece that rounds a sidewalk corner, and the curved curb along it
   const cornerGeo = (() => {
     const e = HALF + CORNER_R, sh = new THREE.Shape();
@@ -3786,9 +3874,16 @@ button.lamp:hover { border-color: var(--amber-dim); }
   const cells = new Map(), lightSets = new Map();
   function buildCell(i, j) {
     const grp = new THREE.Group(), flat = makeBuilder(), solid = makeBuilder(), ox = i * G, oz = j * G;
-    if (isRailRow(j) && isAvenue(i)) { const tg = tunnelRoadGeo(ox, oz); flat.add(tg, roadMat, 0, 0, 0); tg.dispose(); }
-    else flat.add(roadGeoNS, roadMat, ox, 0, oz + G / 2);
-    flat.add(roadGeoEW, roadMat, ox + G / 2, 0, oz);
+    if (isRailRow(j) && isAvenue(i)) { const tg = tunnelRoadGeo(ox, oz); flat.add(tg, roadMat2, 0, 0, 0); tg.dispose(); }
+    else flat.add(roadGeoNS, isAvenue(i) ? roadMat2 : roadMat, ox, 0, oz + G / 2);
+    flat.add(roadGeoEW, isAvenue(j) ? roadMat2 : roadMat, ox + G / 2, 0, oz);
+    // painted arrows on one-way streets, one in each lane, showing which way the street goes
+    for (const [axis, line, sx0, sz0, sx1, sz1] of [["NS", i, ox, oz + G, ox, oz], ["EW", j, ox, oz, ox + G, oz]]) {
+      if (!oneWay(line)) continue;
+      const k = lineDirs(axis, line)[0], th = k * Math.PI / 2, [bx, bz] = k === 0 || k === 1 ? [sx0, sz0] : [sx1, sz1];
+      if (axis === "NS" && isRailRow(j)) continue;
+      for (const b of [LANE, -LANE]) { const [x, z] = rel(bx, bz, th, 26, b); flat.add(arrowGeo, laneArrowMat, x, 0.014, z, -th); }
+    }
     flat.add(boxGeo, boxMat, ox, 0.001, oz);
     for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
       flat.add(cornerGeo, boxMat, ox, 0.155, oz, 0, sx, 1, sz);
@@ -3861,9 +3956,18 @@ button.lamp:hover { border-color: var(--amber-dim); }
     }
     for (let k = 0; k < 4; k++) {
       const th = k * Math.PI / 2;
-      for (let b = -3.2; b < 3.3; b += 0.9) { const [x, z] = rel(ox, oz, th, -(HALF + 1.8), b + 0.25); flat.add(zebraGeo, paintMat, x, 0.012, z, -th); }
-      if (ctrl === "ceda" || ctrl === "round") for (let b = 0.2; b < HALF; b += 0.75) { const [x, z] = rel(ox, oz, th, -STOP_LINE, b + 0.2); flat.add(dashGeo, paintMat, x, 0.012, z, -th); }
-      else if (ctrl !== "none") { const [x, z] = rel(ox, oz, th, -STOP_LINE, LANE); flat.add(lineGeo, paintMat, x, 0.012, z, -th); }
+      for (let b = -(HALF - 0.45); b < HALF - 0.3; b += 0.9) { const [x, z] = rel(ox, oz, th, -(HALF + 1.8), b); flat.add(zebraGeo, paintMat, x, 0.012, z, -th); }
+      // nobody arrives this way (it is the exit of a one-way street): "no entry" signs just past the corner, and nothing else
+      if (!kOK(k, i, j)) {
+        for (const b of [HALF + 0.7, -(HALF + 0.7)]) { const [px, pz] = rel(ox, oz, th, HALF + WALK + 1.5, b); solid.add(poleGeo, poleMat, px, 1.2, pz, 0, 1, 2.4, 1); solid.add(signGeo, noEntryMat, px - dirOf(th).x * 0.05, 2.4, pz - dirOf(th).z * 0.05, -th); }
+        continue;
+      }
+      const ow = oneWay(k % 2 === 0 ? i : j), lanes = ow ? [LANE, -LANE] : [LANE];
+      if (ctrl === "ceda" || ctrl === "round") for (let b = ow ? -(HALF - 0.2) : 0.2; b < HALF; b += 0.75) { const [x, z] = rel(ox, oz, th, -STOP_LINE, b + 0.2); flat.add(dashGeo, paintMat, x, 0.012, z, -th); }
+      else if (ctrl !== "none") for (const b of lanes) { const [x, z] = rel(ox, oz, th, -STOP_LINE, b); flat.add(lineGeo, paintMat, x, 0.012, z, -th); }
+      // which way the street you are about to cross goes: a blue sign with an arrow on the far corner
+      { const kc = lineDirs(k % 2 === 0 ? "EW" : "NS", k % 2 === 0 ? j : i);
+        if (kc.length === 1) { const [px, pz] = rel(ox, oz, th, HALF + 0.9, HALF + 1.1); solid.add(poleGeo, poleMat, px, 1.4, pz, 0, 1, 2.8, 1); solid.add(signGeo, kc[0] === (k + 1) % 4 ? sentidoRMat : sentidoLMat, px - dirOf(th).x * 0.05, 2.75, pz - dirOf(th).z * 0.05, -th); } }
       if (noLeft(i, j, k)) { const [px, pz] = rel(ox, oz, th, -(STOP_LINE + 3), HALF + 0.7); solid.add(poleGeo, poleMat, px, 1.1, pz, 0, 1, 2.2, 1); solid.add(signGeo, noLeftMat, px - dirOf(th).x * 0.05, 2.2, pz - dirOf(th).z * 0.05, -th); }
       if (ctrl === "round") {
         const [px, pz] = rel(ox, oz, th, -(STOP_LINE - 0.3), HALF + 0.7);
@@ -3881,7 +3985,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
           solid.add(signGeo, cedaMat, sx, 2.4, sz, -th);
         }
       } else if (ctrl === "stop") {
-        { const [x, z] = rel(ox, oz, th, -(STOP_LINE + 5), LANE); flat.add(wordGeo, roadWordMat, x, 0.013, z, -th); }
+        for (const b of lanes) { const [x, z] = rel(ox, oz, th, -(STOP_LINE + 5), b); flat.add(wordGeo, roadWordMat, x, 0.013, z, -th); }
         const [px, pz] = rel(ox, oz, th, -(STOP_LINE - 0.3), HALF + 0.7);
         solid.add(poleGeo, poleMat, px, 1.2, pz, 0, 1, 2.4, 1);
         const [sx, sz] = rel(ox, oz, th, -(STOP_LINE - 0.25), HALF + 0.7);
@@ -3907,6 +4011,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     for (const [axis, line, block, cx, cz, ths] of [["NS", i, j, ox, oz, [[0, ox, oz + G], [Math.PI, ox, oz]]], ["EW", j, i, ox, oz, [[Math.PI / 2, ox, oz], [Math.PI * 1.5, ox + G, oz]]]]) {
       const feat = segFeature(axis, line, block), lim = feat === "school" ? 20 : isAvenue(line) ? 60 : 40;
       for (const [th, sx0, sz0] of ths) {
+        if (!lineDirs(axis, line).includes(Math.round(th / (Math.PI / 2)) % 4)) continue;
         const [px, pz] = rel(sx0, sz0, th, HALF + WALK + 9, HALF + 0.7);
         solid.add(poleGeo, poleMat, px, 1.2, pz, 0, 1, 2.4, 1);
         solid.add(signGeo, limitMats[lim], px - dirOf(th).x * 0.05, 2.4, pz - dirOf(th).z * 0.05, -th);
@@ -4314,15 +4419,15 @@ button.lamp:hover { border-color: var(--amber-dim); }
   // green direction signs, like the real ones: exit name, distance and an arrow
   function greenSign(top, mid, arrow) {
     const key = top + "|" + mid + "|" + arrow;
-    if (!greenSignMats.has(key)) greenSignMats.set(key, L({ map: canvasTex(512, 168, (ctx, w, h) => {
+    if (!greenSignMats.has(key)) greenSignMats.set(key, grayBack(L({ map: canvasTex(512, 168, (ctx, w, h) => {
       ctx.fillStyle = "#11633a"; ctx.fillRect(0, 0, w, h); ctx.strokeStyle = "#f4f1ea"; ctx.lineWidth = 6; ctx.strokeRect(8, 8, w - 16, h - 16);
       ctx.fillStyle = "#f4f1ea"; ctx.textAlign = "left"; ctx.font = "bold 40px 'Saira Semi Condensed', Arial"; ctx.fillText(top, 28, 62);
       ctx.font = "bold 52px 'Saira Semi Condensed', Arial"; ctx.fillText(mid, 28, 128);
       if (arrow) { ctx.save(); ctx.translate(w - 70, h / 2); ctx.rotate(arrow === "up" ? 0 : Math.PI / 4); ctx.beginPath(); ctx.moveTo(0, -46); ctx.lineTo(30, -10); ctx.lineTo(10, -10); ctx.lineTo(10, 44); ctx.lineTo(-10, 44); ctx.lineTo(-10, -10); ctx.lineTo(-30, -10); ctx.closePath(); ctx.fill(); ctx.restore(); }
-    }, false) }));
+    }, false) })));
     return greenSignMats.get(key);
   }
-  const textSignMat = (lines, bg, fg) => L({ map: canvasTex(256, 160, (ctx, w, h) => { ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h); ctx.strokeStyle = fg; ctx.lineWidth = 5; ctx.strokeRect(6, 6, w - 12, h - 12); ctx.fillStyle = fg; ctx.textAlign = "center"; ctx.font = "bold 34px 'Saira Semi Condensed', Arial"; lines.forEach((t, n) => ctx.fillText(t, w / 2, h / 2 + (n - (lines.length - 1) / 2) * 40 + 12)); }, false) });
+  const textSignMat = (lines, bg, fg) => grayBack(L({ map: canvasTex(256, 160, (ctx, w, h) => { ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h); ctx.strokeStyle = fg; ctx.lineWidth = 5; ctx.strokeRect(6, 6, w - 12, h - 12); ctx.fillStyle = fg; ctx.textAlign = "center"; ctx.font = "bold 34px 'Saira Semi Condensed', Arial"; lines.forEach((t, n) => ctx.fillText(t, w / 2, h / 2 + (n - (lines.length - 1) / 2) * 40 + 12)); }, false) }));
   const keepRightMat = textSignMat(["MANTENGA", "SU DERECHA"], "#1f4f8a", "#f4f1ea"), accessMat = textSignMat(["ACCESO", "AUTOPISTA"], "#11633a", "#f4f1ea");
   const minSpeedMat = signMat((ctx, w) => { ctx.translate(w / 2, w / 2); ctx.fillStyle = "#1f4f8a"; ctx.beginPath(); ctx.arc(0, 0, 120, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = "#f4f1ea"; ctx.font = "bold 110px 'Saira Semi Condensed', Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("50", 0, 6); });
   const limit100Mat = signMat(SIGN_DRAW.limit(100));
@@ -4717,6 +4822,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
       const i = Math.round(S.x / G) + Math.floor(Math.random() * 7) - 3, j = Math.round(S.z / G) + Math.floor(Math.random() * 7) - 3, k = Math.floor(Math.random() * 4), s = 28 + Math.random() * 34;
       if (k % 2 === 0 && isRailRow(k === 0 ? j - 1 : j)) continue;
       if (i === 0 && (j === 0 || j === -1)) continue;
+      if (!kOK(k, i, j)) continue;
       if (busStop(i, j, k) && Math.abs(s - BUS_STOP_S) < 14) continue;
       const th = k * Math.PI / 2, [x, z] = rel(i * G, j * G, th, s, LANE), [cx, cz] = rel(i * G, j * G, th, s, HALF + 1.4);
       const d = Math.hypot(x - S.x, z - S.z);
@@ -4727,22 +4833,9 @@ button.lamp:hover { border-color: var(--amber-dim); }
   }
   // the way there along the streets, arriving in the right direction
   function rideRoute(sp) {
-    const pts = [{ x: S.x, z: S.z }], d = dirOf(sp.th);
-    const sg = segAt(S.x, S.z), along = (S.x - sp.x) * d.x + (S.z - sp.z) * d.z, lat = Math.abs((S.x - sp.x) * d.z - (S.z - sp.z) * d.x);
-    if (!(lat < 4 && along < 0 && along > -G && Math.cos(S.th - sp.th) > 0.7)) {
-      const ap = approach(), ci = ap ? ap.i : Math.round(S.x / G), cj = ap ? ap.j : Math.round(S.z / G);
-      const ex = sp.i * G, ez = sp.j * G, bx = ex - Math.round(d.x) * G, bz = ez - Math.round(d.z) * G;
-      pts.push({ x: ci * G, z: cj * G });
-      if (ci * G !== bx) pts.push({ x: bx, z: cj * G });
-      pts.push({ x: bx, z: bz }, { x: ex, z: ez });
-    }
-    pts.push({ x: sp.x, z: sp.z });
-    // drop repeated and straight-through points
-    const out = [pts[0]];
-    for (let n = 1; n < pts.length; n++) { const a = out[out.length - 1], p = pts[n]; if (Math.hypot(p.x - a.x, p.z - a.z) > 1) out.push(p); }
-    for (let n = out.length - 2; n >= 1; n--) { const a = out[n - 1], b = out[n], c = out[n + 1]; if (Math.abs((b.x - a.x) * (c.z - b.z) - (b.z - a.z) * (c.x - b.x)) < 1) out.splice(n, 1); }
-    let len = 0; for (let n = 1; n < out.length; n++) len += Math.hypot(out[n].x - out[n - 1].x, out[n].z - out[n - 1].z);
-    return { pts: out, len };
+    const d = dirOf(sp.th), along = (S.x - sp.x) * d.x + (S.z - sp.z) * d.z, lat = Math.abs((S.x - sp.x) * d.z - (S.z - sp.z) * d.x);
+    if (lat < HALF + 1 && along < 0 && along > -G && Math.cos(S.th - sp.th) > 0.7) return { pts: [{ x: S.x, z: S.z }, { x: sp.x, z: sp.z }], len: Math.hypot(sp.x - S.x, sp.z - S.z) };
+    return pathTo(sp.i, sp.j, sp.k, [{ x: sp.x, z: sp.z }]);
   }
   function rideInstruction(r) {
     const p = r.pts;
@@ -4901,18 +4994,26 @@ button.lamp:hover { border-color: var(--amber-dim); }
     return { x: c.i * G + d.x * c.s + r.x * off, z: c.j * G + d.z * c.s + r.z * off, th: c.k * Math.PI / 2 };
   }
   function removeCar(c) { scene.remove(c.obj); }
-  const pickTurn = () => { const r = Math.random(); return r < 0.6 ? 0 : r < 0.8 ? 1 : -1; };
+  // the next turn, among the ones the coming corner allows
+  function pickTurnFor(c) {
+    const d = dirOf(c.k * Math.PI / 2), ni = c.i + Math.round(d.x), nj = c.j + Math.round(d.z), opts2 = [0, 0, 0];
+    if (kOK((c.k + 1) % 4, ni, nj)) opts2.push(1);
+    if (kOK((c.k + 3) % 4, ni, nj) && !noLeft(ni, nj, c.k)) opts2.push(-1);
+    return opts2[Math.floor(Math.random() * opts2.length)];
+  }
   function spawnCar() {
     const ci = Math.round(S.x / G), cj = Math.round(S.z / G);
     for (let tries = 0; tries < 12; tries++) {
-      const c = { i: ci + Math.floor(Math.random() * 5) - 2, j: cj + Math.floor(Math.random() * 5) - 2, k: Math.floor(Math.random() * 4), s: 12 + Math.random() * 55 };
+      const ii = ci + Math.floor(Math.random() * 5) - 2, jj = cj + Math.floor(Math.random() * 5) - 2, ns = Math.random() < 0.5, dirs = lineDirs(ns ? "NS" : "EW", ns ? ii : jj);
+      const c = { i: ii, j: jj, k: dirs[Math.floor(Math.random() * dirs.length)], s: 12 + Math.random() * 55 };
+      c.off = c.lane = oneWay(ns ? ii : jj) && Math.random() < 0.5 ? -LANE : LANE;
       Object.assign(c, segPose(c));
       const dp = Math.hypot(c.x - S.x, c.z - S.z);
       if (dp < 45 || dp > 190) continue;
       if (traffic.some(o => Math.hypot(o.x - c.x, o.z - c.z) < 14)) continue;
-      c.v = 7 + Math.random() * 3; c.vmax = 10 + Math.random() * 3.5; c.turn = null; c.next = pickTurn(); c.wait = 0; c.done = false; c.hitT = 0; c.stuck = 0;
+      c.v = 7 + Math.random() * 3; c.vmax = 10 + Math.random() * 3.5; c.turn = null; c.next = pickTurnFor(c); c.wait = 0; c.done = false; c.hitT = 0; c.stuck = 0;
       // some vehicles are buses (they stop at the bus stops); a few drivers run red lights
-      if (trafficTarget() >= 8 && traffic.filter(o => o.kind === "bus").length < 2 && Math.random() < 0.3) { c.kind = "bus"; c.hl = 6; c.hw = 1.3; c.vmax = 9; c.next = 0; }
+      if (trafficTarget() >= 8 && traffic.filter(o => o.kind === "bus").length < 2 && Math.random() < 0.3) { c.kind = "bus"; c.hl = 6; c.hw = 1.3; c.vmax = 9; c.next = 0; c.off = c.lane = LANE; Object.assign(c, segPose(c)); }
       else c.reckless = Math.random() < (trafficTarget() >= 20 ? 0.12 : 0.06);
       c.obj = c.kind === "bus" ? makeBus() : makeCarMesh(carBodyMats[Math.floor(Math.random() * carBodyMats.length)]);
       scene.add(c.obj);
@@ -4925,21 +5026,24 @@ button.lamp:hover { border-color: var(--amber-dim); }
     return { x: a * P[0].x + b * P[1].x + c * P[2].x, z: a * P[0].z + b * P[1].z + c * P[2].z };
   }
   function startTurn(c) {
-    const th = c.k * Math.PI / 2, d = dirOf(th), r = rightOf(th), Bx = (c.i + Math.round(d.x)) * G, Bz = (c.j + Math.round(d.z)) * G;
-    if (c.next === -1 && noLeft(c.i + Math.round(d.x), c.j + Math.round(d.z), c.k)) c.next = 0;
+    const th = c.k * Math.PI / 2, d = dirOf(th), r = rightOf(th), ni = c.i + Math.round(d.x), nj = c.j + Math.round(d.z), Bx = ni * G, Bz = nj * G;
+    if (c.next === -1 && noLeft(ni, nj, c.k)) c.next = 0;
+    if (c.next !== 0 && !kOK((c.k + c.next + 4) % 4, ni, nj)) c.next = 0;
     const k2 = (c.k + c.next + 4) % 4, d2 = dirOf(k2 * Math.PI / 2), r2 = rightOf(k2 * Math.PI / 2);
-    const P0 = { x: Bx - d.x * HALF + r.x * LANE, z: Bz - d.z * HALF + r.z * LANE };
-    const P2 = { x: Bx + d2.x * HALF + r2.x * LANE, z: Bz + d2.z * HALF + r2.z * LANE };
-    const P1 = c.next === 0 ? { x: (P0.x + P2.x) / 2, z: (P0.z + P2.z) / 2 }
-      : c.next === 1 ? { x: Bx - d.x * LANE + r.x * LANE, z: Bz - d.z * LANE + r.z * LANE }
-      : { x: Bx + d.x * LANE + r.x * LANE, z: Bz + d.z * LANE + r.z * LANE };
+    // from the lane you are in to the lane of the new street: the left lane after a left turn into a one-way street
+    const so = c.off ?? LANE, dstOne = oneWay(k2 % 2 === 0 ? ni : nj);
+    const e = c.next === 0 ? (dstOne && so < 0 ? -LANE : LANE) : c.next === -1 && dstOne ? -LANE : LANE;
+    const at = (a, b) => ({ x: Bx + d.x * a + r.x * b, z: Bz + d.z * a + r.z * b });
+    const P0 = at(-HALF, so);
+    const P2 = { x: Bx + d2.x * HALF + r2.x * e, z: Bz + d2.z * HALF + r2.z * e };
+    const P1 = c.next === 0 ? { x: (P0.x + P2.x) / 2, z: (P0.z + P2.z) / 2 } : c.next === 1 ? at(-e, so) : at(e, so);
     let len = 0, p = P0;
     for (let k = 1; k <= 10; k++) { const q = bez([P0, P1, P2], k / 10); len += Math.hypot(q.x - p.x, q.z - p.z); p = q; }
-    c.turn = { P: [P0, P1, P2], u: 0, len, k2, ni: c.i + Math.round(d.x), nj: c.j + Math.round(d.z) };
+    c.turn = { P: [P0, P1, P2], u: 0, len, k2, ni, nj, lane: e };
     if (ctrlOf(c.turn.ni, c.turn.nj) === "round") {
       const exit = c.next === 1 ? 1 : c.next === -1 ? 3 : 2, { pts } = ringPath(Bx, Bz, th, exit, -RING_R, RING_R + 0.5);
       const cum = [0]; for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z));
-      Object.assign(c.turn, { round: true, pts, cum, s: 0, len: cum[cum.length - 1] });
+      Object.assign(c.turn, { round: true, pts, cum, s: 0, len: cum[cum.length - 1], lane: LANE });
     }
   }
   const boxBusyCars = (i, j, self) => traffic.some(o => o !== self && o.turn && Math.abs(o.x - i * G) < HALF + 3 && Math.abs(o.z - j * G) < HALF + 3);
@@ -4993,10 +5097,21 @@ button.lamp:hover { border-color: var(--amber-dim); }
       if (c.static) { c.obj.hazards.forEach(m => { m.visible = blinkOn; }); continue; }
       // something stopped in the lane (a double-parked car, a bus at its stop): go around it if nobody comes the other way
       if (!c.turn) {
-        const obs = traffic.find(o => o !== c && (o.static || o.atStop) && o.i === c.i && o.j === c.j && o.k === c.k && o.s - c.s > -(o.hl || 2.1) - 3 && o.s - c.s < 24);
-        const oncoming = traffic.some(o => o.k === (c.k + 2) % 4 && !o.turn && Math.hypot(o.x - c.x, o.z - c.z) < 40);
-        c.offT = obs && (!oncoming || c.off < 0.5) ? -0.9 : LANE;
-        c.off = (c.off ?? LANE) + clamp(c.offT - (c.off ?? LANE), -1.4 * dt, 1.4 * dt);
+        const cur = c.off ?? LANE, home = c.lane ?? LANE;
+        const obs = traffic.find(o => o !== c && (o.static || o.atStop) && o.i === c.i && o.j === c.j && o.k === c.k && Math.abs((o.off ?? LANE) - cur) < 2 && o.s - c.s > -(o.hl || 2.1) - 3 && o.s - c.s < 24);
+        if (oneWay(c.k % 2 === 0 ? c.i : c.j)) {
+          // one-way: near the corner, the lane of the turn; around a stopped car, by the other lane when it is free
+          let want = G - c.s < 45 ? (c.next === -1 ? -LANE : c.next === 1 ? LANE : home) : home;
+          if (obs) want = cur > 0 ? -LANE : LANE;
+          const tp = segPose(Object.assign({}, c, { off: want }));
+          const busy = Math.abs(want - cur) > 1 && (traffic.some(o => o !== c && !o.turn && o.i === c.i && o.j === c.j && o.k === c.k && Math.abs((o.off ?? LANE) - want) < 1.5 && Math.abs(o.s - c.s) < 10) || Math.hypot(S.x - tp.x, S.z - tp.z) < 8);
+          c.offT = busy ? cur : want;
+          if (!busy && !obs) c.lane = want;
+        } else {
+          const oncoming = traffic.some(o => o.k === (c.k + 2) % 4 && !o.turn && Math.hypot(o.x - c.x, o.z - c.z) < 40);
+          c.offT = obs && (!oncoming || cur < 0.5) ? -0.9 : LANE;
+        }
+        c.off = cur + clamp(c.offT - cur, -1.4 * dt, 1.4 * dt);
       }
       const gap = gapAhead(c);
       let vT = Math.min(c.vmax, Math.sqrt(Math.max(0, 2 * 4 * (gap - 2.5))));
@@ -5062,7 +5177,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
         const p = bez(t.P, t.u), p2 = bez(t.P, Math.min(1, t.u + 0.02)), p0 = bez(t.P, Math.max(0, t.u - 0.02));
         c.x = p.x; c.z = p.z; c.th = Math.atan2(p2.x - p0.x, -(p2.z - p0.z));
         }
-        if (t.u >= 1) { c.i = t.ni; c.j = t.nj; c.k = t.k2; c.s = t.round ? RING_R + 0.5 : HALF; c.turn = null; c.next = c.kind === "bus" ? 0 : pickTurn(); c.stopDone = false; c.off = LANE; c.done = false; c.wait = 0; Object.assign(c, segPose(c)); }
+        if (t.u >= 1) { c.i = t.ni; c.j = t.nj; c.k = t.k2; c.s = t.round ? RING_R + 0.5 : HALF; c.turn = null; c.off = c.lane = t.lane ?? LANE; c.next = c.kind === "bus" ? 0 : pickTurnFor(c); c.stopDone = false; c.done = false; c.wait = 0; Object.assign(c, segPose(c)); }
       } else {
         c.s += c.v * dt;
         const dn = dirOf(c.k * Math.PI / 2);
@@ -5301,7 +5416,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
     const kmh = Math.abs(S.v) * 3.6, g = S.guide;
     if (g && !g.round) {
       const side = g.side, arrow = side === "right" ? "→" : "←";
-      return { id: g.key, title: `Doblar a la ${side === "right" ? "derecha" : "izquierda"}`, note: g.cued && !g.finished ? steerAdvice(g) : "", steps: [
+      const laneStep = g.srcOne ? [[`Ponte en el carril ${side === "right" ? "derecho" : "izquierdo"} (espejo y punto ciego)`, () => g.cued || (() => { const r0 = rightOf(cardinal(S.th).th), lt = (S.x - g.bx) * r0.x + (S.z - g.bz) * r0.z; return side === "right" ? lt > 0.6 : lt < -0.6; })()]] : [];
+      return { id: g.key, title: `Doblar a la ${side === "right" ? "derecha" : "izquierda"}`, note: g.cued && !g.finished ? steerAdvice(g) : "", steps: [...laneStep,
         [`Guiño ${side === "right" ? "derecho (X)" : "izquierdo (Z)"} puesto`, () => S.blink === side || g.cued],
         ["Mira el espejo de ese lado (V)", () => S.t - S.mirrorT < 8],
         ["Baja a menos de 15 km/h (2ª o 1ª)", () => (kmh < 15 && S.v > 0.3) || g.cued],
@@ -5489,7 +5605,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
       if (!stopZone.parent) scene.add(stopZone);
       stopZone.visible = !!want;
       if (want) {
-        const th = cardinal(S.th).th, [x, z] = rel(ap.i * G, ap.j * G, th, -(STOP_LINE + 1.2), LANE);
+        const c0 = cardinal(S.th), th = c0.th, ow = oneWay(c0.k % 2 === 0 ? ap.i : ap.j), [x, z] = rel(ap.i * G, ap.j * G, th, -(STOP_LINE + 1.2), ow ? 0 : LANE);
+        stopZone.scale.x = ow ? 2 : 1;
         stopZone.position.set(x, heightAt(x, z) + 0.03, z); stopZone.rotation.set(-Math.PI / 2, -th, 0);
         const done = cc === "stop" && (S.appr[ap.i + "," + ap.j] ?? Infinity) <= 1.5 / 3.6;
         stopZone.material.color.setHex(done ? 0x46e86c : 0xff3b24);
@@ -5649,6 +5766,14 @@ button.lamp:hover { border-color: var(--amber-dim); }
     gctx.fillStyle = "#6b6e72";
     for (let i = Math.floor((S.x - 140) / G); i <= Math.ceil((S.x + 140) / G); i++) gctx.fillRect(X(i * G - HALF), 0, 2 * HALF * sc, h);
     for (let j = Math.floor((S.z - 140) / G); j <= Math.ceil((S.z + 140) / G); j++) gctx.fillRect(0, Z(j * G - HALF), w, 2 * HALF * sc);
+    {
+      const arrow = (x, z, k) => { const d = dirOf(k * Math.PI / 2), r = rightOf(k * Math.PI / 2), L0 = 3.2 * dpr, W0 = 2.2 * dpr, cx = X(x), cz = Z(z); gctx.beginPath(); gctx.moveTo(cx + d.x * L0, cz + d.z * L0); gctx.lineTo(cx - d.x * L0 + r.x * W0, cz - d.z * L0 + r.z * W0); gctx.lineTo(cx - d.x * L0 - r.x * W0, cz - d.z * L0 - r.z * W0); gctx.closePath(); gctx.fill(); };
+      gctx.fillStyle = "rgba(235,232,222,.8)";
+      for (let i = Math.floor((S.x - 160) / G); i <= Math.ceil((S.x + 160) / G); i++) for (let j = Math.floor((S.z - 160) / G); j <= Math.ceil((S.z + 160) / G); j++) {
+        if (oneWay(i)) for (const f of gpsZoom > 1.5 ? [0.3, 0.5, 0.7] : [0.5]) arrow(i * G, j * G + G * f, lineDirs("NS", i)[0]);
+        if (oneWay(j)) for (const f of gpsZoom > 1.5 ? [0.3, 0.5, 0.7] : [0.5]) arrow(i * G + G * f, j * G, lineDirs("EW", j)[0]);
+      }
+    }
     for (let j = Math.floor((S.z - 140) / G); j <= Math.ceil((S.z + 140) / G); j++) if (isRailRow(j)) { gctx.fillStyle = "#1b1b1b"; gctx.fillRect(0, Z(railZ(j)) - 1.5 * dpr, w, 3 * dpr); }
     for (const tr of trains) if (tr.L.city) { gctx.fillStyle = "#e2553f"; const a = tr.s, b2 = tr.s - tr.dir * tr.len; gctx.fillRect(X(Math.min(a, b2)), Z(tr.L.z0) - 2.5 * dpr, Math.abs(a - b2) * sc, 5 * dpr); }
     gctx.fillStyle = "#585a5d"; gctx.fillRect(X(LOT.x0), Z(LOT.z0), (LOT.x1 - LOT.x0) * sc, (LOT.z1 - LOT.z0) * sc);
@@ -5677,7 +5802,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
     gctx.fillStyle = "#d9d4c8";
     for (const c of traffic) { gctx.beginPath(); gctx.arc(X(c.x), Z(c.z), 1.8 * dpr, 0, Math.PI * 2); gctx.fill(); }
     if (S.exam && S.exam.phase === "route" && !S.exam.failed) {
-      const [ci, cj] = S.exam.cps[S.exam.idx];
+      const [ci, cj] = S.exam.cps[S.exam.idx], er = pathTo(ci, cj, null);
+      gctx.strokeStyle = "#46e86c"; gctx.lineWidth = 3 * dpr; gctx.lineJoin = "round"; gctx.beginPath(); er.pts.forEach((p, k) => k ? gctx.lineTo(X(p.x), Z(p.z)) : gctx.moveTo(X(p.x), Z(p.z))); gctx.stroke();
       const px = clamp(X(ci * G), 6, w - 6), pz = clamp(Z(cj * G), 6, h - 6);
       gctx.fillStyle = "#46e86c"; gctx.strokeStyle = "#0f1a10"; gctx.lineWidth = 2;
       gctx.beginPath(); gctx.arc(px, pz, 6 * dpr, 0, Math.PI * 2); gctx.fill(); gctx.stroke();
@@ -5798,7 +5924,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
       return;
     }
     if (S.exam && S.exam.phase === "route" && !S.exam.failed) {
-      const [ci, cj] = S.exam.cps[S.exam.idx], txt = `Examen: punto ${S.exam.idx + 1} de 3 · ${Math.round(Math.hypot(S.x - ci * G, S.z - cj * G))} m`;
+      const [ci, cj] = S.exam.cps[S.exam.idx], er = pathTo(ci, cj, null), txt = `Examen: punto ${S.exam.idx + 1} de 3 · ${rideInstruction(er)}`;
       if (chip.dataset.t !== txt) { chip.dataset.t = txt; chip.innerHTML = '<i style="background:#46e86c"></i>'; chip.appendChild(document.createTextNode(txt)); }
       chip.hidden = false; return;
     }
