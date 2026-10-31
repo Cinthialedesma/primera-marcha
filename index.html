@@ -790,9 +790,13 @@ button.lamp:hover { border-color: var(--amber-dim); }
         <div class="rule"><h3>Señal PARE / ALTO</h3><p>Detención total antes de la línea blanca, aunque no venga nadie. Mira a ambos lados y avanza cuando sea seguro. Bajar a 5 km/h no cuenta.</p></div>
         <div class="rule"><h3>Semáforo</h3><p>Rojo: detente antes de la línea. Amarillo: detente si puedes hacerlo con seguridad; no es una señal para acelerar. Verde: avanza con precaución.</p></div>
         <div class="rule"><h3>Doblar</h3><p>Señaliza unos 30 m antes, reduce a 2ª y menos de 20 km/h, y dobla quedando en tu carril (el derecho). A la izquierda, abre la curva hasta el centro de la intersección.</p></div>
-        <div class="rule"><h3>Carril</h3><p>Circula por la derecha. Cruzar la línea central fuera de una intersección es invadir el carril contrario.</p></div>
+        <div class="rule"><h3>Calles de mano única</h3><p>Como en Buenos Aires, la mayoría de las calles van en un solo sentido y tienen dos carriles; el sentido se alterna de una calle a la otra. Mira el cartel azul con la flecha en cada esquina y las flechas pintadas en el piso. Entrar al revés es ir a contramano: el cartel rojo con una franja blanca dice "no entrar". Para doblar a la izquierda ponte antes en el carril izquierdo; para doblar a la derecha, en el derecho.</p></div>
+        <div class="rule"><h3>Avenidas y carril</h3><p>Las avenidas son doble mano, con doble línea amarilla en el medio: no se cruza. Circula por la derecha; pasarte al otro lado es invadir el carril contrario.</p></div>
+        <div class="rule"><h3>Bicis y motos</h3><p>Las bicis van junto al cordón: para pasarlas deja al menos 1,5 m de costado. Antes de doblar a la derecha mira el espejo derecho y por encima del hombro: la bici que sigue derecho pasa primero. Las motos pasan entre los carriles, justo donde está tu punto ciego.</p></div>
+        <div class="rule"><h3>Mirar a los costados</h3><p>En el PARE, ya detenida, mira a la izquierda y a la derecha antes de cruzar (en el juego: Shift + ← →, arrastrar la vista o el stick derecho). Antes de cambiar de carril o de doblar: espejo y mirar por encima del hombro al punto ciego (G).</p></div>
+        <div class="rule"><h3>Autopista</h3><p>Máximo 100 km/h y mínimo 50 km/h; colectoras y rampas de salida, 60. Te incorporas acelerando en el carril de aceleración hasta la velocidad del tránsito; los que ya van tienen prioridad. El carril izquierdo es para adelantar. Deja 2 segundos con el de adelante. Para salir, pásate al carril derecho con tiempo y frena recién en el carril de desaceleración. Nunca te detengas, retrocedas ni pises la zona pintada.</p></div>
         <div class="rule"><h3>Estacionar</h3><p>Entra despacio usando solo el punto de roce, sin acelerar. Mira los espejos laterales para medir la distancia a las líneas y a los otros autos. Al terminar: freno de mano, neutro y motor apagado.</p></div>
-        <div class="rule"><h3>Límite de velocidad</h3><p>Calles 40 km/h, avenidas 60 km/h, zonas escolares 20 km/h. En estacionamientos, 20 km/h o menos.</p></div>
+        <div class="rule"><h3>Límite de velocidad</h3><p>Calles 40 km/h, avenidas 60 km/h, zonas escolares 20 km/h. En estacionamientos, 20 km/h o menos. En la ruta 80 km/h; en la autopista 100 (mínimo 50).</p></div>
         <div class="rule"><h3>Técnica de embrague</h3><p>Písalo a fondo para cambiar y para detenerte. Al arrancar, acelera un poco, suéltalo despacio hasta el punto de roce, espera que el auto avance y termina de soltarlo.</p></div>
         <div class="rule">
           <h3>Cuándo cambiar (auto chico, manejo tranquilo)</h3>
@@ -2576,6 +2580,16 @@ button.lamp:hover { border-color: var(--amber-dim); }
   }
   // ---------- trip summary ----------
   const TRIP_ADVICE = [
+    [/contramano/, "Mira el cartel azul con la flecha de cada esquina y las flechas del piso: te dicen hacia dónde va la calle."],
+    [/desde el carril/, "En una calle de mano única, para doblar a la izquierda ponte antes en el carril izquierdo; para la derecha, en el derecho."],
+    [/bici|ciclista/, "Pasa a las bicis dejando 1,5 m y, antes de doblar a la derecha, mira el espejo derecho y el punto ciego (G)."],
+    [/moto/, "Las motos pasan entre los carriles: antes de moverte, espejo y mirar por encima del hombro (G)."],
+    [/punto ciego|cerraste el paso|Cambiaste de carril/, "Para cambiar de carril: guiño, espejo y mirar por encima del hombro (G); muévete de a poco."],
+    [/distancia/, "Deja 2 segundos con el de adelante: cuenta \"mil uno, mil dos\" desde que pasa una marca."],
+    [/Patinaste/, "Frena antes de la curva, no adentro, y gira de a poco. Con lluvia, más despacio todavía."],
+    [/No miraste a los dos lados/, "En el PARE, ya detenida, mira a la izquierda y a la derecha (Shift + ← →) antes de cruzar."],
+    [/mínima|carril izquierdo sin adelantar|detuviste en la autopista|Marcha atrás en la autopista|incorporaste/, "En la autopista: incorpórate a la velocidad del tránsito, quédate a la derecha si no adelantas y nunca te detengas en un carril."],
+    [/zona pintada/, "No pises el cebrado: entra y sal de las rampas por donde termina la línea punteada."],
     [/embrague casi sin acelerar|embrague muy rápido|poca fuerza en el motor/, "Para arrancar: acelera hasta unas 1.500 rpm antes de soltar el embrague y quédate un momento en el punto de roce."],
     [/Frenaste sin pisar el embrague|perdiendo velocidad/, "Cuando frenes para detenerte, pisa el embrague antes de que las rpm bajen de 1.000."],
     [/Intentaste salir en/, "Antes de arrancar fíjate que esté puesta la 1ª."],
@@ -2650,6 +2664,12 @@ button.lamp:hover { border-color: var(--amber-dim); }
   }
   // ---------- theory exam (Argentina) ----------
   const QUIZ = [
+    { q: "En una calle de mano única, ¿desde qué carril doblas a la izquierda?", a: ["Desde el carril izquierdo", "Desde el carril derecho", "Desde cualquiera, si pones el guiño"], why: "Para doblar te ubicas antes en el carril del lado hacia el que vas a doblar." },
+    { q: "¿Cuánta distancia de costado tienes que dejar para pasar a una bici?", a: ["Al menos 1,5 m", "Con 30 cm alcanza si vas despacio", "No hace falta: la bici debe correrse"], why: "Una bici puede tambalear o esquivar un pozo: hace falta espacio." },
+    { q: "Vas a doblar a la derecha y una bici viene derecho junto al cordón. ¿Qué haces?", a: ["La dejas pasar y después doblas", "Doblas primero porque ya pusiste el guiño", "Le tocas bocina para que frene"], why: "Quien sigue derecho tiene prioridad sobre quien dobla." },
+    { q: "En la autopista, ¿para qué es el carril izquierdo?", a: ["Para adelantar", "Para ir más rápido todo el tiempo", "Para los camiones"], why: "Si no adelantas, circula por la derecha." },
+    { q: "¿Qué distancia dejas con el auto de adelante en la autopista?", a: ["Al menos 2 segundos (más con lluvia)", "Un auto de largo", "5 metros a cualquier velocidad"], why: "Contando segundos la distancia crece sola con la velocidad." },
+    { q: "Antes de cambiar de carril, ¿qué miras?", a: ["El espejo y por encima del hombro, al punto ciego", "Solo el espejo de adentro", "Nada si pusiste el guiño"], why: "El punto ciego es la zona al costado que los espejos no muestran." },
     { q: "¿Qué tienes que hacer ante esta señal?", sign: "stop", a: ["Detenerte por completo antes de la línea, aunque no venga nadie", "Bajar la velocidad y pasar si no viene nadie", "Tocar bocina y cruzar"], why: "PARE es detención total, siempre." },
     { q: "¿Qué indica esta señal?", sign: "ceda", a: ["Ceda el paso: reduce y deja pasar a los que vienen por la otra calle", "Prohibido el paso", "Detención obligatoria aunque no venga nadie"], why: "Con Ceda el paso no hace falta detenerse si no viene nadie." },
     { q: "En una esquina sin señales ni semáforo, ¿quién tiene prioridad?", a: ["Quien viene por la derecha", "Quien viene por la izquierda", "El que va más rápido"], why: "En Argentina, en esquinas sin señalizar, tiene prioridad quien viene por tu derecha." },
@@ -3602,7 +3622,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
     ctx.fillStyle = "#f4f1ea"; ctx.beginPath(); ctx.moveTo(-86, -14); ctx.lineTo(36, -14); ctx.lineTo(36, -34); ctx.lineTo(88, 0); ctx.lineTo(36, 34); ctx.lineTo(36, 14); ctx.lineTo(-86, 14); ctx.closePath(); ctx.fill(); ctx.restore();
   };
   const sentidoRMat = signMat(sentidoDraw(true)), sentidoLMat = signMat(sentidoDraw(false));
-  const noEntryMat = signMat((ctx, w) => { ctx.translate(w / 2, w / 2); ctx.fillStyle = "#f4f1ea"; ctx.beginPath(); ctx.arc(0, 0, 122, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = "#c62f22"; ctx.beginPath(); ctx.arc(0, 0, 112, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = "#f4f1ea"; ctx.fillRect(-78, -20, 156, 40); });
+  const noEntryDraw = (ctx, w) => { ctx.translate(w / 2, w / 2); ctx.fillStyle = "#f4f1ea"; ctx.beginPath(); ctx.arc(0, 0, 122, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = "#c62f22"; ctx.beginPath(); ctx.arc(0, 0, 112, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = "#f4f1ea"; ctx.fillRect(-78, -20, 156, 40); };
+  const noEntryMat = signMat(noEntryDraw);
   const arrowGeo = new THREE.PlaneGeometry(1.1, 4); arrowGeo.rotateX(-Math.PI / 2);
   const laneArrowMat = L({ map: canvasTex(64, 256, (ctx, w, h) => { ctx.clearRect(0, 0, w, h); ctx.fillStyle = "#eae7de"; ctx.beginPath(); ctx.moveTo(w / 2, 4); ctx.lineTo(w - 4, 92); ctx.lineTo(w * 0.66, 92); ctx.lineTo(w * 0.66, h - 4); ctx.lineTo(w * 0.34, h - 4); ctx.lineTo(w * 0.34, 92); ctx.lineTo(4, 92); ctx.closePath(); ctx.fill(); }, false), transparent: true, alphaTest: 0.4 });
   const roundSignMat = signMat(SIGN_DRAW.round);
@@ -3626,6 +3647,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
       [SIGN_DRAW.rail, "Paso a nivel", "Hay vías adelante: baja la velocidad, mira, escucha y respeta las barreras y las luces."],
       [SIGN_DRAW.round, "Rotonda", "Los que ya circulan tienen prioridad. Entra girando a la derecha, rodea la isleta dejándola a tu izquierda y pon el guiño derecho antes de salir."],
       [SIGN_DRAW.noLeft, "Prohibido girar a la izquierda", "En esa esquina solo puedes seguir derecho o doblar a la derecha."],
+      [sentidoDraw(true), "Sentido de circulación", "La calle que cruzas va hacia donde marca la flecha. Si doblas, tiene que ser hacia ese lado."],
+      [noEntryDraw, "Contramano: no entrar", "Esa calle va en el otro sentido. Si entras, vas a contramano."],
     ];
     for (const [draw, title, text] of items) {
       const c = document.createElement("canvas"); c.width = c.height = 256; draw(c.getContext("2d"), 256);
