@@ -796,6 +796,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
         <label for="opt-guide"><input type="checkbox" id="opt-guide"><span>Guía amarilla para doblar<small>Se apaga sola cuando ya doblaste bien 6 veces, como en la vida real.</small></span></label>
         <label for="opt-free"><input type="checkbox" id="opt-free"><span>Todo desbloqueado<small>Si ya sabes manejar: puedes elegir cualquier lugar sin seguir el camino.</small></span></label>
         <label for="opt-night"><input type="checkbox" id="opt-night"><span>De noche<small>Se ve poco: enciende las luces bajas (K). Los peatones y las bicis cuestan más de ver.</small></span></label>
+        <label for="opt-events"><input type="checkbox" id="opt-events"><span>Imprevistos<small>De vez en cuando algo pasa de golpe: una ambulancia atrás, una pelota con un chico detrás, un perro, el de adelante que frena fuerte.</small></span></label>
         <label for="opt-rain"><input type="checkbox" id="opt-rain"><span>Lluvia<small>Menos visibilidad, el auto tarda más en frenar y vas a necesitar el limpiaparabrisas (L).</small></span></label>
       </div>
       <button class="btn" id="btn-wipe" type="button">Borrar mi progreso</button>
@@ -1256,7 +1257,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
       trip: { logStart: 0, t0: 0, dist0: 0, score0: 0, maxKmh: 0 },
       stepDone: {}, lights: false, belt: false, beltFlag: false, mirrorT: -99, parkedStop: true, biteT: 0, fwd1: 0, lessonStops: 0, moved: false, rev: 0, l2: false,
       hs: null, dh: null, launchRolled: false, lastRoll: -9, parkedFront: false, parkedBack: false,
-      headT: { left: -99, right: -99 }, headYaw: 0, hazard: false,
+      headT: { left: -99, right: -99 }, headYaw: 0, hazard: false, events: [],
     }, mode === "autopista" ? (() => { const p = hwPoint(-60, hwColC(2)); return { x: p.x, z: p.z, th: p.th, limit: HW.SLOW, hwU: -60, hwOff: hwColC(2) }; })() : mode === "campo" ? (() => { const p = routePoint(5, LANE); return { x: p.x, z: p.z, th: p.th, limit: ROUTE_LIMIT }; })() : START[mode]);
   }
   S = freshState();
@@ -2707,6 +2708,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
     [/sin señalizar/, "Pon el guiño unos 30 m antes de cada esquina donde vayas a doblar."],
     [/Exceso de velocidad/, "Mira el cartel de arriba a la izquierda: calles 40, avenidas 60, escuelas 20."],
     [/cordón|pared/, "Para doblar, llega despacio y empieza a girar cuando tu auto esté en la esquina; con las Ayudas, sigue la línea amarilla."],
+    [/ambulancia/, "Cuando escuches una sirena: baja la velocidad, córrete hacia el costado o al carril libre y deja pasar a la ambulancia."],
+    [/chico|perro/, "Si aparece una pelota o un animal, frena enseguida: detrás de una pelota casi siempre viene un chico."],
     [/peatón/, "Frente a una senda peatonal ve despacio y detente si alguien está cruzando o por cruzar."],
     [/carril contrario/, "Mantente siempre a la derecha de la línea del medio."],
     [/para atrás/, "Practica en Subidas y bajadas el arranque con freno de mano."],
@@ -3243,6 +3246,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
     S = null; setMode("lesson");
     toast("Borraste tu progreso: empiezas de nuevo desde la Primera clase.", "", "wipe", 1);
   });
+  const optEvents = document.getElementById("opt-events"); optEvents.checked = opts.events !== false;
+  optEvents.addEventListener("change", () => { opts.events = optEvents.checked; saveOpts(); document.getElementById("road").focus(); });
   const optNight = document.getElementById("opt-night");
   optNight.checked = opts.night;
   optNight.addEventListener("change", () => { opts.night = optNight.checked; saveOpts(); applyWeather(); if (opts.night && !S.lights) tip("Es de noche: enciende las luces bajas con K.", "night-on", 5); document.getElementById("road").focus(); });
@@ -3371,7 +3376,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
         const mkNoise = (type, freq, q) => { const src = ac.createBufferSource(); src.buffer = nb; src.loop = true; src.playbackRate.value = 0.7 + Math.random() * 0.6; const fl = ac.createBiquadFilter(); fl.type = type; fl.frequency.value = freq; if (q) fl.Q.value = q; const gg = ac.createGain(); gg.gain.value = 0; src.connect(fl); fl.connect(gg); gg.connect(ac.destination); src.start(); return { fl, g: gg }; };
         const rain = mkNoise("lowpass", 900), wind = mkNoise("highpass", 700), intake = mkNoise("bandpass", 400, 1.4);
         const o3 = ac.createOscillator(); o3.type = "triangle"; const g3 = ac.createGain(); g3.gain.value = 0; o3.connect(g3); g3.connect(f); o3.start();
-        audio = { ac, o1, o2, f, g, sg, nf, nb, rain, wind, intake, o3, g3, lastB: -1, on: true };
+        const so = ac.createOscillator(); so.type = "sawtooth"; const sf = ac.createBiquadFilter(); sf.type = "lowpass"; sf.frequency.value = 1800; const sgn = ac.createGain(); sgn.gain.value = 0; so.connect(sf); sf.connect(sgn); sgn.connect(ac.destination); so.start();
+        audio = { ac, o1, o2, f, g, sg, nf, nb, rain, wind, intake, o3, g3, siren: { o: so, g: sgn }, lastB: -1, on: true };
       } else {
         audio.on = !audio.on;
         if (audio.on) audio.ac.resume();
@@ -3403,6 +3409,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
       audio.intake.fl.frequency.setTargetAtTime(250 + rpm * 0.22, t, 0.05);
       audio.intake.g.gain.setTargetAtTime(audio.on && S.running ? S.gas * 0.035 * Math.min(1, rpm / 2500) : 0, t, 0.05);
       audio.o3.frequency.setTargetAtTime(f * 0.5, t, 0.03); audio.g3.gain.setTargetAtTime(audio.on && rpm > 60 ? 0.6 : 0, t, 0.1);
+      if (audio.siren) { audio.siren.g.gain.setTargetAtTime(audio.on && S.siren != null ? 0.06 / (1 + S.siren / 25) : 0, t, 0.1); audio.siren.o.frequency.setTargetAtTime(750 + 380 * (1 + Math.sin(S.t * 2 * Math.PI / 1.5)), t, 0.05); }
       // the blinker relay: tick when the lamp turns on, tock when it turns off
       const bOn = S.blink || S.hazard ? Math.floor(S.t * 3) % 2 : -1;
       if (bOn !== audio.lastB) { if (bOn >= 0 && audio.on) { try { const o = audio.ac.createOscillator(), gg = audio.ac.createGain(); o.type = "square"; o.frequency.value = bOn ? 1500 : 1100; gg.gain.value = 0.03; o.connect(gg); gg.connect(audio.ac.destination); o.start(); o.stop(audio.ac.currentTime + 0.012); } catch (err) {} } audio.lastB = bOn; }
@@ -5122,6 +5129,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
   }
   function setMode(m) {
     if (S && S.t > 0.5) saveProgress();
+    clearEvents();
     mode = m;
     for (const pd of peds) removePed(pd);
     peds.length = 0;
@@ -5284,7 +5292,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     for (let n = traffic.length - 1; n >= 0; n--) {
       const c = traffic[n];
       const passedDouble = c.static && ((S.x - c.x) * dirOf(c.th).x + (S.z - c.z) * dirOf(c.th).z > 45 || Math.hypot(c.x - S.x, c.z - S.z) > 160);
-      if (Math.hypot(c.x - S.x, c.z - S.z) > 230 || (!c.static && traffic.filter(o => !o.static).length > target) || passedDouble) { removeCar(c); traffic.splice(n, 1); }
+      if (Math.hypot(c.x - S.x, c.z - S.z) > 230 || (!c.static && c.kind !== "amb" && traffic.filter(o => !o.static).length > target) || passedDouble) { removeCar(c); traffic.splice(n, 1); }
     }
     if (traffic.filter(c => !c.static).length < target && Math.random() < dt * 2) spawnCar();
     if (target > 0 && S.t > (S.nextDoubleT ?? 45) && !traffic.some(c => c.static)) { S.nextDoubleT = S.t + 50 + Math.random() * 40; spawnDouble(); }
@@ -5298,6 +5306,11 @@ button.lamp:hover { border-color: var(--amber-dim); }
         const obs = traffic.find(o => o !== c && (o.static || o.atStop) && o.i === c.i && o.j === c.j && o.k === c.k && Math.abs((o.off ?? LANE) - cur) < 2 && o.s - c.s > -(o.hl || 2.1) - 3 && o.s - c.s < 24);
         const pr = parkRow(c.i, c.j, c.k), rowLane = pr ? pr * LANE : null, alongRow = pr && c.s < PARK_END + 4;
         if (c.kind === "bike" || c.kind === "moto") c.offT = home;
+        else if (c.kind === "amb") {
+          // you are ahead in the same street: it passes on the other side
+          const dd = dirOf(c.th), rr = rightOf(c.th), a = (S.x - c.x) * dd.x + (S.z - c.z) * dd.z, b = (S.x - c.x) * rr.x + (S.z - c.z) * rr.z;
+          c.offT = a > -3 && a < 45 && Math.abs(b) < 5 ? (oneWay(c.k % 2 === 0 ? c.i : c.j) ? (cur + b > 0 ? -LANE : LANE) : -0.4) : home;
+        }
         else if (oneWay(c.k % 2 === 0 ? c.i : c.j)) {
           // one-way: near the corner, the lane of the turn; around a stopped car, by the other lane when it is free; never into the parked row
           let want = G - c.s < 45 ? (c.next === -1 ? -LANE : c.next === 1 ? LANE : home) : home;
@@ -5321,7 +5334,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
         const front = c.s + (c.hl || CAR_L / 2), toLine = (G - STOP_LINE) - front;
         const d0 = dirOf(c.k * Math.PI / 2), ni = c.i + Math.round(d0.x), nj = c.j + Math.round(d0.z);
         let mustStop = false;
-        if (toLine > -1) {
+        if (c.kind === "amb") { if (toLine < 20 && toLine > -1) vT = Math.min(vT, 7); }
+        else if (toLine > -1) {
           if (ctrlOf(ni, nj) === "stop") {
             if (c.reckless && toLine < 6 && !boxBusyCars(ni, nj, c)) c.done = true; // rolls through the PARE
             if (!c.done) {
@@ -5377,7 +5391,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
         const p = bez(t.P, t.u), p2 = bez(t.P, Math.min(1, t.u + 0.02)), p0 = bez(t.P, Math.max(0, t.u - 0.02));
         c.x = p.x; c.z = p.z; c.th = Math.atan2(p2.x - p0.x, -(p2.z - p0.z));
         }
-        if (t.u >= 1) { c.i = t.ni; c.j = t.nj; c.k = t.k2; c.s = t.round ? RING_R + 0.5 : HALF; c.turn = null; c.off = c.lane = t.lane ?? LANE; c.next = c.kind === "bus" || c.kind === "bike" ? 0 : pickTurnFor(c); c.stopDone = false; c.done = false; c.wait = 0; Object.assign(c, segPose(c)); }
+        if (t.u >= 1) { c.i = t.ni; c.j = t.nj; c.k = t.k2; c.s = t.round ? RING_R + 0.5 : HALF; c.turn = null; c.off = c.lane = t.lane ?? LANE; c.next = c.kind === "bus" || c.kind === "bike" || c.kind === "amb" ? 0 : pickTurnFor(c); c.stopDone = false; c.done = false; c.wait = 0; Object.assign(c, segPose(c)); }
       } else {
         c.s += c.v * dt;
         const dn = dirOf(c.k * Math.PI / 2);
@@ -6297,6 +6311,124 @@ button.lamp:hover { border-color: var(--amber-dim); }
     if (!REC.list.length) { el.innerHTML = `<li class="empty" style="border:0;background:none">Cuando cometas un error, acá puedes volver a verlo desde arriba.</li>`; return; }
     for (const r of REC.list) { const li = document.createElement("li"); li.textContent = r.text + " "; li.appendChild(replayBtn(r)); el.appendChild(li); }
   }
+  // ---------- surprises: an ambulance behind you, a ball and a kid, a dog, the car ahead that brakes hard ----------
+  const ambBody = L({ color: 0xf4f1ea }), ambRed = L({ color: 0xc62f22 }), ambBlue = B({ color: 0x2f6fff }), ambRedL = B({ color: 0xff2a14 });
+  function makeAmbulance() {
+    const g = new THREE.Group(), part = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; g.add(m); return m; };
+    part(new THREE.BoxGeometry(2.0, 1.9, 4.0), ambBody, 0, 1.35, -0.6);
+    part(new THREE.BoxGeometry(1.95, 1.1, 1.4), ambBody, 0, 0.95, 2.0);
+    part(new THREE.BoxGeometry(1.7, 0.6, 0.05), glassMat, 0, 1.45, 2.71);
+    part(new THREE.BoxGeometry(2.02, 0.25, 5.4), ambRed, 0, 1.05, 0);
+    for (const x of [-0.75, 0.75]) part(new THREE.CylinderGeometry(0.31, 0.31, 0.22, 12), darkMat, x, 0.31, 1.6).rotation.z = Math.PI / 2;
+    for (const x of [-0.75, 0.75]) part(new THREE.CylinderGeometry(0.31, 0.31, 0.22, 12), darkMat, x, 0.31, -1.8).rotation.z = Math.PI / 2;
+    g.lightA = part(new THREE.BoxGeometry(0.6, 0.18, 0.3), ambRedL, -0.45, 2.38, 1.0); g.lightB = part(new THREE.BoxGeometry(0.6, 0.18, 0.3), ambBlue, 0.45, 2.38, 1.0);
+    g.tail = part(new THREE.BoxGeometry(1.6, 0.14, 0.05), tailOff, 0, 0.8, -2.62);
+    return g;
+  }
+  const ballGeo = new THREE.SphereGeometry(0.13, 12, 10), ballMat = L({ color: 0xf4f1ea }), dogMat = L({ color: 0x8a6440 });
+  function makeDog() {
+    const g = new THREE.Group(), part = (geo, x, y, z) => { const m = new THREE.Mesh(geo, dogMat); m.position.set(x, y, z); m.castShadow = true; g.add(m); };
+    part(new THREE.BoxGeometry(0.3, 0.3, 0.75), 0, 0.5, 0); part(new THREE.BoxGeometry(0.24, 0.24, 0.3), 0, 0.66, 0.48);
+    for (const [x, z] of [[-0.1, 0.28], [0.1, 0.28], [-0.1, -0.28], [0.1, -0.28]]) part(new THREE.BoxGeometry(0.08, 0.36, 0.08), x, 0.18, z);
+    part(new THREE.BoxGeometry(0.05, 0.05, 0.3), 0, 0.62, -0.48);
+    return g;
+  }
+  const evNear = (x, z) => { const d = dirOf(S.th), r = rightOf(S.th); return { a: (x - S.x) * d.x + (z - S.z) * d.z, b: (x - S.x) * r.x + (z - S.z) * r.z }; };
+  function startEvent(force) {
+    const kmh = Math.abs(S.v) * 3.6, city = mode === "city" || mode === "ride", sg = city ? segAt(S.x, S.z) : null;
+    const choices = [];
+    if (city && sg && !S.box && kmh > 15 && kmh < 55) choices.push("ball", "dog", "amb", "brake", "amb");
+    if (mode === "campo" && kmh > 30) choices.push("dog");
+    if (mode === "autopista" && kmh > 50) choices.push("brake");
+    if (!choices.length && !force) return false;
+    const kind = force || choices[Math.floor(Math.random() * choices.length)], d = dirOf(S.th), r = rightOf(S.th);
+    if (kind === "ball" || kind === "dog") {
+      const side = Math.random() < 0.7 ? 1 : -1, ahead = 22 + Math.abs(S.v) * 0.9, edge = mode === "campo" ? HALF + 2 : HALF + 1.2;
+      const x0 = S.x + d.x * ahead + r.x * side * edge, z0 = S.z + d.z * ahead + r.z * side * edge, vx = -r.x * side, vz = -r.z * side;
+      const ev = { kind, t0: S.t, x: x0, z: z0, vx, vz, speed: kind === "ball" ? 3.6 : 5.2, end: edge * 2 + 2, run: 0, minV: Math.abs(S.v), obj: kind === "ball" ? new THREE.Mesh(ballGeo, ballMat) : makeDog() };
+      ev.obj.castShadow = true; scene.add(ev.obj); S.events.push(ev);
+      // behind the ball, a kid running after it
+      if (kind === "ball") S.events.push({ kind: "kid", t0: S.t + 1.0, x: x0 - d.x * 0.6 + r.x * side * 1.2, z: z0 - d.z * 0.6 + r.z * side * 1.2, vx, vz, speed: 2.9, end: edge * 2 + 3.2, run: 0, minV: Math.abs(S.v), obj: makePed("kid", false) });
+      return true;
+    }
+    if (kind === "brake") {
+      const list = mode === "autopista" ? hwCars.filter(c => c.side > 0) : traffic;
+      const lead = list.find(c => { const p = evNear(c.x, c.z); return !c.static && c.kind !== "bike" && Math.cos(c.th - S.th) > 0.9 && p.a > 10 && p.a < 35 && Math.abs(p.b) < 1.6 && c.v > 4; });
+      if (!lead) return false;
+      if (mode === "autopista") lead.brakeT = 2.6; else lead.hitT = 2.4;
+      S.events.push({ kind: "brake", t0: S.t, car: lead, crash0: S.counts.crash });
+      return true;
+    }
+    if (kind === "amb") {
+      // it comes from behind, in your street and your direction
+      const ap = approach(); if (!ap) return false;
+      const c0 = cardinal(S.th), dd = dirOf(c0.th), back = 75;
+      const c = { i: ap.i - Math.round(dd.x), j: ap.j - Math.round(dd.z), k: c0.k, kind: "amb", hl: 2.7, hw: 1.0, v: 12, vmax: 14.5, next: 0, turn: null, wait: 0, done: false, hitT: 0, stuck: 0, emergency: true };
+      c.s = ((S.x - c.i * G) * dd.x + (S.z - c.j * G) * dd.z) - back;
+      // not enough street behind you in this block: it comes from the block before
+      if (c.s < HALF + 2) { c.i -= Math.round(dd.x); c.j -= Math.round(dd.z); c.s = Math.min(c.s + G, G - HALF - 3); if (!kOK(c.k, c.i, c.j)) return false; }
+      c.off = c.lane = oneWay(c0.k % 2 === 0 ? c.i : c.j) ? (((S.x - c.i * G) * rightOf(c0.th).x + (S.z - c.j * G) * rightOf(c0.th).z) > 0 ? -LANE : LANE) : LANE;
+      Object.assign(c, segPose(c));
+      c.obj = makeAmbulance(); scene.add(c.obj); traffic.push(c);
+      S.events.push({ kind: "amb", t0: S.t, car: c, v0: Math.abs(S.v), blockT: 0 });
+      return true;
+    }
+    return false;
+  }
+  function endEvent(ev) { if (ev.obj) scene.remove(ev.obj); ev.done = true; }
+  function updateEvents(dt) {
+    if (!S.events) S.events = [];
+    const allowed = opts.events !== false && !examOn() && (mode === "city" || mode === "ride" || mode === "campo" || mode === "autopista");
+    if (allowed && S.t > (S.nextEventT ?? 75) && !S.events.length && !S.paused) {
+      if (startEvent()) S.nextEventT = S.t + 70 + Math.random() * 70; else S.nextEventT = S.t + 8;
+      if (!S.eventsTold && S.events.length) { S.eventsTold = true; tip("Imprevistos: de vez en cuando pasa algo de golpe, como en la calle de verdad. Se pueden apagar en Controles → Opciones.", "events-told", 999); }
+    }
+    S.siren = null;
+    for (const ev of S.events) {
+      if (ev.done) continue;
+      if (ev.kind === "ball" || ev.kind === "dog" || ev.kind === "kid") {
+        if (S.t < ev.t0) { ev.obj.visible = false; continue; }
+        if (!ev.obj.parent) scene.add(ev.obj);
+        ev.obj.visible = true; ev.minV = Math.min(ev.minV, Math.abs(S.v));
+        if (!ev.hit) { ev.run += ev.speed * dt; ev.x += ev.vx * ev.speed * dt; ev.z += ev.vz * ev.speed * dt; }
+        const th = Math.atan2(ev.vx, -ev.vz);
+        ev.obj.position.set(ev.x, heightAt(ev.x, ev.z) + (ev.kind === "ball" ? 0.13 + Math.abs(Math.sin(ev.run * 2.4)) * 0.35 : 0), ev.z); ev.obj.rotation.y = Math.PI - th;
+        if (ev.obj.legs) ev.obj.legs.forEach((m, k) => { m.rotation.x = Math.sin(ev.run * 4 + k * Math.PI) * 0.6; });
+        // hit?
+        const p = evNear(ev.x, ev.z), pad = ev.kind === "ball" ? 0.1 : 0.3;
+        if (!ev.hit && Math.abs(p.a) < CAR_L / 2 + pad && Math.abs(p.b) < CAR_W / 2 + pad && Math.abs(S.v) > 0.3) {
+          ev.hit = true;
+          if (ev.kind === "kid") { const sp = Math.abs(S.v) * 3.6; S.counts.crash++; infraction("Atropellaste a un chico que corría detrás de la pelota", -100); showCrash("ped", Math.max(sp, 25)); }
+          else if (ev.kind === "dog") { infraction("Atropellaste a un perro", -30); sfxCrash(0.5); }
+          else tip("Le pegaste a la pelota. Cuando ves una pelota, frena: casi siempre viene un chico detrás.", "ball-hit", 20);
+        }
+        if (ev.run > ev.end || S.t - ev.t0 > 12) {
+          if (!ev.hit && ev.kind === "kid") { if (ev.minV < 2.5) { award(15, "Frenaste a tiempo: detrás de la pelota venía un chico"); toast("¡Bien! Frenaste a tiempo: detrás de una pelota casi siempre viene un chico (+15).", "good", "kid-ok", 5); } else tip("Pasó cerca: cuando aparece una pelota, frena enseguida, que detrás viene un chico.", "kid-close", 20); }
+          if (!ev.hit && ev.kind === "dog" && ev.minV < 4) award(5, "Frenaste por el perro");
+          endEvent(ev);
+        }
+      } else if (ev.kind === "brake") {
+        if (S.t - ev.t0 > 1.2 && !ev.told) { ev.told = true; tip("¡El de adelante frenó de golpe! Para eso sirve dejar 2 segundos de distancia.", "brake-told", 30); }
+        if (S.t - ev.t0 > 5) { if (S.counts.crash === ev.crash0) award(10, "Frenaste a tiempo cuando el de adelante frenó de golpe"); endEvent(ev); }
+      } else if (ev.kind === "amb") {
+        const c = ev.car, p = evNear(c.x, c.z), dist = Math.hypot(c.x - S.x, c.z - S.z);
+        if (!traffic.includes(c)) { endEvent(ev); continue; }
+        S.siren = dist;
+        const on = Math.floor(S.t * 6) % 2 === 0; c.obj.lightA.visible = on; c.obj.lightB.visible = !on;
+        if (p.a < -3 && p.a > -70 && !ev.told) { ev.told = true; toast("¡Ambulancia con sirena atrás! Baja la velocidad y córrete hacia el costado (o al carril libre) para dejarla pasar. Nunca frenes de golpe adelante de ella.", "bad", "amb-told", 20); say("Ambulancia atrás. Dejala pasar."); }
+        // you block it: it is right behind you, slow, and you keep going in its way
+        const blocking = p.a < 0 && p.a > -14 && c.v < 4 && Math.abs(S.v) > 2 && Math.abs(p.b) < 2.4;
+        ev.blockT = blocking ? ev.blockT + dt : Math.max(0, ev.blockT - dt);
+        if (ev.blockT > 4 && !ev.flagged) { ev.flagged = true; infraction("No le cediste el paso a la ambulancia", -20); }
+        // helping: slowing down or moving aside (blinker) while it is close behind
+        if (p.a < 0 && p.a > -50 && (Math.abs(S.v) < Math.max(4.2, ev.v0 * 0.6) || S.blink === "right" || S.hazard)) ev.coop = true;
+        if (p.a > 6 && !ev.passed) { ev.passed = true; if (!ev.flagged && ev.coop) { award(15, "Le dejaste paso a la ambulancia"); toast("Bien: le dejaste paso a la ambulancia (+15).", "good", "amb-ok", 5); } else if (!ev.flagged) tip("Pasó la ambulancia, pero cuando escuches una sirena hay que bajar la velocidad y correrse hacia el costado, aunque haya lugar.", "amb-nocoop", 30); }
+        if (p.a > 130 || S.t - ev.t0 > 70) { removeCar(c); traffic.splice(traffic.indexOf(c), 1); endEvent(ev); }
+      }
+    }
+    S.events = S.events.filter(ev => !ev.done);
+  }
+  function clearEvents() { for (const ev of S.events || []) { if (ev.obj) scene.remove(ev.obj); } if (S) S.events = []; }
   // ---------- gauges ----------
   const tach = document.getElementById("tach"), speedo = document.getElementById("speedo");
   function fit(cv) {
@@ -6465,6 +6597,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     S.hist.push({ t: S.t, rpm: toRpm(S.we), clutch: S.clutch, e: S.gear === "N" ? 0 : engage(S.clutch), gas: S.gas, v: Math.abs(S.v), brake: S.brake });
     while (S.hist.length && S.hist[0].t < S.t - 4.5) S.hist.shift();
     updateTraffic(dt);
+    updateEvents(dt);
     updateRouteCars(dt);
     updateHwCars(dt);
     updateTrains(dt);
