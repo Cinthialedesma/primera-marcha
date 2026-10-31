@@ -544,6 +544,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
             <button class="btn" id="btn-free" aria-pressed="false" title="Maneja por donde quieras, sin misiones">Modo libre</button>
             <button class="btn" id="menu-night" type="button" aria-pressed="false">De noche</button>
             <button class="btn" id="menu-rain" type="button" aria-pressed="false">Lluvia</button>
+            <button class="btn" id="menu-fog" type="button" aria-pressed="false">Niebla</button>
           </div>
           <button class="btn menu-trip" id="menu-trip" type="button">Terminar viaje</button>
           <button class="btn" id="btn-reset" title="Empieza este lugar de nuevo, desde la primera misión. Los otros lugares no cambian.">Empezar este lugar de nuevo</button>
@@ -691,6 +692,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
           <button type="button" class="lamp" id="lamp-engine" title="Encender o apagar el motor (E)">MOTOR</button>
           <button type="button" class="lamp" id="lamp-hand" title="Freno de mano (Q)">(P)</button>
           <button type="button" class="lamp" id="lamp-lights" title="Luces bajas (K)">LUCES</button>
+          <button type="button" class="lamp" id="lamp-high" title="Luces altas (J)">ALTAS</button>
         </div>
       </div>
       <canvas id="speedo" aria-label="Velocímetro"></canvas>
@@ -775,6 +777,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
         <span class="key">V</span><span>Mirar los espejos (antes de arrancar y de doblar)</span>
         <span class="key">G</span><span>Mantener: mirar por encima del hombro al punto ciego, del lado del guiño (izquierdo si no hay guiño)</span>
         <span class="key">B</span><span>Balizas (en un embotellamiento o una emergencia)</span>
+        <span class="key">J</span><span>Luces altas (de noche en ruta, sin nadie adelante; nunca con niebla)</span>
         <span class="key">M</span><span>Agrandar el espejo (o clic en un espejo)</span>
         <span class="key">Rueda</span><span>Embrague fino con la rueda del mouse</span>
       </div>
@@ -797,6 +800,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
         <label for="opt-free"><input type="checkbox" id="opt-free"><span>Todo desbloqueado<small>Si ya sabes manejar: puedes elegir cualquier lugar sin seguir el camino.</small></span></label>
         <label for="opt-night"><input type="checkbox" id="opt-night"><span>De noche<small>Se ve poco: enciende las luces bajas (K). Los peatones y las bicis cuestan más de ver.</small></span></label>
         <label for="opt-events"><input type="checkbox" id="opt-events"><span>Imprevistos<small>De vez en cuando algo pasa de golpe: una ambulancia atrás, una pelota con un chico detrás, un perro, el de adelante que frena fuerte.</small></span></label>
+        <label for="opt-fog"><input type="checkbox" id="opt-fog"><span>Niebla<small>Se ve muy poco: luces bajas (no las altas) y más despacio.</small></span></label>
         <label for="opt-rain"><input type="checkbox" id="opt-rain"><span>Lluvia<small>Menos visibilidad, el auto tarda más en frenar y vas a necesitar el limpiaparabrisas (L).</small></span></label>
       </div>
       <button class="btn" id="btn-wipe" type="button">Borrar mi progreso</button>
@@ -1726,6 +1730,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
   }
   function checkCommon(dt) {
     checkSlip(dt);
+    checkLightsWeather(dt);
     const kmh = Math.abs(S.v) * 3.6;
     if (!S.belt && kmh > 5 && !S.beltFlag) { S.beltFlag = true; infraction("Manejaste sin el cinturón de seguridad"); tip("Abróchate el cinturón con C. En Argentina es obligatorio y en el examen es lo primero que miran.", "belt", 20); }
     if (!S.belt && S.running && S.v === 0) tip("Antes de arrancar abróchate el cinturón (C): la luz roja CINTURÓN del tablero te lo recuerda.", "belt-pre", 40);
@@ -1881,6 +1886,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     if (slowAhead && slowAhead.kind === "tractor" && slowAhead.u - u < 40 && slowAhead.u - u > 8 && !left) tip(noPass(u) ? "Un tractor adelante. Hay doble línea amarilla: espera detrás, a distancia, hasta que la línea sea discontinua." : "Para adelantar al tractor: mira el espejo, pon el guiño izquierdo (Z), fíjate que no venga nadie de frente, pásate al otro carril y acelera. Vuelve con el guiño derecho (X) cuando lo veas en el espejo de adentro.", "tractor" + (noPass(u) ? "np" : "ok"), 25);
   }
   function checkHill(dt) {
+    checkSlopePark(dt);
     const kmh = Math.abs(S.v) * 3.6, u = -S.z, north = Math.cos(S.th) > 0.7, half = HILL_P / 2;
     S.limit = 40;
     if (kmh > S.limit + 4) { S.overT += dt; if (S.overT > 1.5 && !S.speeding) { S.speeding = true; infraction(`Exceso de velocidad: ${Math.round(kmh)} km/h en zona de ${S.limit}`); } }
@@ -2216,6 +2222,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
     { title: "Detente en el PARE en subida", hint: "Al llegar al PARE frena hasta detenerte por completo antes de la línea. Pisa el embrague antes de parar y sube el freno de mano (Q) para no irte para atrás.", done: () => S.hillStopOk },
     { title: "Sal del PARE en subida sin irte para atrás", hint: "Desde el PARE: 1ª, acelera a unas 2.000 rpm, suelta el embrague hasta el punto de roce y baja el freno de mano. Si el auto retrocede aunque sea un poco, no cuenta.", done: () => S.hillStartOk },
     { title: "Baja la pendiente sin pasar los 30 km/h", hint: "En la bajada pon 2ª y deja el embrague suelto: el motor frena el auto. Ayúdate con el freno de a poco. Nunca bajes en neutro.", done: () => S.downOk },
+    { title: "Estaciona en subida junto al cordón", hint: "Después del próximo PARE en subida hay un lugar marcado en amarillo junto al cordón derecho. Detente ahí, derecho y pegado al cordón. Freno de mano, 1ª puesta y el volante girado hacia la calle (a la izquierda): si el freno fallara, el auto iría para atrás y la parte de atrás de la rueda se apoyaría en el cordón. Apaga el motor.", done: () => S.slopeParkUp },
+    { title: "Estaciona en bajada junto al cordón", hint: "Después del PARE en bajada hay otro lugar amarillo junto al cordón. Detente ahí, derecho y pegado al cordón. Freno de mano, reversa puesta y el volante girado hacia el cordón (a la derecha): si el auto se fuera para adelante, la rueda se apoyaría en el cordón. Apaga el motor.", done: () => S.slopeParkDown },
   ];
   const PARK_MISSIONS = [
     { title: "Estaciona de frente en el lugar amarillo", hint: "El lugar está adelante a la derecha. Ve en 1ª usando solo el punto de roce, sin acelerar. Entra derecho y detente antes del muro.", done: () => S.parkedFront },
@@ -2494,6 +2502,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
     CITY_MISSIONS[7].steps = [["Sigue el GPS hasta el lugar libre marcado en amarillo", () => (S.streetSpot && Math.hypot(S.x - S.streetSpot.x, S.z - S.streetSpot.z) < 40) || S.parkedStreet], ["Ponte al lado del auto de adelante del lugar, con el guiño derecho", () => (S.streetSpot && Math.abs(spotFrame(S.streetSpot, S.x, S.z).a - PARK_DS) < 2 && Math.abs(wrap(S.th - S.streetSpot.th)) < 0.3) || S.parkedStreet], ["Estaciona en paralelo junto al cordón y quédate quieto 1 segundo", () => S.parkedStreet]];
     CITY_MISSIONS[8].steps = [["Cinturón y espejos, y arranca", () => S.exam && (S.exam.phase !== "prep" || S.exam.passed)], ["Sigue las indicaciones del examinador (3 tramos)", () => S.exam && (S.exam.idx >= 3 || S.exam.passed)], ["Estaciona en paralelo donde te indique", () => S.exam && S.exam.passed]];
     HILL_MISSIONS[0].steps = [["Embrague a fondo y pon 1ª", () => S.gear === "1"], ["Acelera hasta unas 2.000 rpm", () => rpm() > 1700 && S.gas > 0.15], ["Suelta el embrague hasta que haga fuerza (tiembla)", () => e() > 0.08 && S.running], ["Ahí, baja el freno de mano (Q)", () => !S.hand && S.running], ["Sube sin irte para atrás", () => S.hillLaunchOk]];
+    HILL_MISSIONS[4].steps = [["Sube hasta el lugar amarillo, después del PARE en subida", () => S.slopeParkUp || (slopeSpot() && Math.abs(-S.z - slopeSpot().u) < 20)], ["Freno de mano, 1ª y volante hacia la calle (←)", () => S.slopeParkUp || (S.hand && S.gear === "1" && S.steer < -0.15)], ["Apaga el motor", () => S.slopeParkUp]];
+    HILL_MISSIONS[5].steps = [["Baja hasta el lugar amarillo, después del PARE en bajada", () => S.slopeParkDown || (slopeSpot() && Math.abs(-S.z - slopeSpot().u) < 20)], ["Freno de mano, reversa y volante hacia el cordón (→)", () => S.slopeParkDown || (S.hand && S.gear === "R" && S.steer > 0.15)], ["Apaga el motor", () => S.slopeParkDown]];
     HILL_MISSIONS[1].steps = [["Al llegar al PARE, frena hasta detenerte", () => S.v === 0 && S.hs && S.hs.uphill && S.hs.stopped], ["Pisa el embrague antes de parar", () => S.v === 0 && S.clutch > 0.6], ["Sube el freno de mano (Q)", () => S.hillStopOk || (S.v === 0 && S.hand)]];
     CAMPO_MISSIONS[0].steps = prep.concat([["Enciende las luces bajas (K)", () => S.lights], ["Enciende el motor y sal en 1ª", () => S.running && S.v > 2]]);
     CAMPO_MISSIONS[1].steps = [["2ª a unos 20 km/h", () => S.gear === "2"], ["3ª a unos 35 km/h", () => S.gear === "3"], ["4ª a unos 55 km/h", () => S.gear === "4"], ["5ª y llega a 75–80 km/h", () => S.gear === "5" && kmh() >= 75]];
@@ -2727,6 +2737,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
     [/túnel/, "Antes de entrar a un túnel enciende las luces (K)."],
     [/doble fila|colectivo/, "Para pasar algo detenido en tu carril: espejo, guiño izquierdo, mirar que no venga nadie de frente y volver a tu carril."],
     [/punto muerto/, "En las bajadas deja una marcha puesta (2ª) para que el motor frene."],
+    [/Encandilaste/, "Las altas solo en ruta y sin nadie adelante: bájalas (J) apenas veas luces de frente o te acerques a otro auto."],
+    [/niebla/, "Con niebla: luces bajas encendidas, nada de altas, y más despacio."],
   ];
   const tripKey = t => t.startsWith("Exceso de velocidad") ? "Exceso de velocidad" : t.startsWith("Pasaste el lomo de burro") ? "Pasaste el lomo de burro rápido" : t.replace(/\s*\(\+?-?\d+\)$/, "");
   function showTrip() {
@@ -2979,6 +2991,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     else if (k === "h") honk(true);
     else if (k === "l") toggleWipers();
     else if (k === "b") toggleHazard();
+    else if (k === "j") toggleHigh();
     else if ("12345".includes(k) && k.length === 1) shiftTo(k);
     else if (k === "r") shiftTo("R");
     else if (k === "n" || k === "0") shiftTo("N");
@@ -3018,6 +3031,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
   document.getElementById("lamp-belt").addEventListener("click", () => { S.belt = !S.belt; if (S.belt) toast("Cinturón abrochado.", "", "belt-on", 2); });
   document.getElementById("lamp-engine").addEventListener("click", toggleEngine);
   document.getElementById("lamp-hand").addEventListener("click", () => { S.hand = !S.hand; });
+  document.getElementById("lamp-high").addEventListener("click", toggleHigh);
   document.getElementById("lamp-lights").addEventListener("click", () => { S.lights = !S.lights; toast(S.lights ? "Luces bajas encendidas." : "Luces apagadas.", "", "lights" + S.lights, 1); });
   document.getElementById("btn-hand").addEventListener("click", () => { S.hand = !S.hand; });
   document.getElementById("stall-ok").addEventListener("click", closeStall);
@@ -3246,6 +3260,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
     S = null; setMode("lesson");
     toast("Borraste tu progreso: empiezas de nuevo desde la Primera clase.", "", "wipe", 1);
   });
+  const optFog = document.getElementById("opt-fog"); optFog.checked = !!opts.fog;
+  optFog.addEventListener("change", () => { opts.fog = optFog.checked; saveOpts(); applyWeather(); if (opts.fog) tip("Hay niebla: luces bajas (K), nada de altas, y más despacio.", "fog-on", 5); document.getElementById("road").focus(); });
   const optEvents = document.getElementById("opt-events"); optEvents.checked = opts.events !== false;
   optEvents.addEventListener("change", () => { opts.events = optEvents.checked; saveOpts(); document.getElementById("road").focus(); });
   const optNight = document.getElementById("opt-night");
@@ -3260,13 +3276,14 @@ button.lamp:hover { border-color: var(--amber-dim); }
   // the ⚙ menu: opens and closes with its button, closes when you click outside or press Esc
   const menuBtn = document.getElementById("btn-menu"), menuEl = document.getElementById("menu");
   const setMenu = open => { menuEl.hidden = !open; menuBtn.setAttribute("aria-expanded", open); if (open) syncMenu(); };
-  function syncMenu() { document.getElementById("menu-night").setAttribute("aria-pressed", !!opts.night); document.getElementById("menu-rain").setAttribute("aria-pressed", !!opts.rain); }
+  function syncMenu() { document.getElementById("menu-night").setAttribute("aria-pressed", !!opts.night); document.getElementById("menu-rain").setAttribute("aria-pressed", !!opts.rain); document.getElementById("menu-fog").setAttribute("aria-pressed", !!opts.fog); }
   menuBtn.addEventListener("click", e => { e.stopPropagation(); setMenu(menuEl.hidden); });
   document.addEventListener("pointerdown", e => { if (!menuEl.hidden && !e.target.closest(".menu-wrap")) setMenu(false); });
   window.addEventListener("keydown", e => { if (e.key === "Escape" && !menuEl.hidden) setMenu(false); }, true);
   document.getElementById("menu-trip").addEventListener("click", () => { setMenu(false); document.getElementById("btn-trip").click(); });
   document.getElementById("menu-night").addEventListener("click", () => { document.getElementById("opt-night").click(); syncMenu(); });
   document.getElementById("menu-rain").addEventListener("click", () => { document.getElementById("opt-rain").click(); syncMenu(); });
+  document.getElementById("menu-fog").addEventListener("click", () => { document.getElementById("opt-fog").click(); syncMenu(); });
   document.getElementById("menu-controls").addEventListener("click", () => { setMenu(false); const t = document.querySelector('.tab[data-pane="controls"]'); t.click(); t.scrollIntoView({ behavior: "smooth", block: "start" }); });
   const helpBtn = document.getElementById("btn-help");
   helpBtn.addEventListener("click", () => { help = !help; helpBtn.setAttribute("aria-pressed", help); });
@@ -3522,12 +3539,14 @@ button.lamp:hover { border-color: var(--amber-dim); }
   const lotMarker = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 6, 24, 1, true), new THREE.MeshBasicMaterial({ color: 0xffd23d, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false }));
   lotMarker.layers.set(2); lotMarker.visible = false; scene.add(lotMarker);
   function applyWeather() {
-    const night = opts.night, rain = opts.rain;
+    const night = opts.night, rain = opts.rain, fog = opts.fog;
     sky.material.map = night ? (rain ? skyNightRainTex : skyNightTex) : rain ? skyRainTex : skyTex; sky.material.needsUpdate = true;
     const c = night ? (rain ? 0x0d1117 : 0x121a27) : rain ? 0xaab0b5 : HORIZON;
     scene.background.setHex(c); scene.fog.color.setHex(c);
     scene.fog.near = night ? (rain ? 12 : 22) : rain ? 40 : 90; scene.fog.far = night ? (rain ? 90 : 130) : rain ? 170 : 270;
-    sun.intensity = night ? 0.12 : rain ? 0.45 : 0.95; sun.color.setHex(night ? 0x9fb4d8 : 0xfff0d8);
+    // fog: you see about 50 m; with the high beams the light bounces back and you see even less
+    if (fog) { const fc = night ? 0x252b33 : 0xbfc4c7; scene.background.setHex(fc); scene.fog.color.setHex(fc); scene.fog.near = night && S && S.high ? 2 : 5; scene.fog.far = night ? (S && S.high ? 30 : 46) : 62; if (!night) sky.material.map = skyRainTex; }
+    sun.intensity = night ? 0.12 : rain || fog ? 0.45 : 0.95; sun.color.setHex(night ? 0x9fb4d8 : 0xfff0d8);
     hemi.intensity = night ? 0.28 : 0.62;
     skyline.material.opacity = night ? 0.5 : rain ? 0.35 : 1; skyline.material.color.setHex(night ? 0x2a3242 : 0xffffff);
     // windows and shop fronts light up, tail lights glow, street lamps light the road
@@ -5702,6 +5721,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
   }
   function liveCoach() {
     if (help && mode === "autopista") return hwCoach();
+    if (help && mode === "hill") return slopeCoach();
     if (!help || mode === "hill" || mode === "campo" || mode === "autopista") return null;
     const kmh = Math.abs(S.v) * 3.6, g = S.guide;
     if (g && !g.round) {
@@ -5879,7 +5899,10 @@ button.lamp:hover { border-color: var(--amber-dim); }
     ground.position.set(Math.round(S.x / 16) * 16, mode === "campo" || mode === "hill" || mode === "autopista" ? -0.06 : -6.5, Math.round(S.z / 16) * 16);
     if (frameN % (lowQuality ? 3 : 2) === 1) { sun.position.set(S.x + 50, 90, S.z + 35); sun.target.position.set(S.x, 0, S.z); sun.target.updateMatrixWorld(); }
     placeCar(myCar, S.x, S.z, S.th); myCar.position.y = heightAt(S.x, S.z);
-    beamRoot.visible = opts.night && S.lights;
+    beamRoot.visible = (opts.night || opts.fog) && S.lights;
+    beam.scale.set(S.high ? 1.25 : 1, 1, S.high ? 1.9 : 1); beam.material.opacity = S.high ? 1 : 0.85;
+    { const sp = slopeSpot(); slopeTarget.visible = !!sp && !(sp.up ? S.slopeParkUp : S.slopeParkDown);
+      if (slopeTarget.visible) { const r = slopeRect(sp), zc = -sp.u; slopeTarget.position.set((r.x0 + r.x1) / 2, hillH(zc) + 0.05, zc); slopeTarget.rotation.x = -Math.atan(hillDz(zc)); const c = slopeChecks(sp); slopeTarget.material.color.setHex(c.inside ? 0x46e86c : 0xffd23d); } }
     if (beamRoot.visible) {
       const dd = dirOf(S.th), h0 = heightAt(S.x, S.z), h1 = heightAt(S.x + dd.x * 20, S.z + dd.z * 20);
       placeCar(beamRoot, S.x, S.z, S.th); beamRoot.position.y = h0 + 0.04; beam.rotation.x = -Math.atan2(h1 - h0, 20);
@@ -5907,6 +5930,10 @@ button.lamp:hover { border-color: var(--amber-dim); }
     parTarget.visible = opts.freeDrive ? mode === "parking" || mode === "lesson" : mode === "city" ? S.mission >= MISSIONS.length : mode === "parking" && S.mission >= 2;
     streetTarget.visible = !!(mode === "city" && S.streetSpot && !S.parkedStreet && !opts.freeDrive && (S.mission === 7 || (S.exam && S.exam.phase === "park" && S.exam.spot && !S.exam.passed)));
     if (streetTarget.visible) { const r = S.streetSpot.rect; streetTarget.position.set((r.x0 + r.x1) / 2, 0.025, (r.z0 + r.z1) / 2); streetTarget.scale.set(r.x1 - r.x0, 1, r.z1 - r.z0); }
+    for (const [t, m] of spotPins) {
+      m.visible = t.visible && Math.hypot(t.position.x - S.x, t.position.z - S.z) > 7;
+      if (m.visible) { m.position.set(t.position.x, t.position.y + 2.4 + 0.25 * Math.sin(S.t * 3), t.position.z); m.rotation.y = S.t * 1.5; m.material.color.copy(t.material.color); }
+    }
     for (const [m, r] of [[perpTarget, PERP_RECT], [parTarget, PAR_RECT], [streetTarget, S.streetSpot ? S.streetSpot.rect : PAR_RECT]]) { const pc = S.parkCheck, good = pc && !pc.out && pc.ang <= pc.tol && inRect(S.x, S.z, r); m.material.color.setHex(good ? 0x46e86c : 0xffd23d); }
 
     const amp = S.shake;
@@ -6049,6 +6076,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     }
     if (mode === "hill") {
       gctx.fillStyle = "#6b6e72"; gctx.fillRect(X(-HALF), 0, 2 * HALF * sc, h);
+      { const sp = slopeSpot(); if (sp) { const r = slopeRect(sp); gctx.fillStyle = "#ffd23d"; gctx.fillRect(X(r.x0), Z(r.z0), (r.x1 - r.x0) * sc, (r.z1 - r.z0) * sc); } }
       for (let n = Math.max(0, Math.floor((-S.z - 140) / (HILL_P / 2))); n * HILL_P / 2 < -S.z + 140; n++) {
         gctx.fillStyle = "#e2553f"; gctx.beginPath(); gctx.arc(X(0), Z(-n * HILL_P / 2), 3 * dpr, 0, Math.PI * 2); gctx.fill();
       }
@@ -6429,6 +6457,72 @@ button.lamp:hover { border-color: var(--amber-dim); }
     S.events = S.events.filter(ev => !ev.done);
   }
   function clearEvents() { for (const ev of S.events || []) { if (ev.obj) scene.remove(ev.obj); } if (S) S.events = []; }
+  // ---------- parking on a slope: by the curb, hand brake, a gear in and the wheels turned the right way ----------
+  // uphill: 1st gear and the wheels toward the street (if it rolls back, the tyre stops against the curb); downhill: reverse and the wheels toward the curb
+  const SLOPE_SPOTS = [{ u: 340, up: true }, { u: 490, up: false }];
+  const slopeRect = sp => ({ x0: HALF - 2.3, x1: HALF - 0.05, z0: -(sp.u + 3.6), z1: -(sp.u - 3.6), ns: true });
+  const slopeSpot = () => mode === "hill" && (S.mission === 4 || S.mission === 5) && !opts.freeDrive ? SLOPE_SPOTS[S.mission - 4] : null;
+  function slopeChecks(sp) {
+    const r = slopeRect(sp), inside = corners(S.x, S.z, S.th).every(([x, z]) => inRect(x, z, r, 0.3)) && Math.abs(Math.sin(S.th)) < Math.sin(0.2);
+    return { inside: inside && S.v === 0, hand: S.hand, gear: sp.up ? S.gear === "1" : S.gear === "R", wheels: sp.up ? S.steer < -0.15 : S.steer > 0.15, off: !S.running };
+  }
+  function checkSlopePark(dt) {
+    const sp = slopeSpot(); if (!sp) return;
+    const c = slopeChecks(sp);
+    if (c.inside && c.hand && c.gear && c.wheels && c.off) {
+      S.slopeT = (S.slopeT || 0) + dt;
+      if (S.slopeT > 0.8) {
+        if (sp.up && !S.slopeParkUp) { S.slopeParkUp = true; award(40, "Estacionaste bien en subida"); toast("¡Bien estacionado en subida! Freno de mano, 1ª y ruedas hacia la calle (+40).", "good", "slope-up", 5); }
+        if (!sp.up && !S.slopeParkDown) { S.slopeParkDown = true; award(40, "Estacionaste bien en bajada"); toast("¡Bien estacionado en bajada! Freno de mano, reversa y ruedas hacia el cordón (+40).", "good", "slope-down", 5); }
+      }
+    } else S.slopeT = 0;
+  }
+  function slopeCoach() {
+    const sp = slopeSpot(); if (!sp || Math.abs(-S.z - sp.u) > 45) return null;
+    const c = slopeChecks(sp);
+    return { id: "slope" + sp.u + Math.floor(S.t * 4), title: sp.up ? "Estacionar en subida" : "Estacionar en bajada", note: "", steps: [
+      ["Detente en el rectángulo amarillo, derecho y pegado al cordón", () => c.inside],
+      ["Freno de mano (Q)", () => c.hand],
+      [sp.up ? "Pon 1ª: en subida, la marcha que empuja hacia arriba" : "Pon reversa (R): en bajada, la que empuja hacia arriba", () => c.gear],
+      [sp.up ? "Gira el volante hacia la calle (←): si se va para atrás, la rueda se apoya en el cordón" : "Gira el volante hacia el cordón (→): si se va para adelante, la rueda se apoya en el cordón", () => c.wheels],
+      ["Apaga el motor (E)", () => c.off],
+    ] };
+  }
+  const slopeTarget = (() => { const g = new THREE.PlaneGeometry(2.25, 7.2); g.rotateX(-Math.PI / 2); const m = new THREE.Mesh(g, targetMat.clone()); m.material.opacity = 0.55; m.visible = false; scene.add(m); return m; })();
+  // a floating arrow over the spot, so you see where to stop from far away (a flat rectangle on a hill crest is easy to miss)
+  const spotPins = [slopeTarget, streetTarget].map(t => { const g = new THREE.ConeGeometry(0.42, 0.95, 4); g.rotateX(Math.PI); const m = new THREE.Mesh(g, B({ color: 0xffd23d })); m.visible = false; scene.add(m); return [t, m]; });
+
+  // ---------- fog and high beams ----------
+  function toggleHigh() {
+    S.high = !S.high; if (S.high) S.lights = true;
+    toast(S.high ? "Luces altas encendidas (J para bajarlas)." : "Luces bajas.", "", "high" + S.high, 1);
+    applyWeather();
+  }
+  function checkLightsWeather(dt) {
+    const kmh = Math.abs(S.v) * 3.6, d = dirOf(S.th);
+    // who is in front of you: coming toward you or going your way
+    let oncoming = false, aheadClose = false, anyAhead = false;
+    const see = (x, z, th) => { const a = (x - S.x) * d.x + (z - S.z) * d.z, b = Math.abs((x - S.x) * d.z - (z - S.z) * d.x); if (a < 5 || b > 14) return; const cs = Math.cos(th - S.th); if (a < 300) anyAhead = true; if (a < 160 && cs < -0.7) oncoming = true; if (a < 60 && cs > 0.7) aheadClose = true; };
+    for (const c of traffic) see(c.x, c.z, c.th);
+    if (mode === "campo") for (const c of routeCars) see(c.x, c.z, c.th);
+    if (mode === "autopista") for (const c of hwCars) if (c.side > 0) see(c.x, c.z, c.th);
+    if (S.high && S.lights) {
+      if (opts.night && (oncoming || aheadClose)) {
+        S.glareT = (S.glareT || 0) + dt;
+        if (S.glareT > 0.8) toast(oncoming ? "¡El que viene de frente te hace luces! Baja las altas (J)." : "Estás encandilando al de adelante: baja las altas (J).", "bad", "glare-warn", 6);
+        if (S.glareT > 2.5 && S.t - (S.glareFlagT ?? -99) > 20) { S.glareFlagT = S.t; infraction(oncoming ? "Encandilaste a un auto que venía de frente" : "Encandilaste al auto de adelante con las altas", -10); }
+      } else S.glareT = 0;
+      if (opts.fog) tip("Con niebla van las luces bajas: las altas rebotan en la niebla y ves menos.", "fog-high", 30);
+      else if (!opts.night) tip("De día no hacen falta las altas: apágalas con J.", "day-high", 40);
+      else if (mode === "city" || mode === "ride") tip("En la ciudad, con alumbrado, se usan las bajas. Las altas encandilan.", "city-high", 40);
+    } else S.glareT = 0;
+    if (mode === "campo" && opts.night && !opts.fog && S.lights && !S.high && kmh > 50 && !anyAhead) tip("Ruta de noche sin nadie adelante: puedes usar las luces altas (J). Bájalas apenas veas a alguien.", "use-high", 60);
+    // fog: lights on and slower
+    if (opts.fog && S.running) {
+      if (!S.lights && kmh > 5) { S.fogNoLightT = (S.fogNoLightT || 0) + dt; tip("Con niebla enciende las luces bajas (K): no tanto para ver, sino para que te vean.", "fog-lights", 20); if (S.fogNoLightT > 15 && !S.fogFlag) { S.fogFlag = true; infraction("Circulaste con niebla sin las luces encendidas", -10); } } else S.fogNoLightT = 0;
+      if (kmh > 55) tip("Con niebla se ve solo unos 50 metros: baja la velocidad para poder frenar a tiempo.", "fog-speed", 30);
+    }
+  }
   // ---------- gauges ----------
   const tach = document.getElementById("tach"), speedo = document.getElementById("speedo");
   function fit(cv) {
@@ -6481,6 +6575,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     el("lamp-hand").className = "lamp" + (S.hand ? " on red" : "");
     el("lamp-belt").className = "lamp" + (S.belt ? "" : " on red");
     el("lamp-lights").className = "lamp" + (S.lights ? " on beam" : "");
+    el("lamp-high").className = "lamp" + (S.high && S.lights ? " on beam" : "");
     const blinkOn = Math.floor(S.t * 3) % 2 === 0;
     el("lamp-left").className = "lamp blink" + ((S.blink === "left" || S.hazard) && blinkOn ? " on" : "");
     el("lamp-right").className = "lamp blink" + ((S.blink === "right" || S.hazard) && blinkOn ? " on" : "");
@@ -6514,6 +6609,10 @@ button.lamp:hover { border-color: var(--amber-dim); }
       else if (help) setChip(`Autopista · máx. 100 · mín. 50 km/h${typeof S.hwLane === "number" && S.hwLane <= 3 ? ` · carril ${["izquierdo", "del medio", "derecho"][S.hwLane - 1]}` : ""}`, "#11a35a");
       else chip.hidden = true;
       return;
+    }
+    if (mode === "hill" && slopeSpot() && help) {
+      const sp = slopeSpot(), dd = sp.u - (-S.z);
+      if (dd > -8 && dd < 160) { setChip(`Lugar para estacionar en ${sp.up ? "subida" : "bajada"} · ${Math.max(0, Math.round(dd))} m · junto al cordón derecho`, "#ffd23d"); return; }
     }
     if (mode === "hill") {
       const front = -S.z + CAR_L / 2, n = Math.max(0, Math.ceil((front - 0.01) / (HILL_P / 2))), dist = n * HILL_P / 2 - front;
