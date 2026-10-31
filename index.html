@@ -398,6 +398,10 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 .pillar { position: absolute; inset: 0; pointer-events: none; z-index: 1; display: none; background: linear-gradient(90deg, #0c0d0e 0 9%, rgba(12,13,14,.0) 16% 70%, #0c0d0e 78% 100%), linear-gradient(180deg, #0c0d0e 0 7%, transparent 14%); }
 .stage.head .pillar { display: block; }
 .stage.head-r .pillar { transform: scaleX(-1); }
+.pad-text { font-size: 1.05rem; font-weight: 600; color: var(--ink); }
+.pad-meter { height: 10px; border-radius: 5px; background: #2a2d31; overflow: hidden; margin: 6px 0; }
+.pad-meter span { display: block; height: 100%; width: 0; background: var(--green); transition: width .1s; }
+.pad-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 10px; }
 .coach .chk { display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--line); padding-top: 5px; }
 .coach .chk[hidden] { display: none; }
 .coach .chk i { font-style: normal; display: inline-block; width: 1.1em; }
@@ -508,6 +512,13 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       <ol id="stall-steps"></ol>
       <p class="restart" id="stall-restart"></p>
       <div class="card-foot"><button class="btn" id="stall-ok" type="button">Entendido <span class="key">Enter</span></button></div>
+    </div>
+    <div class="stall-card result-card" id="pad-card" role="dialog" aria-labelledby="pad-title" hidden>
+      <div class="card-head"><div><span class="eyebrow" id="pad-step"></span><h3 id="pad-title">Configurar volante y pedales</h3></div></div>
+      <p id="pad-text" class="pad-text"></p>
+      <div class="pad-meter"><span id="pad-bar"></span></div>
+      <p class="restart">Cada paso avanza solo cuando el juego reconoce el movimiento.</p>
+      <div class="card-foot"><button class="btn" id="pad-skip" type="button" hidden></button><button class="btn" id="pad-cancel" type="button">Cancelar <span class="key">Esc</span></button></div>
     </div>
     <div class="stall-card result-card" id="crash-card" role="dialog" aria-labelledby="crash-title" hidden>
       <div class="card-head">
@@ -667,6 +678,15 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         <span class="key">Rueda</span><span>Embrague fino con la rueda del mouse</span>
       </div>
       <p class="note">También funcionan A (embrague), S (freno) y D (acelerador).</p>
+      <h2>Mirar a los costados</h2>
+      <div class="controls">
+        <span class="key">Shift + ← →</span><span>Girar la cabeza a la izquierda o a la derecha (en las esquinas y en el PARE)</span>
+        <span class="key">Arrastrar</span><span>Arrastra la vista con el mouse (o el dedo) hacia un costado; al soltar vuelve al frente</span>
+      </div>
+      <h2>Volante, pedales o joystick</h2>
+      <p class="note" id="pad-status"></p>
+      <div class="pad-actions"><button class="btn" id="pad-setup" type="button">Configurar volante y pedales</button><button class="btn" id="pad-forget" type="button" hidden>Borrar configuración</button></div>
+      <p class="note">Joystick (Xbox, PlayStation): stick izquierdo = volante · gatillo derecho = acelerar · gatillo izquierdo = frenar · stick derecho hacia abajo = embrague, a los costados = mirar · cruceta ↑ ↓ = subir y bajar cambio, ← = punto muerto, → = reversa · A = espejos · B = bocina · X = freno de mano · Y = encender · LB / RB = guiños · Select = luces · Start = cinturón · clic del stick izquierdo = balizas · clic del derecho = punto ciego. Un volante con pedales se configura una vez con el botón de arriba.</p>
       <h2>Opciones</h2>
       <div class="options">
         <label for="opt-autoclutch"><input type="checkbox" id="opt-autoclutch"><span>Embrague automático<small>Para empezar: el auto maneja el embrague por ti. Solo aceleras, frenas y cambias.</small></span></label>
@@ -1355,6 +1375,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   }
 
   function updateControls(dt) {
+    pollPad();
     if (opts.autoClutch) {
       // works like a centrifugal clutch: it only grabs as the engine revs above idle, so it never stalls
       S.shiftT = Math.max(0, S.shiftT - dt);
@@ -1378,9 +1399,12 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     }
     S.brake = held("brake") ? Math.min(1, S.brake + 2 * dt) : Math.max(0, S.brake - 4 * dt);
     // looking over the shoulder: toward the blinker side, the left one if there is none
-    const headWant = held("head") ? (S.blink === "right" ? 1 : -1) * 1.95 : 0;
+    if (!look.drag) look.mouse = Math.abs(look.mouse) < 4 * dt ? 0 : look.mouse - Math.sign(look.mouse) * 4 * dt;
+    const headWant = held("head") || pad.head ? (S.blink === "right" ? 1 : -1) * 1.95 : clamp(look.mouse + ((held("lookR") ? 1 : 0) - (held("lookL") ? 1 : 0)) * 1.6 + (padActive() ? pad.look * 1.8 : 0), -1.95, 1.95);
     S.headYaw = (S.headYaw || 0) + clamp(headWant - (S.headYaw || 0), -7 * dt, 7 * dt);
     if (Math.abs(S.headYaw) > 1.5) S.headT[S.headYaw > 0 ? "right" : "left"] = S.t;
+    if (S.headYaw < -0.6) S.lookL = S.t;
+    if (S.headYaw > 0.6) S.lookR = S.t;
     S.gas = held("gas") ? Math.min(1, S.gas + 1.2 * dt) : Math.max(0, S.gas - 2.5 * dt);
     const steerIn = (held("right") ? 1 : 0) - (held("left") ? 1 : 0);
     const g = S.guide;
@@ -1405,6 +1429,17 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     else {
       const fast = clamp((Math.abs(S.v) - 8) / 14, 0, 1), back = (Math.min(0.8, Math.abs(S.v) * 0.2) * (1 - fast) + 0.05 * fast) * dt;
       S.steer = Math.abs(S.steer) <= back ? 0 : S.steer - Math.sign(S.steer) * back;
+    }
+    if (padActive()) {
+      if (pad.gas != null) S.gas = Math.max(S.gas, pad.gas);
+      if (pad.brake != null) S.brake = Math.max(S.brake, pad.brake);
+      if (pad.clutch != null && !opts.autoClutch && !held("clutch") && !held("hold")) { S.clutch = pad.clutch; S.clutchManual = pad.clutch > 0.02; }
+      // a wheel turns the front wheels directly (about 13:1, like a real car); a stick is softened at speed
+      if (pad.steer != null && (pad.wheel || Math.abs(pad.steer) > 0.02) && !steerIn) {
+        const v2 = S.v * S.v, lim = pad.wheel || Math.abs(S.v) < 4 ? MAX_STEER : Math.min(MAX_STEER, Math.atan(1.3 * gripMu() * 9.81 * WHEELBASE / v2));
+        const want = pad.steer * lim;
+        S.steer = pad.wheel ? want : S.steer + clamp(want - S.steer, -2 * dt, 2 * dt);
+      }
     }
   }
   function updateStarter(dt) {
@@ -1741,7 +1776,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       else if (toLine <= -0.4) S.apprLate[key] = Math.min(S.apprLate[key] ?? Infinity, Math.abs(S.v));
       if (ctrlOf(ap.i, ap.j) === "stop" && S.v === 0 && toLine < 30 && !S.stopSeen[key]) {
         S.stopSeen[key] = true;
-        if (toLine > -0.4) toast("Detenida en el PARE ✓ Mira a los dos lados y sal en 1ª.", "good", "stopseen" + key, 3);
+        if (toLine > -0.4) toast("Detenida en el PARE ✓ Ahora mira a la izquierda y a la derecha (Shift + ← →, o arrastra la vista) y sal en 1ª.", "good", "stopseen" + key, 3);
         else toast(`Te detuviste ${Math.round(-toLine * 10) / 10} m pasada la línea blanca. Cuenta, pero la próxima frena un poco antes.`.replace(".", ","), "tip", "stopseen" + key, 3);
       }
     }
@@ -1781,6 +1816,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         if (remaining > -2) {
           if (ctrlOf(z.i, z.j) === "stop") {
             const ok = 1.5 / 3.6, before = S.appr[key] ?? Infinity, late = (S.apprLate || {})[key] ?? Infinity;
+            const looked = S.t - (S.lookL ?? -99) < 25 && S.t - (S.lookR ?? -99) < 25;
+            if ((before <= ok || late <= ok) && !looked) { infraction("No miraste a los dos lados en el PARE", -5); tip("En el PARE, ya detenida, mira a la izquierda y a la derecha antes de cruzar: Shift + ← →, arrastra la vista con el mouse o usa el stick derecho del joystick.", "look-pare", 30); }
             if (before <= ok) { award(10, "PARE respetado"); S.stopOk = true; }
             else if (late <= ok) { infraction("Te detuviste en el PARE pasando la línea blanca", -5); S.stopOk = true; tip("La línea blanca del PARE está unos metros antes de la esquina, antes de la senda peatonal. El cartel de arriba te dice a cuántos metros está de tu trompa.", "late-stop", 30); }
             else { infraction("Pasaste un PARE sin detenerte por completo"); tip("Para que cuente, el auto tiene que quedar quieto del todo (0 km/h) un momento, antes de la línea blanca o apenas pasada.", "nostop-tip", 30); }
@@ -2625,8 +2662,10 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const k = e.key.toLowerCase();
     if (S.paused) {
       if (quiz) { if (k === "escape" || (k === "enter" && quiz.done)) closeQuiz(); else if (k === "enter") quizNext(); e.preventDefault(); return; }
+      if (padWiz) { if (k === "escape") closePadWiz(); e.preventDefault(); return; }
       if (k === "enter" || k === "escape") { closeStall(); closeResult(); closeTrip(); closeRide(); closeCrash(); e.preventDefault(); } return;
     }
+    if (e.shiftKey && (k === "arrowleft" || k === "arrowright")) { keys[k === "arrowleft" ? "lookL" : "lookR"] = true; e.preventDefault(); return; }
     if (KEYMAP[k]) { keys[KEYMAP[k]] = true; e.preventDefault(); return; }
     if (e.repeat) return;
     if (k === "e") toggleEngine();
@@ -2646,7 +2685,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     else return;
     e.preventDefault();
   });
-  window.addEventListener("keyup", e => { const k = e.key.toLowerCase(); if (KEYMAP[k]) { keys[KEYMAP[k]] = false; if (e.target && e.target.tagName === "BUTTON") e.preventDefault(); } });
+  window.addEventListener("keyup", e => { const k = e.key.toLowerCase(); if (k === "arrowleft") keys.lookL = false; if (k === "arrowright") keys.lookR = false; if (KEYMAP[k]) { keys[KEYMAP[k]] = false; if (e.target && e.target.tagName === "BUTTON") e.preventDefault(); } });
   window.addEventListener("blur", () => { for (const k in keys) keys[k] = false; });
 
   function onWheel(e) {
@@ -2723,6 +2762,164 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       toast("Ya doblaste bien 6 veces: desde ahora la guía amarilla no aparece, como en la vida real. Si la necesitas, actívala en Controles → Opciones.", "good", "guide-off", 999);
     }
   }
+  // ---------- steering wheel and pedals, or a game controller (Gamepad API) ----------
+  // a standard controller works right away; a wheel with pedals is set up once with a short guided test
+  const pad = { on: false, id: "", steer: null, gas: null, brake: null, clutch: null, look: 0, head: false, wheel: false, lastMove: -99, prev: [], prevAxes: [], warned: false };
+  const padShort = id => id.replace(/\(.*?\)/g, "").replace(/\s+/g, " ").trim().slice(0, 40) || "joystick";
+  function padNow() { let gs = []; try { gs = navigator.getGamepads ? navigator.getGamepads() : []; } catch (err) {} for (const g of gs) if (g && g.connected !== false) return g; return null; }
+  const padDz = (v, d = 0.1) => Math.abs(v) < d ? 0 : (v - Math.sign(v) * d) / (1 - d);
+  const padRead = (g, m) => { const raw = m.kind === "button" ? (g.buttons[m.i] ? g.buttons[m.i].value : 0) : (g.axes[m.i] ?? m.rest); return clamp((raw - m.rest) / ((m.full - m.rest) || 1), 0, 1); };
+  const padActive = () => pad.on && S.t - pad.lastMove < 10;
+  const GEAR_ORDER = ["R", "N", "1", "2", "3", "4", "5"];
+  function padGearStep(dir) { const i = GEAR_ORDER.indexOf(S.gear); const ng = GEAR_ORDER[clamp(i + dir, 1, GEAR_ORDER.length - 1)]; if (ng !== S.gear) shiftTo(ng); }
+  function pollPad() {
+    const g = padNow();
+    if (!g) { if (pad.on) { pad.on = false; pad.steer = pad.gas = pad.brake = pad.clutch = null; pad.look = 0; padStatus(); toast("Se desconectó el joystick o volante.", "", "pad-off", 5); } return; }
+    if (!pad.on || pad.id !== g.id) {
+      pad.on = true; pad.id = g.id; pad.prev = g.buttons.map(b => b.pressed); pad.prevAxes = g.axes.slice(); padStatus();
+      const map = opts.padMap && opts.padMap.id === g.id;
+      toast(map ? `Volante conectado: ${padShort(g.id)}. Uso tu configuración guardada.` : g.mapping === "standard" ? `Joystick conectado: gatillo derecho acelera, izquierdo frena, stick derecho hacia abajo es el embrague. Todo en Controles.` : `Conectaste ${padShort(g.id)}. Si es un volante con pedales, configúralo en Controles → Volante y pedales.`, "good", "pad-on", 5);
+    }
+    if (padWiz) { padWizStep(g); pad.prev = g.buttons.map(b => b.pressed); pad.prevAxes = g.axes.slice(); return; }
+    const moved = g.axes.some((a, i) => Math.abs(a - (pad.prevAxes[i] ?? a)) > 0.03) || g.buttons.some((b, i) => b.pressed !== !!pad.prev[i]);
+    if (moved) pad.lastMove = S.t;
+    const pressed = i => g.buttons[i] && g.buttons[i].pressed && !pad.prev[i];
+    const map = opts.padMap && opts.padMap.id === g.id ? opts.padMap : null;
+    if (map) {
+      pad.wheel = true;
+      pad.steer = clamp((g.axes[map.steer.i] - map.steer.c) / (map.steer.r || 1), -1, 1) * map.steer.sign;
+      pad.gas = padRead(g, map.gas); pad.brake = padRead(g, map.brake); pad.clutch = map.clutch ? padRead(g, map.clutch) : null;
+      pad.look = 0; pad.head = false;
+      // an H shifter: the lever in a slot is that gear, out of every slot is neutral
+      if (map.gears && !S.paused) {
+        let inGear = null;
+        for (const [gear, bi] of Object.entries(map.gears)) if (g.buttons[bi] && g.buttons[bi].pressed) inGear = gear;
+        if (inGear && inGear !== S.gear && inGear !== pad.lastGear) shiftTo(inGear);
+        if (!inGear && pad.lastGear && S.gear !== "N") shiftTo("N");
+        pad.lastGear = inGear;
+      }
+    } else if (g.mapping === "standard") {
+      pad.wheel = false;
+      const sx = padDz(g.axes[0] ?? 0); pad.steer = Math.sign(sx) * sx * sx;
+      pad.gas = g.buttons[7] ? g.buttons[7].value : 0; pad.brake = g.buttons[6] ? g.buttons[6].value : 0;
+      const rx = padDz(g.axes[2] ?? 0, 0.2), ry = padDz(g.axes[3] ?? 0, 0.12);
+      pad.clutch = ry > 0 && ry >= Math.abs(rx) * 0.7 ? ry : 0;
+      pad.look = Math.abs(rx) > Math.abs(ry) ? rx : 0;
+      pad.head = !!(g.buttons[11] && g.buttons[11].pressed);
+      if (!S.paused) {
+        if (pressed(0)) lookMirrors();
+        if (pressed(1)) honk(true);
+        if (pressed(2)) S.hand = !S.hand;
+        if (pressed(3)) toggleEngine();
+        if (pressed(4)) S.blink = S.blink === "left" ? null : "left";
+        if (pressed(5)) S.blink = S.blink === "right" ? null : "right";
+        if (pressed(8)) { S.lights = !S.lights; toast(S.lights ? "Luces bajas encendidas." : "Luces apagadas.", "", "lights" + S.lights, 1); }
+        if (pressed(9)) { S.belt = !S.belt; if (S.belt) toast("Cinturón abrochado.", "", "belt-on", 2); }
+        if (pressed(10)) toggleHazard();
+        if (pressed(12)) padGearStep(1);
+        if (pressed(13)) padGearStep(-1);
+        if (pressed(14)) shiftTo("N");
+        if (pressed(15)) shiftTo("R");
+      } else if (pressed(0) || pressed(9)) { closeStall(); closeResult(); closeTrip(); closeRide(); closeCrash(); }
+    } else {
+      pad.steer = pad.gas = pad.brake = pad.clutch = null;
+      if (!pad.warned) { pad.warned = true; padStatus(); }
+    }
+    pad.prev = g.buttons.map(b => b.pressed); pad.prevAxes = g.axes.slice();
+  }
+  // the guided setup: each step finds what moved the most
+  const PAD_STEPS = [
+    { key: "steer", text: "Gira el volante todo a la DERECHA y vuelve a dejarlo derecho." },
+    { key: "gas", text: "Pisa el ACELERADOR a fondo y suéltalo." },
+    { key: "brake", text: "Pisa el FRENO a fondo y suéltalo." },
+    { key: "clutch", text: "Pisa el EMBRAGUE a fondo y suéltalo.", skip: "No tengo pedal de embrague" },
+    { key: "1", text: "Pon 1ª con la palanca de cambios.", skip: "No tengo palanca de cambios", gear: true },
+    { key: "2", text: "Ahora 2ª.", gear: true }, { key: "3", text: "Ahora 3ª.", gear: true }, { key: "4", text: "Ahora 4ª.", gear: true }, { key: "5", text: "Ahora 5ª.", gear: true }, { key: "R", text: "Y la reversa (R).", gear: true, skip: "Mi palanca no tiene reversa" },
+  ];
+  let padWiz = null;
+  function openPadWiz() {
+    const g = padNow();
+    if (!g) { toast("Primero conecta el volante o el joystick y aprieta cualquier botón o pedal.", "bad", "pad-none", 3); return; }
+    padWiz = { n: 0, map: { id: g.id, gears: {} }, used: new Set() };
+    S.paused = true; for (const k in keys) keys[k] = false;
+    padWizStart(g);
+    document.getElementById("pad-card").hidden = false;
+  }
+  function padWizStart(g) {
+    const st = PAD_STEPS[padWiz.n];
+    padWiz.base = g ? g.axes.slice() : []; padWiz.baseB = g ? g.buttons.map(b => b.value) : []; padWiz.min = padWiz.base.slice(); padWiz.max = padWiz.base.slice(); padWiz.bmax = padWiz.baseB.slice(); padWiz.still = 0; padWiz.wait = false;
+    document.getElementById("pad-step").textContent = `Paso ${padWiz.n + 1} de ${PAD_STEPS.length}`;
+    document.getElementById("pad-text").textContent = st.text;
+    document.getElementById("pad-bar").style.width = "0%";
+    const sk = document.getElementById("pad-skip"); sk.hidden = !st.skip; sk.textContent = st.skip || "";
+  }
+  function padWizNext(skipRest) {
+    const st = PAD_STEPS[padWiz.n];
+    if (skipRest && st.gear) padWiz.n = PAD_STEPS.length; else padWiz.n++;
+    if (padWiz.n >= PAD_STEPS.length) {
+      if (!Object.keys(padWiz.map.gears).length) delete padWiz.map.gears;
+      opts.padMap = padWiz.map; saveOpts(); padWiz = null;
+      document.getElementById("pad-card").hidden = true; S.paused = false; padStatus();
+      toast("¡Listo! Volante y pedales configurados.", "good", "pad-done", 3);
+      document.getElementById("road").focus();
+      return;
+    }
+    padWizStart(padNow());
+  }
+  function closePadWiz() { if (!padWiz) return; padWiz = null; document.getElementById("pad-card").hidden = true; S.paused = false; document.getElementById("road").focus(); }
+  function padWizStep(g) {
+    const w = padWiz, st = PAD_STEPS[w.n];
+    if (st.gear) {
+      if (w.wait) return;
+      const bi = g.buttons.findIndex((b, i) => b.pressed && !(w.baseB[i] > 0.5) && !w.used.has("b" + i));
+      if (bi >= 0) { w.map.gears[st.key] = bi; w.used.add("b" + bi); document.getElementById("pad-bar").style.width = "100%"; w.wait = true; setTimeout(() => padWiz && padWizNext(), 300); }
+      return;
+    }
+    // axes and analog buttons: track how far each one moved; when the biggest mover settles back, that is it
+    let best = null, bestR = 0;
+    g.axes.forEach((a, i) => { w.min[i] = Math.min(w.min[i], a); w.max[i] = Math.max(w.max[i], a); const r = w.max[i] - w.min[i]; if (r > bestR && !w.used.has("a" + i)) { bestR = r; best = { kind: "axis", i, v: a }; } });
+    g.buttons.forEach((b, i) => { w.bmax[i] = Math.max(w.bmax[i], b.value); const r = w.bmax[i] - Math.min(w.baseB[i], b.value); if (r > bestR + 0.2 && !w.used.has("b" + i)) { bestR = r; best = { kind: "button", i, v: b.value }; } });
+    document.getElementById("pad-bar").style.width = Math.round(Math.min(1, bestR / (st.key === "steer" ? 0.8 : 1.2)) * 100) + "%";
+    if (!best || bestR < 0.5) return;
+    const lo = best.kind === "axis" ? w.min[best.i] : 0, hi = best.kind === "axis" ? w.max[best.i] : w.bmax[best.i];
+    const nearEnd = Math.min(Math.abs(best.v - lo), Math.abs(best.v - hi)) < bestR * 0.12;
+    const settled = st.key === "steer" ? Math.abs(best.v - (lo + hi) / 2) < bestR * 0.25 || Math.abs(best.v - w.base[best.i]) < bestR * 0.15 : nearEnd;
+    w.still = settled ? w.still + 1 : 0;
+    if (w.still < 25) return;
+    // settled for about half a second: record it
+    if (st.key === "steer") {
+      const c = best.v, far = Math.abs(hi - c) > Math.abs(lo - c) ? hi : lo;
+      w.map.steer = { i: best.i, c, r: Math.max(0.2, Math.abs(far - c)), sign: far > c ? 1 : -1 };
+    } else {
+      const rest = best.v, full = Math.abs(hi - rest) > Math.abs(lo - rest) ? hi : lo;
+      w.map[st.key] = { kind: best.kind, i: best.i, rest, full };
+    }
+    w.used.add((best.kind === "axis" ? "a" : "b") + best.i);
+    padWizNext();
+  }
+  function padStatus() {
+    const el = document.getElementById("pad-status"); if (!el) return;
+    const g = padNow();
+    el.textContent = !g ? "No hay volante ni joystick conectado. Conéctalo y aprieta cualquier botón o pedal." : opts.padMap && opts.padMap.id === g.id ? `Conectado: ${padShort(g.id)} · con tu configuración.` : g.mapping === "standard" ? `Conectado: ${padShort(g.id)} · joystick estándar, listo para usar.` : `Conectado: ${padShort(g.id)} · falta configurarlo.`;
+    document.getElementById("pad-forget").hidden = !opts.padMap;
+  }
+  window.addEventListener("gamepadconnected", () => { pollPad(); });
+  document.getElementById("pad-setup").addEventListener("click", openPadWiz);
+  document.getElementById("pad-forget").addEventListener("click", () => { delete opts.padMap; saveOpts(); padStatus(); toast("Borré la configuración del volante.", "", "pad-forget", 2); });
+  document.getElementById("pad-skip").addEventListener("click", () => padWizNext(true));
+  document.getElementById("pad-cancel").addEventListener("click", closePadWiz);
+  padStatus();
+  // looking around with the mouse (drag on the road) or a finger: let go and the head comes back
+  const look = { mouse: 0, drag: null }, roadEl = document.getElementById("road");
+  roadEl.addEventListener("pointerdown", e => { if (e.button !== 0) return; look.drag = { x: e.clientX, v: look.mouse, id: e.pointerId, moved: false }; });
+  roadEl.addEventListener("pointermove", e => {
+    if (!look.drag || e.pointerId !== look.drag.id) return;
+    const dx = e.clientX - look.drag.x;
+    if (!look.drag.moved && Math.abs(dx) > 6) { look.drag.moved = true; try { roadEl.setPointerCapture(e.pointerId); } catch (err) {} }
+    if (look.drag.moved) look.mouse = clamp(look.drag.v + dx * 0.006, -1.9, 1.9);
+  });
+  const lookEnd = () => { look.drag = null; };
+  roadEl.addEventListener("pointerup", lookEnd); roadEl.addEventListener("pointercancel", lookEnd);
   // ask "are you sure?" on the button itself: the first click arms it, a second click within 4 s does it
   function twoStep(btn, ask, action) {
     const label = btn.textContent; let armed = 0;
@@ -5025,7 +5222,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         ...(() => {
           // what this corner asks for before turning
           const ci = Math.round(g.bx / G), cj = Math.round(g.bz / G), cc = ctrlOf(ci, cj), key = ci + "," + cj;
-          if (cc === "stop") return [["Es un PARE: detente del todo antes de la línea", () => (S.appr[key] ?? Infinity) < 0.4 || (S.box && S.box.key === key && S.box.judged)]];
+          if (cc === "stop") return [["Es un PARE: detente del todo antes de la línea", () => (S.appr[key] ?? Infinity) < 0.4 || (S.box && S.box.key === key && S.box.judged)], ["Mira a la izquierda y a la derecha (Shift + ← →)", () => (S.t - (S.lookL ?? -99) < 25 && S.t - (S.lookR ?? -99) < 25) || (S.box && S.box.key === key && S.box.judged)]];
           if (cc === "light") return [["Semáforo: si está en rojo o amarillo, espera el verde", () => lightState(ci, cj, Math.abs(dirOf(S.th).z) > 0.5 ? "NS" : "EW") === "green" || g.cued]];
           return [[cc === "ceda" ? "Ceda el paso: mira a los costados y deja pasar" : "Sin señales: cede el paso a quien viene por tu derecha", () => g.cued]];
         })(),
@@ -5211,7 +5408,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     camera.position.set(ex, ey, ez);
     sky.position.set(ex, 0, ez); skyline.position.set(ex, 30, ez);
     const look = dirOf(S.th + S.steer * 0.6 * (1 - Math.min(1, Math.abs(hy0))) + hy0);
-    stage.classList.toggle("head", Math.abs(hy0) > 0.5); stage.classList.toggle("head-r", hy0 > 0.5);
+    stage.classList.toggle("head", Math.abs(hy0) > 1.0); stage.classList.toggle("head-r", hy0 > 1.0);
     const pitch = -S.brake * 0.35 * Math.min(1, Math.abs(S.v) / 3);
     camera.lookAt(ex + look.x * 20, heightAt(ex + look.x * 20, ez + look.z * 20) + 1.22 + jy - 0.9 + pitch, ez + look.z * 20);
     wheelEl.setAttribute("transform", `rotate(${(S.steer / MAX_STEER * 450).toFixed(1)} 500 390) translate(${(jx * 900).toFixed(1)},${(jy * 900).toFixed(1)})`);
@@ -5524,7 +5721,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       const toLine = ap.dist - (STOP_LINE - HALF) - CAR_L / 2, key = ap.i + "," + ap.j;
       let txt = label + " · " + Math.max(0, Math.round(ap.dist)) + " m";
       if (cc !== "none" && cc !== "round" && toLine < 40) txt = toLine > 0.3 ? `${label} · línea blanca a ${toLine < 5 ? toLine.toFixed(1).replace(".", ",") : Math.round(toLine)} m de tu trompa` : toLine > -0.4 ? `${label} · estás en la línea` : `${label} · pasaste la línea blanca`;
-      if (cc === "stop" && toLine < 30 && (S.appr[key] ?? Infinity) <= 1.5 / 3.6) txt = "PARE · detenida ✓ · mira y sal en 1ª";
+      if (cc === "stop" && toLine < 30 && (S.appr[key] ?? Infinity) <= 1.5 / 3.6) txt = S.t - (S.lookL ?? -99) < 25 && S.t - (S.lookR ?? -99) < 25 ? "PARE · detenida ✓ · miraste ✓ · sal en 1ª" : "PARE · detenida ✓ · ahora mira ← y → (Shift + flechas)";
       if (chip.dataset.t !== txt) { chip.dataset.t = txt; chip.innerHTML = `<i style="background:${col}"></i>`; chip.appendChild(document.createTextNode(txt)); }
       chip.hidden = false;
     } else chip.hidden = true;
@@ -5553,7 +5750,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   }
   function frame(now) {
     const realDt = (now - last) / 1000, dt = Math.min(0.05, realDt); last = now;
-    if (S.paused) { render3d(); requestAnimationFrame(frame); return; }
+    if (S.paused) { pollPad(); render3d(); requestAnimationFrame(frame); return; }
     if (S.t > 3) watchPerf(realDt);
     S.t += dt;
     updateControls(dt);
