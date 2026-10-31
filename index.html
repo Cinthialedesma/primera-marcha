@@ -472,6 +472,11 @@ button.lamp:hover { border-color: var(--amber-dim); }
 .weak-item small { color: var(--muted); font-size: .74rem; }
 .weak-item .btn { justify-self: start; font-size: .82rem; padding: 4px 10px; }
 #replays li { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .84rem; }
+.faults { margin: 4px 0 8px; padding: 0; list-style: none; display: grid; gap: 4px; font-size: .85rem; }
+.faults li { display: flex; align-items: center; gap: 8px; background: var(--panel-2); border-radius: 6px; padding: 4px 8px; }
+.faults .tag { font-family: var(--font-num); font-size: .7rem; padding: 1px 6px; border-radius: 4px; background: #5a4a20; color: #ffd27a; }
+.faults li.grave .tag { background: var(--red); color: #fff; }
+.faults .txt { flex: 1; }
 .pad-text { font-size: 1.05rem; font-weight: 600; color: var(--ink); }
 .pad-meter { height: 10px; border-radius: 5px; background: #2a2d31; overflow: hidden; margin: 6px 0; }
 .pad-meter span { display: block; height: 100%; width: 0; background: var(--green); transition: width .1s; }
@@ -647,6 +652,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
       </div>
       <p id="result-text"></p>
       <div class="result-stats" id="result-stats"></div>
+      <ol class="faults" id="result-faults"></ol>
       <div class="card-foot"><button class="btn" id="result-retry" type="button" hidden>Intentar de nuevo</button><button class="btn" id="result-ok" type="button">Seguir manejando <span class="key">Enter</span></button></div>
     </div>
     <div class="stall-card result-card quiz-card" id="quiz-card" role="dialog" aria-labelledby="quiz-q" hidden>
@@ -1203,7 +1209,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
   const LOT_ENTRY = { x: 0, z: -45 }, LOT_DOOR = { x: HALF + 1.5, z: -45 };
   function lotWanted() {
     if (mode !== "city" || opts.freeDrive || inLot(S.x, S.z) || inRect(S.x, S.z, DRIVE)) return false;
-    return S.mission === 6 || !!(S.exam && S.exam.phase === "park" && !S.exam.passed && !S.exam.failed);
+    return S.mission === 6 || !!(S.exam && S.exam.phase === "park" && !S.exam.spot && !S.exam.passed && !S.exam.failed);
   }
   function lotNav() {
     if (!lotWanted()) return null;
@@ -1277,7 +1283,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     d._tm = setTimeout(() => d.remove(), Math.max(6000, text.length * 85));
     return d;
   }
-  const tip = (text, key, cooldown = 20) => { if (help) toast(text, "tip", key, cooldown); };
+  const tip = (text, key, cooldown = 20) => { if (help && !examOn()) toast(text, "tip", key, cooldown); };
   // the instructor reads the messages aloud, so your eyes can stay on the road
   let voiceEs = null;
   const ORD = { 1: "primera", 2: "segunda", 3: "tercera", 4: "cuarta", 5: "quinta" };
@@ -1308,6 +1314,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     noteMistake(text);
     const r = markReplay(text);
     if (d && r) { d.appendChild(replayBtn(r)); clearTimeout(d._tm); d._tm = setTimeout(() => d.remove(), 10000); }
+    if (examOn()) examFault(text, r);
     renderReplays();
   }
 
@@ -1317,7 +1324,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     if (g === "N") { S.gear = "N"; return true; }
     if (opts.autoClutch) { S.shiftT = 0.35; S.clutch = 1; }
     else if (S.clutch < BITE_TOP + 0.05) {
-      S.counts.grind++; award(-5, "Raspaste la caja: cambio sin embrague a fondo", "warn"); noteMistake("Raspaste la caja");
+      S.counts.grind++; award(-5, "Raspaste la caja: cambio sin embrague a fondo", "warn"); noteMistake("Raspaste la caja"); if (examOn()) examFault("Raspaste la caja");
       toast("¡Crrrk! El cambio no entra si el embrague no está a fondo.", "bad", "grind", 1);
       return false;
     }
@@ -1345,6 +1352,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     S.counts.stall++;
     const info = explainStall();
     award(-5, "Se apagó el motor: " + info.title, "warn"); noteMistake("Se apagó el motor: " + info.title);
+    if (examOn()) examFault("Se apagó el motor", markReplay("Se apagó el motor"));
     rideHit("stall", 8);
     showStall(info);
   }
@@ -1712,7 +1720,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
       S.shake = Math.max(S.shake, 0.5 + Math.min(1.2, S.slip - 1));
       S.slipT = (S.slipT || 0) + dt;
       if (S.slipT > 0.3) tip(opts.rain ? "¡Las ruedas patinan! Con lluvia el auto agarra mucho menos: suelta el acelerador, endereza un poco el volante y no frenes de golpe. Ve más despacio en las curvas." : "¡Las ruedas patinan! Entraste muy rápido o giraste de golpe. Suelta el acelerador, endereza un poco el volante y no frenes fuerte en la curva.", "slip", 20);
-      if (S.slipT > 1 && !S.slipFlag) { S.slipFlag = true; award(-10, "Patinaste: perdiste adherencia en una curva"); toast("Patinaste: perdiste adherencia (-10)", "bad", "slip-bad", 4); }
+      if (S.slipT > 1 && !S.slipFlag) { S.slipFlag = true; award(-10, "Patinaste: perdiste adherencia en una curva"); if (examOn()) examFault("Patinaste en una curva", markReplay("Patinaste en una curva")); toast("Patinaste: perdiste adherencia (-10)", "bad", "slip-bad", 4); }
     } else { S.slipT = 0; if (!S.slip) S.slipFlag = false; }
   }
   function checkCommon(dt) {
@@ -2200,7 +2208,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     { title: "Dobla a la izquierda señalizando", hint: "Señalizador izquierdo (Z), reduce, avanza hasta el centro de la intersección y gira con ← hasta quedar en el carril derecho de la otra calle.", done: () => S.turned.left },
     { title: "Estaciona en el lugar marcado", hint: "Ve al estacionamiento de práctica: en el GPS (abajo a la izquierda) es el rectángulo gris con la P, y una línea amarilla te marca el camino. La entrada está en la calle donde empezaste, del lado derecho, junto al cartel azul ESCUELA · PRÁCTICA y una columna amarilla. Adentro, estaciona en el rectángulo amarillo, de frente o en reversa. Cuenta cuando todo el auto queda entre las líneas, derecho, y frenado 1 segundo: el rectángulo se pone verde y el panel de la derecha te dice qué falta.", done: () => S.parkedPerp },
     { title: "Estaciona en paralelo en la calle", hint: "En muchas cuadras de mano única hay autos estacionados junto al cordón. El GPS te lleva a un lugar libre a tu derecha, marcado en amarillo. Ponte al lado del auto de adelante a 1 m, guiño derecho, reversa con todo a la derecha hasta 45°, endereza, y cuando tu trompa pase la cola del auto de adelante gira todo a la izquierda. El panel te guía paso a paso.", done: () => S.parkedStreet },
-    { title: "Examen final", hint: "Sigue el GPS hasta los 3 puntos verdes (los ves en la calle como columnas verdes) y vuelve a estacionar en el lugar marcado. Apruebas con 2 infracciones o menos.", done: () => S.exam && S.exam.passed },
+    { title: "Examen práctico (como el de la licencia)", hint: "Un examinador te va diciendo por dónde ir: el GPS no marca el camino y no hay ayudas en pantalla. Antes de salir: cinturón y espejos. Faltas graves (terminan el examen): no detenerte en el PARE, cruzar en rojo, contramano, chocar, subirte al cordón, no cederle el paso a un peatón o una bici, ir más de 10 km/h por encima del límite o salir sin cinturón. Con más de 4 faltas leves (sin guiño, sin espejo, motor apagado, no mirar en el PARE…) tampoco apruebas. Al final estacionas en paralelo en la calle.", done: () => S.exam && S.exam.passed },
   ];
   const HILL_MISSIONS = [
     { title: "Arranca en subida sin irte para atrás", hint: "Empiezas parada en una subida con el freno de mano puesto. Embrague a fondo, 1ª, acelera hasta unas 2.000 rpm y suelta el embrague hasta que el auto haga fuerza (las rpm bajan un poco y el auto tiembla). Recién ahí baja el freno de mano (Q) y sigue soltando el embrague de a poco.", done: () => S.hillLaunchOk },
@@ -2483,7 +2491,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     CITY_MISSIONS[4].steps = turnSteps("right"); CITY_MISSIONS[5].steps = turnSteps("left");
     CITY_MISSIONS[6].steps = [["Ve al estacionamiento (la P del GPS)", () => inLot(S.x, S.z)], ["Entra al rectángulo amarillo", () => inRect(S.x, S.z, PERP_RECT, 0.5)], ["Todo el auto adentro, derecho y frenado 1 segundo (el lugar se pone verde)", () => S.parkedPerp]];
     CITY_MISSIONS[7].steps = [["Sigue el GPS hasta el lugar libre marcado en amarillo", () => (S.streetSpot && Math.hypot(S.x - S.streetSpot.x, S.z - S.streetSpot.z) < 40) || S.parkedStreet], ["Ponte al lado del auto de adelante del lugar, con el guiño derecho", () => (S.streetSpot && Math.abs(spotFrame(S.streetSpot, S.x, S.z).a - PARK_DS) < 2 && Math.abs(wrap(S.th - S.streetSpot.th)) < 0.3) || S.parkedStreet], ["Estaciona en paralelo junto al cordón y quédate quieto 1 segundo", () => S.parkedStreet]];
-    CITY_MISSIONS[8].steps = [["Punto 1 del GPS", () => S.exam && (S.exam.idx >= 1 || S.exam.passed)], ["Punto 2", () => S.exam && (S.exam.idx >= 2 || S.exam.passed)], ["Punto 3", () => S.exam && (S.exam.idx >= 3 || S.exam.passed)], ["Vuelve a estacionar en el lugar marcado", () => S.exam && S.exam.passed]];
+    CITY_MISSIONS[8].steps = [["Cinturón y espejos, y arranca", () => S.exam && (S.exam.phase !== "prep" || S.exam.passed)], ["Sigue las indicaciones del examinador (3 tramos)", () => S.exam && (S.exam.idx >= 3 || S.exam.passed)], ["Estaciona en paralelo donde te indique", () => S.exam && S.exam.passed]];
     HILL_MISSIONS[0].steps = [["Embrague a fondo y pon 1ª", () => S.gear === "1"], ["Acelera hasta unas 2.000 rpm", () => rpm() > 1700 && S.gas > 0.15], ["Suelta el embrague hasta que haga fuerza (tiembla)", () => e() > 0.08 && S.running], ["Ahí, baja el freno de mano (Q)", () => !S.hand && S.running], ["Sube sin irte para atrás", () => S.hillLaunchOk]];
     HILL_MISSIONS[1].steps = [["Al llegar al PARE, frena hasta detenerte", () => S.v === 0 && S.hs && S.hs.uphill && S.hs.stopped], ["Pisa el embrague antes de parar", () => S.v === 0 && S.clutch > 0.6], ["Sube el freno de mano (Q)", () => S.hillStopOk || (S.v === 0 && S.hand)]];
     CAMPO_MISSIONS[0].steps = prep.concat([["Enciende las luces bajas (K)", () => S.lights], ["Enciende el motor y sal en 1ª", () => S.running && S.v > 2]]);
@@ -2507,7 +2515,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     { mode: "campo", title: "Ruta en el campo", until: 5 },
     { theory: true, title: "Examen teórico" },
     { mode: "parking", title: "Examen de circuito con conos", until: 5 },
-    { mode: "city", title: "Examen final en la calle", until: 9 },
+    { mode: "city", title: "Examen práctico en la calle", until: 9 },
   ];
   const MODE_NAMES = { lesson: "Primera clase", city: "Ciudad", hill: "Subidas y bajadas", parking: "Estacionamiento", campo: "Ruta en el campo", ride: "Llevar a alguien", autopista: "Autopista (tipo General Paz)" };
   let prog = { modes: {}, free: false, last: null };
@@ -2596,24 +2604,86 @@ button.lamp:hover { border-color: var(--amber-dim); }
   function startExam() {
     const pool = EXAM_POOL.slice(), cps = [];
     while (cps.length < 3) cps.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
-    S.exam = { cps, idx: 0, infr0: S.counts.infr, phase: "route", passed: false };
-    S.parkedPerp = false;
-    toast("Examen final: sigue el GPS hasta el primer punto verde.", "good", "exam-start" + S.t, 1);
+    S.exam = { cps, idx: 0, infr0: S.counts.infr, phase: "prep", passed: false, faults: [], t0: S.t, dist0: S.dist, lastDir: null };
+    S.parkedPerp = false; S.parkedStreet = false;
+    examSay("Hola, soy tu examinador. Antes de salir: cinturón y espejos. Después te voy diciendo por dónde ir: el GPS no marca el camino. Una falta grave termina el examen.");
   }
   function updateExam() {
     if (mode === "city" && S.mission === MISSIONS.length - 1 && !S.exam && examOpen() && !opts.freeDrive) startExam();
     const ex = S.exam;
     if (!ex || ex.passed || ex.failed) return;
-    const infr = S.counts.infr - ex.infr0;
-    if (infr > 2) { ex.failed = true; showResult(false); return; }
+    updateExaminer();
     if (ex.phase === "route") {
       const [i, j] = ex.cps[ex.idx];
-      if (Math.hypot(S.x - i * G, S.z - j * G) < 6) {
-        ex.idx++;
-        if (ex.idx < 3) toast(`Punto ${ex.idx} de 3 listo. Sigue al siguiente punto verde del GPS.`, "good", "cp" + ex.idx);
-        else { ex.phase = "park"; S.parkedPerp = false; toast("Puntos listos. Último paso: vuelve al estacionamiento (la P del GPS, sigue la línea amarilla) y estaciona en el lugar marcado.", "good", "cp-park"); }
+      if (Math.hypot(S.x - i * G, S.z - j * G) < 8) {
+        ex.idx++; ex.lastDir = null;
+        if (ex.idx >= 3) {
+          ex.phase = "park"; S.parkedStreet = false; S.parkedPerp = false;
+          ex.spot = findStreetSpot(); if (ex.spot) S.streetSpot = ex.spot;
+          examSay(ex.spot ? "Muy bien. Ahora vamos a estacionar en la calle: te aviso dónde." : "Muy bien. Ahora volvé al estacionamiento (la P del GPS) y estacioná en el lugar marcado.");
+        }
       }
-    } else if (ex.phase === "park" && S.parkedPerp) { ex.passed = true; award(200, "Aprobaste el examen final"); S.licensed = true; showResult(true); }
+    } else if (ex.phase === "park" && (ex.spot ? S.parkedStreet : S.parkedPerp)) {
+      ex.passed = true; award(200, "Aprobaste el examen práctico"); S.licensed = true; examSay("¡Muy bien! Aprobaste."); showResult(true);
+    }
+  }
+  // ---------- the practical exam, like the one for the license: an examiner who tells you where to go, and a sheet of faults ----------
+  // grave faults end the exam right there; more than 4 light ones fail it too
+  const EXAM_GRAVE = /PARE sin detenerte|luz roja|contramano|Chocaste|Atropellaste|chocó|cordón|isleta|No cediste el paso|cortándole|peatón|sin el cinturón|Circulaste por el carril contrario|Vas por el carril contrario/;
+  const EXAM_MAX_LIGHT = 4;
+  const examOn = () => !!(S.exam && !S.exam.passed && !S.exam.failed);
+  function examFault(text, replay) {
+    const ex = S.exam; if (!examOn()) return;
+    let grave = EXAM_GRAVE.test(text);
+    const sp = /Exceso de velocidad: (\d+) km\/h en zona de (\d+)/.exec(text);
+    if (sp && +sp[1] > +sp[2] + 10) grave = true;
+    ex.faults.push({ text, grave, replay, t: S.t });
+    const light = ex.faults.filter(f => !f.grave).length;
+    if (grave) { examSay(`Detengámonos acá. ${text}: es una falta grave y el examen termina.`); ex.failed = true; setTimeout(() => showResult(false), 1200); }
+    else if (light > EXAM_MAX_LIGHT) { examSay("Ya son demasiadas faltas leves. Terminamos acá."); ex.failed = true; setTimeout(() => showResult(false), 1200); }
+    else examSay(`Anoto una falta leve: ${text.toLowerCase()}.`, true);
+  }
+  // the examiner talks: a message in the top sign and the voice (even with the voice off, the text stays)
+  function examSay(text, quiet) {
+    if (!S.exam) return;
+    S.exam.said = text; S.exam.saidT = S.t;
+    toast("Examinador: " + text, "talk", "exam-say" + text, 3);
+  }
+  // which turn comes next on the way, said like a person would say it
+  function examDirection(route) {
+    const p = route.pts;
+    if (p.length < 3) return { key: "end", dist: route.len, text: "Seguí derecho" };
+    for (let n = 1; n < p.length - 1; n++) {
+      const a = p[n - 1], b = p[n], c = p[n + 1];
+      const v1x = b.x - a.x, v1z = b.z - a.z, v2x = c.x - b.x, v2z = c.z - b.z, cr = (v1x * v2z - v1z * v2x) / Math.max(1, Math.hypot(v1x, v1z) * Math.hypot(v2x, v2z));
+      let d = 0; for (let k = 1; k <= n; k++) d += Math.hypot(p[k].x - p[k - 1].x, p[k].z - p[k - 1].z);
+      if (Math.abs(cr) > 0.5) return { key: Math.round(b.x) + "," + Math.round(b.z) + (cr > 0 ? "R" : "L"), dist: d, text: cr > 0 ? "En la próxima esquina doblá a la derecha" : "En la próxima esquina doblá a la izquierda", near: d < 75 };
+    }
+    return { key: "straight", dist: route.len, text: "Seguí derecho por esta calle" };
+  }
+  function examRoute() {
+    const ex = S.exam;
+    if (ex.phase === "route") { const [i, j] = ex.cps[ex.idx]; return pathTo(i, j, null); }
+    if (ex.phase === "park" && ex.spot) { const sp = ex.spot; return pathTo(sp.i, sp.j, sp.k, [{ x: sp.x, z: sp.z }]); }
+    return null;
+  }
+  function updateExaminer() {
+    const ex = S.exam; if (!examOn()) return;
+    // before leaving: belt and mirrors
+    if (ex.phase === "prep") {
+      if (S.dist - ex.dist0 > 2) {
+        if (!S.belt) examFault("Saliste sin el cinturón de seguridad");
+        else if (S.mirrorT < ex.t0) examFault("No miraste los espejos antes de salir");
+        ex.phase = "route"; examSay("Bien, vamos. Te voy a ir indicando por dónde ir.");
+      }
+      return;
+    }
+    const r = examRoute(); if (!r) return;
+    const dir = examDirection(r);
+    if (ex.phase === "park" && ex.spot && Math.hypot(S.x - ex.spot.x, S.z - ex.spot.z) < 45) {
+      if (ex.lastDir !== "park") { ex.lastDir = "park"; examSay("Ahí adelante, a la derecha, hay un lugar libre entre dos autos. Estacioná en paralelo."); }
+    } else if (dir.near && dir.key !== ex.lastDir) { ex.lastDir = dir.key; examSay(dir.text + "."); }
+    ex.chip = dir.near ? dir.text : ex.phase === "park" ? "Vamos a estacionar: seguí mis indicaciones" : "Seguí derecho hasta que te indique";
   }
   // ---------- trip summary ----------
   const TRIP_ADVICE = [
@@ -2796,15 +2866,18 @@ button.lamp:hover { border-color: var(--amber-dim); }
     document.getElementById("road").focus();
   }
   function showResult(ok) {
-    const ex = S.exam, infr = S.counts.infr - ex.infr0, card = document.getElementById("result-card");
+    const ex = S.exam, card = document.getElementById("result-card"), faults = ex.faults || [], graves = faults.filter(f => f.grave), light = faults.length - graves.length;
     S.paused = true; for (const k in keys) keys[k] = false;
     card.classList.toggle("fail", !ok);
-    document.getElementById("result-eyebrow").textContent = ok ? "Examen final · aprobado" : "Examen final · no aprobado";
-    document.getElementById("result-title").textContent = ok ? "¡Aprobaste! Ya tienes tu licencia de práctica" : "Esta vez no: tuviste más de 2 infracciones";
+    document.getElementById("result-eyebrow").textContent = ok ? "Examen práctico · aprobado" : "Examen práctico · no aprobado";
+    document.getElementById("result-title").textContent = ok ? "¡Aprobaste! Ya tienes tu licencia de práctica" : graves.length ? "No aprobado: una falta grave" : "No aprobado: demasiadas faltas leves";
     document.getElementById("result-text").textContent = ok
-      ? "Llegaste a los 3 puntos y estacionaste respetando las reglas. Puedes seguir manejando con más tránsito, con lluvia o sin ayudas."
-      : "Revisa en la pestaña Puntaje qué infracciones fueron y vuelve a intentarlo. Ve más despacio y señaliza antes de cada esquina.";
-    document.getElementById("result-stats").innerHTML = `<div><b>${infr}</b>infracciones</div><div><b>${ex.idx}/3</b>puntos</div><div><b>${S.score}</b>puntaje</div>`;
+      ? `Seguiste las indicaciones del examinador y estacionaste en la calle. Faltas leves: ${light} (se permiten hasta ${EXAM_MAX_LIGHT}).`
+      : graves.length ? `${graves[0].text}. En el examen real, una falta grave también lo termina. Mira la repetición abajo y vuelve a intentarlo.` : `Tuviste ${light} faltas leves (se permiten hasta ${EXAM_MAX_LIGHT}). Repasa cada una con su repetición.`;
+    document.getElementById("result-stats").innerHTML = `<div><b>${graves.length}</b>faltas graves</div><div><b>${light}</b>faltas leves</div><div><b>${Math.min(ex.idx, 3)}/3</b>tramos</div>`;
+    const ol = document.getElementById("result-faults"); ol.innerHTML = "";
+    if (!faults.length) { const li = document.createElement("li"); li.textContent = "Sin faltas. ¡Excelente!"; ol.appendChild(li); }
+    for (const f of faults) { const li = document.createElement("li"); li.className = f.grave ? "grave" : ""; li.innerHTML = `<span class="tag"></span><span class="txt"></span>`; li.querySelector(".tag").textContent = f.grave ? "GRAVE" : "leve"; li.querySelector(".txt").textContent = f.text; if (f.replay) li.appendChild(replayBtn(f.replay)); ol.appendChild(li); }
     document.getElementById("result-retry").hidden = ok;
     toastsEl.innerHTML = ""; card.hidden = false; card.scrollTop = 0;
     document.getElementById("result-ok").focus({ preventScroll: true });
@@ -3914,7 +3987,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     if (Math.hypot(S.x - g.bx, S.z - g.bz) > 45 || (g.cued && bi > g.exitI + 25)) { S.guide = null; guideDots.forEach(m => { m.visible = false; }); }
   }
   function updateGuide() {
-    if (mode === "hill" || mode === "campo" || mode === "autopista") { S.guide = null; guideDots.forEach(m => { m.visible = false; }); return; }
+    if (mode === "hill" || mode === "campo" || mode === "autopista" || examOn()) { S.guide = null; guideDots.forEach(m => { m.visible = false; }); return; }
     // the blinker switches off by itself after the turn, so keep the guide until the turn is finished
     if (!help || !opts.guide || (!S.blink && !(S.guide && (S.guide.cued || S.guide.round)))) {
       S.guide = null;
@@ -5683,6 +5756,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
   }
   document.getElementById("coach-title").addEventListener("click", () => { opts.coachMin = !opts.coachMin; saveOpts(); });
   function updateCoach() {
+    if (examOn()) { coachEl.hidden = true; ghost.visible = false; return; }
     let key = null;
     if (help && mode === "parking" && !opts.freeDrive) key = ["front", "back", "parallel"][S.mission] || null;
     if (help && mode === "city" && !opts.freeDrive) key = S.mission === 6 ? "front" : S.mission === 7 && S.streetSpot && !S.parkedStreet && Math.hypot(S.x - S.streetSpot.x, S.z - S.streetSpot.z) < 40 ? "street" : null;
@@ -5797,13 +5871,13 @@ button.lamp:hover { border-color: var(--amber-dim); }
       placeCar(beamRoot, S.x, S.z, S.th); beamRoot.position.y = h0 + 0.04; beam.rotation.x = -Math.atan2(h1 - h0, 20);
     }
     updateGuide();
-    perpTarget.visible = opts.freeDrive ? mode === "parking" || mode === "lesson" : mode === "city" ? S.mission === 6 || S.mission >= MISSIONS.length || (S.exam && S.exam.phase === "park" && !S.exam.passed) : mode === "parking" && (S.mission <= 1 || S.mission >= MISSIONS.length);
+    perpTarget.visible = opts.freeDrive ? mode === "parking" || mode === "lesson" : mode === "city" ? S.mission === 6 || S.mission >= MISSIONS.length || (S.exam && S.exam.phase === "park" && !S.exam.spot && !S.exam.passed) : mode === "parking" && (S.mission <= 1 || S.mission >= MISSIONS.length);
     const exm = S.exam, cp = exm && exm.phase === "route" && !exm.failed ? exm.cps[exm.idx] : null;
-    examMarker.visible = !!cp;
+    examMarker.visible = false; // the examiner tells you where to go
     if (cp) { examMarker.position.set(cp[0] * G, 3, cp[1] * G); examMarker.rotation.y += 0.01; }
     lotMarker.visible = lotWanted();
     {
-      const ap = help && (mode === "city" || mode === "ride") ? approach() : null, cc = ap ? ctrlOf(ap.i, ap.j) : null;
+      const ap = help && !examOn() && (mode === "city" || mode === "ride") ? approach() : null, cc = ap ? ctrlOf(ap.i, ap.j) : null;
       const want = ap && ap.dist < 50 && ap.dist > -1 && (cc === "stop" || (cc === "light" && lightState(ap.i, ap.j, ap.axis) !== "green"));
       if (!stopZone.parent) scene.add(stopZone);
       stopZone.visible = !!want;
@@ -5817,7 +5891,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     }
     if (lotMarker.visible) lotMarker.position.set(LOT_DOOR.x, 3, LOT_DOOR.z);
     parTarget.visible = opts.freeDrive ? mode === "parking" || mode === "lesson" : mode === "city" ? S.mission >= MISSIONS.length : mode === "parking" && S.mission >= 2;
-    streetTarget.visible = !!(mode === "city" && S.streetSpot && !S.parkedStreet && S.mission === 7 && !opts.freeDrive);
+    streetTarget.visible = !!(mode === "city" && S.streetSpot && !S.parkedStreet && !opts.freeDrive && (S.mission === 7 || (S.exam && S.exam.phase === "park" && S.exam.spot && !S.exam.passed)));
     if (streetTarget.visible) { const r = S.streetSpot.rect; streetTarget.position.set((r.x0 + r.x1) / 2, 0.025, (r.z0 + r.z1) / 2); streetTarget.scale.set(r.x1 - r.x0, 1, r.z1 - r.z0); }
     for (const [m, r] of [[perpTarget, PERP_RECT], [parTarget, PAR_RECT], [streetTarget, S.streetSpot ? S.streetSpot.rect : PAR_RECT]]) { const pc = S.parkCheck, good = pc && !pc.out && pc.ang <= pc.tol && inRect(S.x, S.z, r); m.material.color.setHex(good ? 0x46e86c : 0xffd23d); }
 
@@ -6011,12 +6085,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
       gctx.strokeStyle = "#ffd23d"; gctx.lineWidth = 3 * dpr; gctx.lineJoin = "round"; gctx.beginPath(); pr.pts.forEach((p, k) => k ? gctx.lineTo(X(p.x), Z(p.z)) : gctx.moveTo(X(p.x), Z(p.z))); gctx.stroke();
       gctx.fillStyle = "#ffd23d"; gctx.beginPath(); gctx.arc(clamp(X(sp.x), 6, w - 6), clamp(Z(sp.z), 6, h - 6), 5 * dpr, 0, Math.PI * 2); gctx.fill();
     }
-    if (S.exam && S.exam.phase === "route" && !S.exam.failed) {
-      const [ci, cj] = S.exam.cps[S.exam.idx], er = pathTo(ci, cj, null);
-      gctx.strokeStyle = "#46e86c"; gctx.lineWidth = 3 * dpr; gctx.lineJoin = "round"; gctx.beginPath(); er.pts.forEach((p, k) => k ? gctx.lineTo(X(p.x), Z(p.z)) : gctx.moveTo(X(p.x), Z(p.z))); gctx.stroke();
-      const px = clamp(X(ci * G), 6, w - 6), pz = clamp(Z(cj * G), 6, h - 6);
-      gctx.fillStyle = "#46e86c"; gctx.strokeStyle = "#0f1a10"; gctx.lineWidth = 2;
-      gctx.beginPath(); gctx.arc(px, pz, 6 * dpr, 0, Math.PI * 2); gctx.fill(); gctx.stroke();
+    if (false) {
     }
     if (gpsZoom > 1.5) {
       // the stop lines of the corners around you, white (PARE) or in the color of the light
@@ -6326,10 +6395,10 @@ button.lamp:hover { border-color: var(--amber-dim); }
       setChip(`${ride.state === "riding" ? `Llevando a ${ride.p.short} ${ride.place}` : `Busca a ${ride.p.short}`}: ${rideInstruction(ride.route)}`, "#3f8fe0");
       return;
     }
-    if (S.exam && S.exam.phase === "route" && !S.exam.failed) {
-      const [ci, cj] = S.exam.cps[S.exam.idx], er = pathTo(ci, cj, null), txt = `Examen: punto ${S.exam.idx + 1} de 3 · ${rideInstruction(er)}`;
-      if (chip.dataset.t !== txt) { chip.dataset.t = txt; chip.innerHTML = '<i style="background:#46e86c"></i>'; chip.appendChild(document.createTextNode(txt)); }
-      chip.hidden = false; return;
+    if (examOn()) {
+      const ex = S.exam, light = ex.faults.filter(f => !f.grave).length;
+      setChip(`Examinador: ${ex.phase === "prep" ? "cinturón, espejos y arrancá cuando quieras" : ex.chip || "seguí derecho"} · faltas leves ${light}/${EXAM_MAX_LIGHT}`, "#46e86c");
+      return;
     }
     const nav = lotNav();
     if (nav) { setChip(nav.text, "#ffd23d"); return; }
