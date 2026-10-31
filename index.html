@@ -448,7 +448,14 @@ button.lamp:hover { border-color: var(--amber-dim); }
 .coach b::after { content: "▾"; color: var(--muted); }
 .coach.min b::after { content: "▸"; }
 .coach.min ol, .coach.min .chk, .coach.min .meter { display: none; }
-.coach ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; color: var(--muted); }
+.coach ol { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; color: var(--muted); }
+.coach ol li { display: none; }
+.coach ol li.now, .coach ol li.now + li { display: block; }
+.coach ol li.now::before { content: "→ "; color: var(--amber); }
+.coach ol li.now + li { opacity: .75; font-size: .95em; }
+.coach ol li.now + li::before { content: "Después: "; color: var(--muted); }
+.coach .prog { color: var(--muted); font-weight: 400; font-size: .74rem; margin-left: 6px; }
+.coach { max-height: 48%; overflow-y: auto; }
 .coach li.now { color: var(--ink); font-weight: 600; }
 .coach li.ok { color: var(--green); text-decoration: line-through; }
 .stage.head .dash, .stage.head .mirror { visibility: hidden; }
@@ -1169,7 +1176,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
   const LOT_ENTRY = { x: 0, z: -45 }, LOT_DOOR = { x: HALF + 1.5, z: -45 };
   function lotWanted() {
     if (mode !== "city" || opts.freeDrive || inLot(S.x, S.z) || inRect(S.x, S.z, DRIVE)) return false;
-    return S.mission === 6 || S.mission === 7 || !!(S.exam && S.exam.phase === "park" && !S.exam.passed && !S.exam.failed);
+    return S.mission === 6 || !!(S.exam && S.exam.phase === "park" && !S.exam.passed && !S.exam.failed);
   }
   function lotNav() {
     if (!lotWanted()) return null;
@@ -1383,6 +1390,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
   const CRASH_TEXT = {
     car: ["Chocaste con otro auto", "A esa velocidad un choque lastima a las personas aunque lleven cinturón. Casi siempre pasa por ir pegado al de adelante o por moverse sin mirar.", ["Deja 2 segundos con el de adelante (más con lluvia).", "Antes de moverte de carril o de doblar: espejo y mirar por encima del hombro (G).", "Si el de adelante frena, frena tú también enseguida: no esperes a estar encima."]],
     front: ["Choque de frente", "Es el choque más grave que hay: las dos velocidades se suman.", ["Nunca adelantes si no ves libre el carril contrario hasta lejos.", "Donde hay doble línea amarilla, no se adelanta.", "Si dudas, no adelantes: espera una recta larga."]],
+    bike: ["Chocaste a un ciclista", "El ciclista no tiene ninguna protección: aun despacio, un choque lo puede lastimar mucho.", ["Para pasar una bici deja al menos 1,5 m de costado.", "Antes de doblar a la derecha: espejo derecho y mirar por encima del hombro (G); deja pasar a la bici.", "Si no hay lugar para pasarla, espera detrás de ella."]],
     moto: ["Chocaste con una moto", "El motociclista no tiene carrocería que lo proteja: cualquier choque es grave para él.", ["Las motos pasan entre los carriles y quedan en tu punto ciego.", "Antes de moverte: espejo y mirar por encima del hombro (G).", "Quédate en el centro de tu carril."]],
     parked: ["Chocaste un auto estacionado", "Pasa cuando vas rápido cerca del cordón o no calculas el largo de tu auto.", ["Cerca de autos estacionados ve más despacio.", "Para estacionar usa solo el punto de roce, sin acelerar.", "Mira los espejos laterales: muestran cuánto lugar te queda."]],
     ped: ["Atropellaste a un peatón", "Es lo más grave que puede pasar manejando. El peatón siempre tiene prioridad en la senda peatonal y en las esquinas.", ["Frente a una senda, ve despacio y mira a los dos lados.", "Si alguien está cruzando o por cruzar, detente.", "Al doblar, cede el paso a quien cruza la calle a la que entras."]],
@@ -1544,7 +1552,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
       const want = clamp(Math.atan2(2 * WHEELBASE * Math.sin(alpha), ld), -MAX_STEER, MAX_STEER);
       S.steer += clamp(want - S.steer, -1.0 * dt, 1.0 * dt);
     } else if (steerIn) {
-      const v2 = S.v * S.v, lim = Math.abs(S.v) > 4 ? Math.min(MAX_STEER, Math.atan(1.2 * gripMu() * 9.81 * WHEELBASE / v2)) : MAX_STEER;
+      const v2 = S.v * S.v, lim = Math.abs(S.v) > 4 ? Math.min(MAX_STEER, Math.atan(1.04 * gripMu() * 9.81 * WHEELBASE / v2)) : MAX_STEER;
       const rate = Math.min(1.0 - 0.78 * clamp((Math.abs(S.v) - 8) / 14, 0, 1), Math.max(0.05, lim * 1.1));
       S.steer = clamp(S.steer + steerIn * rate * dt, -Math.max(lim, Math.abs(S.steer) - rate * dt), Math.max(lim, Math.abs(S.steer) - rate * dt));
     }
@@ -1595,9 +1603,10 @@ button.lamp:hover { border-color: var(--amber-dim); }
       const trh = trainHits(me);
       if (trh) { hit = "train"; other = null; if (!trh.hitPlayer) { trh.hitPlayer = true; S.lastHit = -9; } else S.lastHit = S.t; }
       if (!hit && mode === "autopista") for (const c of hwCars) if (Math.hypot(c.x - S.x, c.z - S.z) < 9 && worse(c)) { hit = c.kind === "moto" ? "moto" : c.side < 0 ? "front" : "car"; other = c; break; }
+      if (!hit && mode !== "campo" && mode !== "autopista") for (const o of streetParked) if (Math.abs(o.x - S.x) < 6 && Math.abs(o.z - S.z) < 6 && worse(o)) { hit = "parked"; break; }
       if (!hit && mode !== "campo" && mode !== "autopista") for (const o of parked) if (Math.hypot(o.x - S.x, o.z - S.z) < 6 && worse(o)) { hit = "parked"; break; }
       if (!hit && mode === "campo") for (const c of routeCars) if (Math.hypot(c.x - S.x, c.z - S.z) < 7 && worse(c)) { hit = c.lane < 0 ? "front" : "car"; other = c; break; }
-      if (!hit) for (const c of traffic) if (Math.hypot(c.x - S.x, c.z - S.z) < (c.hl ? 9 : 6) && worse(c)) { hit = "car"; other = c; break; }
+      if (!hit) for (const c of traffic) if (Math.hypot(c.x - S.x, c.z - S.z) < (c.hl ? 9 : 6) && worse(c)) { hit = c.kind === "bike" ? "bike" : c.kind === "moto" ? "moto" : "car"; other = c; break; }
       if (!hit && Math.abs(S.v) > 0.3) for (const pd of peds) {
         const d = dirOf(S.th), r = rightOf(S.th), lx = pd.x - S.x, lz = pd.z - S.z;
         if (Math.abs(lx * d.x + lz * d.z) < CAR_L / 2 + 0.3 && Math.abs(lx * r.x + lz * r.z) < CAR_W / 2 + 0.3) { hit = "ped"; pd.hit = true; break; }
@@ -1625,6 +1634,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
       else if (hit === "ped") { S.counts.crash++; infraction("Atropellaste a un peatón", -100); tip("Frente a una senda peatonal, el peatón siempre tiene prioridad: ve despacio y detente si alguien está cruzando o por cruzar.", "ped-hit", 10); }
       else if (hit === "car") { S.counts.crash++; infraction("Chocaste con otro auto", -30); }
       else if (hit === "front") { S.counts.crash++; infraction("Choque frontal con un auto que venía de frente", -100); tip("Nunca adelantes si no ves con claridad que el carril contrario está libre hasta lejos.", "frontal", 10); }
+      else if (hit === "bike") { S.counts.crash++; infraction("Chocaste a un ciclista", -50); tip("Las bicis van junto al cordón. Para pasarlas deja al menos 1,5 m, y antes de doblar a la derecha mira el espejo derecho y el punto ciego (G).", "bike-hit", 10); }
       else if (hit === "moto") { S.counts.crash++; infraction("Chocaste con una moto", -50); tip("Las motos pasan entre los carriles y en el punto ciego. Antes de moverte, espejo y mira por encima del hombro (G).", "moto-hit", 10); }
       else if (mode === "campo") infraction(speed > 8 ? "Chocaste contra el alambrado" : "Rozaste el alambrado");
       else if (mode === "autopista") { if (speed > 8) S.counts.crash++; infraction(speed > 8 ? "Chocaste contra la barrera" : "Rozaste la barrera", speed > 8 ? -30 : -20); }
@@ -1998,6 +2008,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
       if (Math.abs(turn) > Math.PI / 4 && S.v > 0) {
         const side = turn > 0 ? "right" : "left", name = side === "right" ? "derecha" : "izquierda";
         if (side === "left" && noLeft(S.box.i, S.box.j, cardinal(S.box.th).k)) infraction("Giraste a la izquierda donde está prohibido", -20);
+        // turning right across a bicycle going straight by the curb
+        if (side === "right") { const bk = traffic.find(c => c.kind === "bike" && Math.hypot(c.x - S.box.i * G, c.z - S.box.j * G) < 14 && Math.cos(c.th - S.box.th) > 0.8 && Math.hypot(c.x - S.x, c.z - S.z) < 9); if (bk) { infraction("Doblaste a la derecha cortándole el paso a una bici", -30); bk.hitT = 1.5; tip("Antes de doblar a la derecha: espejo derecho y mirar por encima del hombro (G). Las bicis que siguen derecho por el cordón tienen prioridad.", "bike-hook", 20); } }
         // on a one-way street you turn from the lane on that side
         if (oneWay(cardinal(S.box.th).k % 2 === 0 ? S.box.i : S.box.j)) {
           if (side === "left" && S.box.lat > 0.6) { infraction("Doblaste a la izquierda desde el carril derecho", -10); tip("En una calle de mano única, para doblar a la izquierda ponte en el carril izquierdo antes de la esquina: guiño, espejo y punto ciego (G).", "lane-left", 30); }
@@ -2025,6 +2037,15 @@ button.lamp:hover { border-color: var(--amber-dim); }
         else infraction(blocker.static ? "Esquivaste el auto en doble fila sin poner el guiño" : "Pasaste al colectivo sin poner el guiño", -5);
       }
       blocker.prevA = a;
+    }
+    // bicycles: pass them with at least 1,5 m; look before turning right; watch for motos in the blind spot
+    for (const c of traffic) {
+      if ((c.kind !== "bike" && c.kind !== "moto") || Math.hypot(c.x - S.x, c.z - S.z) > 12) continue;
+      const d = dirOf(c.th), r = rightOf(c.th), a = (S.x - c.x) * d.x + (S.z - c.z) * d.z, b = (S.x - c.x) * r.x + (S.z - c.z) * r.z;
+      const same = Math.cos(S.th - c.th) > 0.8, gap = Math.abs(b) - CAR_W / 2 - (c.hw || 0.35);
+      if (c.kind === "bike" && same && Math.abs(a) < 2.5 && S.v > c.v + 1.5 && gap < 1.0 && !c.closeFlag) { c.closeFlag = true; infraction("Pasaste a una bici a menos de 1,5 m", -10); tip("Para pasar una bici deja al menos 1,5 m de costado. Si no hay lugar, espera detrás de ella.", "bike-close", 20); }
+      // in your blind spot on the side you want to go (it is behind you and beside)
+      if (same && S.blink && a > 0.5 && a < 9 && Math.abs(b) < 5 && (S.blink === "right" ? b < 0 : b > 0)) tip(`¡Ojo! ${c.kind === "bike" ? "Una bici" : "Una moto"} viene por tu ${S.blink === "right" ? "derecha" : "izquierda"}, en el punto ciego: déjala pasar antes de ${S.box ? "doblar" : "moverte"}. Mira por encima del hombro (G).`, "blind-city" + S.blink, 12);
     }
     // against a one-way street
     { const sg = segAt(S.x, S.z);
@@ -2073,9 +2094,11 @@ button.lamp:hover { border-color: var(--amber-dim); }
     const allIn = r => corners(S.x, S.z, S.th).every(([x, z]) => inRect(x, z, r, 0.3));
     const aligned = tol => Math.abs(Math.cos(S.th)) < Math.sin(tol);
     const inPerp = allIn(PERP_RECT) && aligned(0.27), inPar = allIn(PAR_RECT) && aligned(0.2);
+    if (mode === "city" && S.mission === 7 && !S.parkedStreet && !opts.freeDrive && (!S.streetSpot || (S.t - (S.spotT ?? -9) > 3 && Math.hypot(S.x - S.streetSpot.x, S.z - S.streetSpot.z) > 650))) { S.spotT = S.t; S.streetSpot = findStreetSpot(); }
+    const sr = S.streetSpot && S.streetSpot.rect, inStreet = !!sr && allIn(sr) && (sr.ns ? Math.abs(Math.sin(S.th)) : Math.abs(Math.cos(S.th))) < Math.sin(0.2);
     // what is still missing to count as parked, shown in the coach panel
     S.parkCheck = null;
-    for (const [r, tol, on] of [[PERP_RECT, 15, perpTarget.visible], [PAR_RECT, 11, parTarget.visible]]) {
+    for (const [r, tol, on] of [[PERP_RECT, 15, perpTarget.visible], [PAR_RECT, 11, parTarget.visible], ...(sr ? [[sr, 11, streetTarget.visible]] : [])]) {
       if (!on || !inRect(S.x, S.z, r, 2.5)) continue;
       const o = corners(S.x, S.z, S.th).map(([x, z]) => !inRect(x, z, r, 0.3)), n = o.filter(Boolean).length;
       let out = null;
@@ -2085,8 +2108,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
       else if (o[0] && o[2]) out = "Se sale el costado derecho: sal y entra más centrado";
       else if (o[1] && o[3]) out = "Se sale el costado izquierdo: sal y entra más centrado";
       else if (n) out = `Se sale la esquina ${o[0] || o[1] ? "delantera" : "trasera"} ${o[0] || o[2] ? "derecha" : "izquierda"}`;
-      const ang = Math.round(Math.asin(Math.min(1, Math.abs(Math.cos(S.th)))) * 180 / Math.PI);
-      S.parkCheck = { out, ang, tol, still: S.v === 0, t: S.parkT, done: r === PERP_RECT ? S.parkedPerp || (mode === "parking" && (S.mission === 0 ? S.parkedFront : S.parkedBack)) : S.parkedPar };
+      const ang = Math.round(Math.asin(Math.min(1, Math.abs(r.ns ? Math.sin(S.th) : Math.cos(S.th)))) * 180 / Math.PI);
+      S.parkCheck = { out, ang, tol, still: S.v === 0, t: S.parkT, done: r === PERP_RECT ? S.parkedPerp || (mode === "parking" && (S.mission === 0 ? S.parkedFront : S.parkedBack)) : r === sr ? S.parkedStreet : S.parkedPar };
       if (S.v === 0 && !S.parkCheck.done && (out || ang > tol) && Math.abs(S.vPrev ?? 1) < 1e-3) {
         S.parkStillT = (S.parkStillT || 0) + dt;
         if (S.parkStillT > 2.5) tip(`Todavía no cuenta como estacionado: ${out ? out.toLowerCase() : `estás torcido ${ang}° (máximo ${tol}°)`}.`, "park-why", 25);
@@ -2094,7 +2117,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
       break;
     }
     S.vPrev = S.v;
-    if ((inPerp || inPar) && S.v === 0) {
+    if ((inPerp || inPar || inStreet) && S.v === 0) {
       S.parkT += dt;
       if (S.parkT > 1) {
         if (inPerp && mode === "parking") {
@@ -2103,6 +2126,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
           if (!nose && !S.parkedBack) { S.parkedBack = true; award(40, "Estacionaste de culata"); toast("Bien estacionado en reversa (+40).", "good"); }
         }
         if (inPerp && !S.parkedPerp && mode === "city") { S.parkedPerp = true; award(40, "Estacionaste en el lugar marcado"); toast("Bien estacionado (+40).", "good"); tip("Ahora asegura el auto: freno de mano (Q), neutro (N) y apaga el motor (E).", "secure", 30); }
+        if (inStreet && !S.parkedStreet) { S.parkedStreet = true; award(60, "Estacionaste en paralelo en la calle"); toast("¡Estacionaste en la calle! (+60). Ahora freno de mano (Q), neutro y, para salir, guiño izquierdo y espejo.", "good", "street-ok", 5); }
         if (inPar && !S.parkedPar) { S.parkedPar = true; award(60, "Estacionaste en paralelo"); toast("Estacionamiento en paralelo logrado (+60).", "good"); }
       }
     } else S.parkT = 0;
@@ -2134,7 +2158,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     { title: "Dobla a la derecha señalizando", hint: "Pon el señalizador derecho (X) unos 30 m antes de la esquina, baja a 2ª y menos de 20 km/h, y gira con → cuando tu auto llegue al cruce peatonal. Quédate en el carril derecho.", done: () => S.turned.right },
     { title: "Dobla a la izquierda señalizando", hint: "Señalizador izquierdo (Z), reduce, avanza hasta el centro de la intersección y gira con ← hasta quedar en el carril derecho de la otra calle.", done: () => S.turned.left },
     { title: "Estaciona en el lugar marcado", hint: "Ve al estacionamiento de práctica: en el GPS (abajo a la izquierda) es el rectángulo gris con la P, y una línea amarilla te marca el camino. La entrada está en la calle donde empezaste, del lado derecho, junto al cartel azul ESCUELA · PRÁCTICA y una columna amarilla. Adentro, estaciona en el rectángulo amarillo, de frente o en reversa. Cuenta cuando todo el auto queda entre las líneas, derecho, y frenado 1 segundo: el rectángulo se pone verde y el panel de la derecha te dice qué falta.", done: () => S.parkedPerp },
-    { title: "Estaciona en paralelo", hint: "Ponte al lado del auto de adelante, a 1 m, con las colas alineadas. En reversa gira todo a la derecha hasta quedar en 45°, endereza, y cuando tu frente pase la cola del auto de adelante gira todo a la izquierda.", done: () => S.parkedPar },
+    { title: "Estaciona en paralelo en la calle", hint: "En muchas cuadras de mano única hay autos estacionados junto al cordón. El GPS te lleva a un lugar libre a tu derecha, marcado en amarillo. Ponte al lado del auto de adelante a 1 m, guiño derecho, reversa con todo a la derecha hasta 45°, endereza, y cuando tu trompa pase la cola del auto de adelante gira todo a la izquierda. El panel te guía paso a paso.", done: () => S.parkedStreet },
     { title: "Examen final", hint: "Sigue el GPS hasta los 3 puntos verdes (los ves en la calle como columnas verdes) y vuelve a estacionar en el lugar marcado. Apruebas con 2 infracciones o menos.", done: () => S.exam && S.exam.passed },
   ];
   const HILL_MISSIONS = [
@@ -2417,6 +2441,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     const turnSteps = (side, key) => [[`Pon el guiño ${side === "right" ? "derecho (X)" : "izquierdo (Z)"} antes de la esquina`, () => S.blink === side], ["Mira el espejo (V)", () => S.blink === side && mirrorNow()], ["Baja a menos de 20 km/h", () => S.blink === side && kmh() < 20 && S.v > 0.5], [`Dobla a la ${side === "right" ? "derecha" : "izquierda"} siguiendo la guía amarilla`, () => S.turned[side]]];
     CITY_MISSIONS[4].steps = turnSteps("right"); CITY_MISSIONS[5].steps = turnSteps("left");
     CITY_MISSIONS[6].steps = [["Ve al estacionamiento (la P del GPS)", () => inLot(S.x, S.z)], ["Entra al rectángulo amarillo", () => inRect(S.x, S.z, PERP_RECT, 0.5)], ["Todo el auto adentro, derecho y frenado 1 segundo (el lugar se pone verde)", () => S.parkedPerp]];
+    CITY_MISSIONS[7].steps = [["Sigue el GPS hasta el lugar libre marcado en amarillo", () => (S.streetSpot && Math.hypot(S.x - S.streetSpot.x, S.z - S.streetSpot.z) < 40) || S.parkedStreet], ["Ponte al lado del auto de adelante del lugar, con el guiño derecho", () => (S.streetSpot && Math.abs(spotFrame(S.streetSpot, S.x, S.z).a - PARK_DS) < 2 && Math.abs(wrap(S.th - S.streetSpot.th)) < 0.3) || S.parkedStreet], ["Estaciona en paralelo junto al cordón y quédate quieto 1 segundo", () => S.parkedStreet]];
     CITY_MISSIONS[8].steps = [["Punto 1 del GPS", () => S.exam && (S.exam.idx >= 1 || S.exam.passed)], ["Punto 2", () => S.exam && (S.exam.idx >= 2 || S.exam.passed)], ["Punto 3", () => S.exam && (S.exam.idx >= 3 || S.exam.passed)], ["Vuelve a estacionar en el lugar marcado", () => S.exam && S.exam.passed]];
     HILL_MISSIONS[0].steps = [["Embrague a fondo y pon 1ª", () => S.gear === "1"], ["Acelera hasta unas 2.000 rpm", () => rpm() > 1700 && S.gas > 0.15], ["Suelta el embrague hasta que haga fuerza (tiembla)", () => e() > 0.08 && S.running], ["Ahí, baja el freno de mano (Q)", () => !S.hand && S.running], ["Sube sin irte para atrás", () => S.hillLaunchOk]];
     HILL_MISSIONS[1].steps = [["Al llegar al PARE, frena hasta detenerte", () => S.v === 0 && S.hs && S.hs.uphill && S.hs.stopped], ["Pisa el embrague antes de parar", () => S.v === 0 && S.clutch > 0.6], ["Sube el freno de mano (Q)", () => S.hillStopOk || (S.v === 0 && S.hand)]];
@@ -3717,6 +3742,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
   const targetMat = B({ color: 0xffd23d, transparent: true, opacity: 0.35, depthWrite: false });
   const rectMesh = r => { const m = new THREE.Mesh(new THREE.PlaneGeometry(r.x1 - r.x0, r.z1 - r.z0), targetMat.clone()); m.rotation.x = -Math.PI / 2; m.position.set((r.x0 + r.x1) / 2, 0.02, (r.z0 + r.z1) / 2); scene.add(m); return m; };
   const perpTarget = rectMesh(PERP_RECT), parTarget = rectMesh(PAR_RECT);
+  const streetTarget = (() => { const g = new THREE.PlaneGeometry(1, 1); g.rotateX(-Math.PI / 2); const m = new THREE.Mesh(g, targetMat.clone()); m.visible = false; scene.add(m); return m; })();
   // cones for the circuit exam: a slalom line and a corridor to reverse through
   const SLALOM = [-20, -30, -40, -50, -60].map(z => ({ x: 32, z })), CORRIDOR = { x: 16, z0: -48, z1: -24, half: 1.75 };
   const cones = [];
@@ -3930,6 +3956,17 @@ button.lamp:hover { border-color: var(--amber-dim); }
         if (h < 0.1) addTree(solid, ox + (side === 0 ? a0 + 3 : side === 1 ? a1 - 3 : mid), oz + (side < 2 ? mid : side === 2 ? a0 + 3 : a1 - 3), h * 7);
         else addBuilding(solid, ox + bx, oz + bz, ry, w - 0.2, depth, floors, h);
         s += w;
+      }
+    }
+    // cars parked along the curb, on the blocks that have them
+    for (const [axis, line] of [["NS", i], ["EW", j]]) {
+      if (!oneWay(line)) continue;
+      const k = lineDirs(axis, line)[0], st = axis === "NS" ? (k === 0 ? [i, j + 1] : [i, j]) : (k === 1 ? [i, j] : [i + 1, j]), th = k * Math.PI / 2;
+      for (const sp of parkSpaces(st[0], st[1], k)) {
+        if (!sp.full) continue;
+        const [x, z] = rel(st[0] * G, st[1] * G, th, sp.s + (hash2(sp.n, line) - 0.5) * 0.8, parkOff(sp.side));
+        addCarToBuilder(solid, carBodyMats[Math.floor(hash2(line * 3 + sp.n, j + i) * carBodyMats.length)], x, z, th);
+        streetParked.push({ x, z, th, cell: i + "," + j });
       }
     }
     // street trees, lamps and bins along the sidewalks, near the curb
@@ -4233,7 +4270,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     const ci = Math.floor(S.x / G), cj = Math.floor(S.z / G);
     for (const [key, g] of cells) {
       const [i, j] = key.split(",").map(Number);
-      if (Math.abs(i - ci) > 2 || Math.abs(j - cj) > 2) { scene.remove(g); disposeGroup(g); cells.delete(key); lightSets.delete(key); railSets.delete(key); }
+      if (Math.abs(i - ci) > 2 || Math.abs(j - cj) > 2) { scene.remove(g); disposeGroup(g); cells.delete(key); lightSets.delete(key); railSets.delete(key); streetParked = streetParked.filter(o => o.cell !== key); }
     }
     // the nearest blocks are built right away; farther ones one per frame to avoid hitches
     for (let r = 0; r <= 2; r++) for (let i = ci - r; i <= ci + r; i++) for (let j = cj - r; j <= cj + r; j++) {
@@ -4822,7 +4859,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
       const i = Math.round(S.x / G) + Math.floor(Math.random() * 7) - 3, j = Math.round(S.z / G) + Math.floor(Math.random() * 7) - 3, k = Math.floor(Math.random() * 4), s = 28 + Math.random() * 34;
       if (k % 2 === 0 && isRailRow(k === 0 ? j - 1 : j)) continue;
       if (i === 0 && (j === 0 || j === -1)) continue;
-      if (!kOK(k, i, j)) continue;
+      if (!kOK(k, i, j) || parkRow(i, j, k) === 1) continue;
       if (busStop(i, j, k) && Math.abs(s - BUS_STOP_S) < 14) continue;
       const th = k * Math.PI / 2, [x, z] = rel(i * G, j * G, th, s, LANE), [cx, cz] = rel(i * G, j * G, th, s, HALF + 1.4);
       const d = Math.hypot(x - S.x, z - S.z);
@@ -4942,7 +4979,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     for (const c of traffic) removeCar(c);
     traffic.length = 0;
     for (const [, g] of cells) { scene.remove(g); disposeGroup(g); }
-    cells.clear(); lightSets.clear(); railSets.clear();
+    cells.clear(); lightSets.clear(); railSets.clear(); streetParked = [];
     while (trains.length) removeTrain(trains.length - 1);
     for (const [, g] of hillChunks) { hillRoot.remove(g); disposeGroup(g); }
     hillChunks.clear();
@@ -5007,6 +5044,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
       const ii = ci + Math.floor(Math.random() * 5) - 2, jj = cj + Math.floor(Math.random() * 5) - 2, ns = Math.random() < 0.5, dirs = lineDirs(ns ? "NS" : "EW", ns ? ii : jj);
       const c = { i: ii, j: jj, k: dirs[Math.floor(Math.random() * dirs.length)], s: 12 + Math.random() * 55 };
       c.off = c.lane = oneWay(ns ? ii : jj) && Math.random() < 0.5 ? -LANE : LANE;
+      { const pr = parkRow(c.i, c.j, c.k); if (pr && c.off === pr * LANE) c.off = c.lane = -pr * LANE; }
       Object.assign(c, segPose(c));
       const dp = Math.hypot(c.x - S.x, c.z - S.z);
       if (dp < 45 || dp > 190) continue;
@@ -5015,7 +5053,14 @@ button.lamp:hover { border-color: var(--amber-dim); }
       // some vehicles are buses (they stop at the bus stops); a few drivers run red lights
       if (trafficTarget() >= 8 && traffic.filter(o => o.kind === "bus").length < 2 && Math.random() < 0.3) { c.kind = "bus"; c.hl = 6; c.hw = 1.3; c.vmax = 9; c.next = 0; c.off = c.lane = LANE; Object.assign(c, segPose(c)); }
       else c.reckless = Math.random() < (trafficTarget() >= 20 ? 0.12 : 0.06);
-      c.obj = c.kind === "bus" ? makeBus() : makeCarMesh(carBodyMats[Math.floor(Math.random() * carBodyMats.length)]);
+      // some are bicycles (by the curb) or motos (between the lanes, faster than the cars)
+      if (c.kind !== "bus") {
+        const rk = Math.random(), line = c.k % 2 === 0 ? c.i : c.j;
+        if (rk < 0.14) { c.kind = "bike"; c.hl = 0.9; c.hw = 0.35; c.vmax = 4 + Math.random() * 1.6; c.v = 3.5; c.next = 0; c.reckless = Math.random() < 0.15; c.off = c.lane = parkRow(c.i, c.j, c.k) === 1 ? 1.95 : HALF - 0.8; }
+        else if (rk < 0.24) { c.kind = "moto"; c.hl = 1.05; c.hw = 0.4; c.vmax = 12 + Math.random() * 3; c.off = c.lane = oneWay(line) ? 0 : LANE - 0.9; }
+        Object.assign(c, segPose(c));
+      }
+      c.obj = c.kind === "bus" ? makeBus() : c.kind === "bike" ? makeBike() : c.kind === "moto" ? makeMoto(Math.random() < 0.6) : makeCarMesh(carBodyMats[Math.floor(Math.random() * carBodyMats.length)]);
       scene.add(c.obj);
       traffic.push(c);
       return;
@@ -5032,7 +5077,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     const k2 = (c.k + c.next + 4) % 4, d2 = dirOf(k2 * Math.PI / 2), r2 = rightOf(k2 * Math.PI / 2);
     // from the lane you are in to the lane of the new street: the left lane after a left turn into a one-way street
     const so = c.off ?? LANE, dstOne = oneWay(k2 % 2 === 0 ? ni : nj);
-    const e = c.next === 0 ? (dstOne && so < 0 ? -LANE : LANE) : c.next === -1 && dstOne ? -LANE : LANE;
+    const e = c.kind === "bike" ? (parkRow(ni, nj, k2) === 1 ? 1.95 : HALF - 0.8) : c.kind === "moto" ? (dstOne ? 0 : LANE - 0.9) : c.next === 0 ? (dstOne && so < 0 ? -LANE : LANE) : c.next === -1 && dstOne ? -LANE : LANE;
     const at = (a, b) => ({ x: Bx + d.x * a + r.x * b, z: Bz + d.z * a + r.z * b });
     const P0 = at(-HALF, so);
     const P2 = { x: Bx + d2.x * HALF + r2.x * e, z: Bz + d2.z * HALF + r2.z * e };
@@ -5056,7 +5101,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     const sNow = (S.x - ii * G) * d.x + (S.z - jj * G) * d.z, sObs = sNow + 45 + Math.random() * 20;
     if (sObs > G - 18 || sObs < 15) return;
     if (k % 2 === 0 && isRailRow(k === 0 ? jj - 1 : jj) && (isAvenue(ii) || Math.abs(sObs - G / 2) < 14)) return; // never in a tunnel or on the tracks
-    const c = { i: ii, j: jj, k, s: sObs, v: 0, vmax: 0, static: true, turn: null, next: 0, wait: 0, done: true, hitT: 0, stuck: 0, off: LANE + 0.3 };
+    const c = { i: ii, j: jj, k, s: sObs, v: 0, vmax: 0, static: true, turn: null, next: 0, wait: 0, done: true, hitT: 0, stuck: 0, off: parkRow(ii, jj, k) === 1 ? parkOff(1) - 2.1 : LANE + 0.3 };
     Object.assign(c, segPose(c));
     c.obj = makeCarMesh(carBodyMats[Math.floor(Math.random() * carBodyMats.length)]); addHazards(c.obj);
     scene.add(c.obj); traffic.push(c);
@@ -5099,10 +5144,13 @@ button.lamp:hover { border-color: var(--amber-dim); }
       if (!c.turn) {
         const cur = c.off ?? LANE, home = c.lane ?? LANE;
         const obs = traffic.find(o => o !== c && (o.static || o.atStop) && o.i === c.i && o.j === c.j && o.k === c.k && Math.abs((o.off ?? LANE) - cur) < 2 && o.s - c.s > -(o.hl || 2.1) - 3 && o.s - c.s < 24);
-        if (oneWay(c.k % 2 === 0 ? c.i : c.j)) {
-          // one-way: near the corner, the lane of the turn; around a stopped car, by the other lane when it is free
+        const pr = parkRow(c.i, c.j, c.k), rowLane = pr ? pr * LANE : null, alongRow = pr && c.s < PARK_END + 4;
+        if (c.kind === "bike" || c.kind === "moto") c.offT = home;
+        else if (oneWay(c.k % 2 === 0 ? c.i : c.j)) {
+          // one-way: near the corner, the lane of the turn; around a stopped car, by the other lane when it is free; never into the parked row
           let want = G - c.s < 45 ? (c.next === -1 ? -LANE : c.next === 1 ? LANE : home) : home;
           if (obs) want = cur > 0 ? -LANE : LANE;
+          if (alongRow && want === rowLane) want = -rowLane;
           const tp = segPose(Object.assign({}, c, { off: want }));
           const busy = Math.abs(want - cur) > 1 && (traffic.some(o => o !== c && !o.turn && o.i === c.i && o.j === c.j && o.k === c.k && Math.abs((o.off ?? LANE) - want) < 1.5 && Math.abs(o.s - c.s) < 10) || Math.hypot(S.x - tp.x, S.z - tp.z) < 8);
           c.offT = busy ? cur : want;
@@ -5177,7 +5225,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
         const p = bez(t.P, t.u), p2 = bez(t.P, Math.min(1, t.u + 0.02)), p0 = bez(t.P, Math.max(0, t.u - 0.02));
         c.x = p.x; c.z = p.z; c.th = Math.atan2(p2.x - p0.x, -(p2.z - p0.z));
         }
-        if (t.u >= 1) { c.i = t.ni; c.j = t.nj; c.k = t.k2; c.s = t.round ? RING_R + 0.5 : HALF; c.turn = null; c.off = c.lane = t.lane ?? LANE; c.next = c.kind === "bus" ? 0 : pickTurnFor(c); c.stopDone = false; c.done = false; c.wait = 0; Object.assign(c, segPose(c)); }
+        if (t.u >= 1) { c.i = t.ni; c.j = t.nj; c.k = t.k2; c.s = t.round ? RING_R + 0.5 : HALF; c.turn = null; c.off = c.lane = t.lane ?? LANE; c.next = c.kind === "bus" || c.kind === "bike" ? 0 : pickTurnFor(c); c.stopDone = false; c.done = false; c.wait = 0; Object.assign(c, segPose(c)); }
       } else {
         c.s += c.v * dt;
         const dn = dirOf(c.k * Math.PI / 2);
@@ -5201,6 +5249,82 @@ button.lamp:hover { border-color: var(--amber-dim); }
   const hairMats = [0x2a1f18, 0x5a3b22, 0x1a1a1a].map(c => L({ color: c })), greyHair = L({ color: 0xcfccc4 });
   const phoneMat = B({ color: 0xa8dcff }), caneMat = L({ color: 0x4a3a2c });
   const pick = list => list[Math.floor(Math.random() * list.length)];
+  // ---------- parked cars along the curb: some one-way blocks have a row of cars on one side (more often the left, as in Buenos Aires) ----------
+  // a block of street is named by the corner where it starts and the direction of travel: (i, j, k)
+  const blockOf = (i, j, k) => k % 2 === 0 ? { axis: "NS", line: i, block: k === 0 ? j - 1 : j } : { axis: "EW", line: j, block: k === 1 ? i : i - 1 };
+  function parkRow(i, j, k) {
+    const line = k % 2 === 0 ? i : j;
+    if (!oneWay(line) || !kOK(k, i, j)) return 0;
+    const b = blockOf(i, j, k);
+    if (b.axis === "NS" && line === 0 && (b.block === -1 || b.block === 0)) return 0; // the first street and the lot stay simple
+    if (b.axis === "NS" && isRailRow(b.block)) return 0;
+    if (segFeature(b.axis, line, b.block) === "school" || busStop(i, j, k)) return 0;
+    const h = hash2(line * 7 + (b.axis === "NS" ? 3 : 11), b.block * 13 + 5);
+    return h < 0.35 ? -1 : h < 0.55 ? 1 : 0; // -1: on your left, 1: on your right
+  }
+  const PARK_S0 = 18, PARK_DS = 5.6, PARK_N = 9, PARK_END = PARK_S0 + PARK_DS * (PARK_N - 1) + PARK_DS / 2;
+  const parkOff = side => side * (HALF - 1.0);
+  // which spaces of the row have a car (the same every time you pass)
+  function parkSpaces(i, j, k) {
+    const side = parkRow(i, j, k); if (!side) return [];
+    const b = blockOf(i, j, k), bump = segFeature(b.axis, b.line, b.block) === "bump", out = [];
+    for (let n = 0; n < PARK_N; n++) {
+      const s = PARK_S0 + n * PARK_DS;
+      if (bump && Math.abs(s - G / 2) < 4) continue;
+      out.push({ n, s, side, full: hash2(b.line * 31 + n * 7, b.block * 17 + side + 3) < 0.75 });
+    }
+    return out;
+  }
+  let streetParked = [];
+  // the free place for the "park in the street" mission: an empty space in a row on the right, near you
+  function findStreetSpot() {
+    const ci = Math.round(S.x / G), cj = Math.round(S.z / G);
+    let best = null;
+    for (let i = ci - 3; i <= ci + 3; i++) for (let j = cj - 3; j <= cj + 3; j++) for (let k = 0; k < 4; k++) {
+      if (parkRow(i, j, k) !== 1) continue;
+      const row = parkSpaces(i, j, k);
+      for (const sp of row) {
+        // a real gap: a parked car in front of it and another behind it
+        if (sp.full || !row.some(o => o.n === sp.n - 1 && o.full) || !row.some(o => o.n === sp.n + 1 && o.full)) continue;
+        const th = k * Math.PI / 2, [x, z] = rel(i * G, j * G, th, sp.s, parkOff(1)), d = Math.hypot(x - S.x, z - S.z);
+        if (d < 60 || d > 420) continue;
+        if (!best || d < best.d) best = { i, j, k, s: sp.s, th, x, z, d };
+      }
+    }
+    if (!best) return null;
+    const ns = best.k % 2 === 0;
+    best.rect = ns ? { x0: best.x - 1.25, x1: best.x + 1.25, z0: best.z - 3.1, z1: best.z + 3.1, ns: true } : { x0: best.x - 3.1, x1: best.x + 3.1, z0: best.z - 1.25, z1: best.z + 1.25, ns: false };
+    return best;
+  }
+  // where you are, seen from the free place: a = along the street (forward), b = toward the curb
+  const spotFrame = (sp, x, z) => { const d = dirOf(sp.th), r = rightOf(sp.th); return { a: (x - sp.x) * d.x + (z - sp.z) * d.z, b: (x - sp.x) * r.x + (z - sp.z) * r.z }; };
+  function streetCoach(sp) {
+    const at = (a, b) => { const d = dirOf(sp.th), r = rightOf(sp.th); return [sp.x + d.x * a + r.x * b, sp.z + d.z * a + r.z * b]; };
+    const me = () => spotFrame(sp, S.x, S.z), headErr = () => wrap(S.th - sp.th);
+    const front = () => { const d = dirOf(S.th); return spotFrame(sp, S.x + d.x * CAR_L / 2, S.z + d.z * CAR_L / 2).a; };
+    const [gx1, gz1] = at(PARK_DS, -(CAR_W + 0.9)), [gx2, gz2] = at(0, 0);
+    return { title: "Estacionar en paralelo en la calle", steps: [
+      { text: "Ponte al lado del auto de adelante del lugar libre, a 1 m, con las colas alineadas. Guiño derecho.", ghost: [gx1, gz1, sp.th], ok: () => Math.abs(me().a - PARK_DS) < 1.6 && Math.abs(me().b + CAR_W + 0.9) < 0.9 && Math.abs(headErr()) < 0.25 },
+      { text: "Reversa (R) despacio con el volante todo a la derecha (→, hacia el cordón) hasta quedar en diagonal, a unos 45°.", ghost: [gx2, gz2, sp.th], ok: () => headErr() < -0.6 },
+      { text: "Endereza el volante y sigue en reversa hasta que tu trompa pase la cola del auto de adelante.", ghost: [gx2, gz2, sp.th], ok: () => front() < PARK_DS - CAR_L / 2 - 0.3 },
+      { text: "Ahora todo a la izquierda (←) y sigue en reversa hasta quedar derecho, junto al cordón.", ghost: [gx2, gz2, sp.th], ok: () => Math.abs(headErr()) < 0.2 && Math.abs(me().a) < 2.5 && me().b > -1.5 },
+      { text: "Acomódate un poco adelante o atrás para quedar en el medio, y quédate quieto 1 segundo.", ok: () => S.parkedStreet },
+    ] };
+  }
+  // bicycles: a frame, two wheels and the rider
+  const bikeWheelGeo = new THREE.TorusGeometry(0.33, 0.04, 6, 16), bikeFrameGeo = new THREE.BoxGeometry(0.06, 0.06, 1.0), bikeMats = [0x2f6fae, 0xc0392b, 0x2f8a4a, 0xe8b62a].map(c => L({ color: c }));
+  function makeBike() {
+    const g = new THREE.Group(), part = (geo, mat, x, y, z, rx = 0, ry = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, 0); m.castShadow = true; g.add(m); return m; };
+    const fm = bikeMats[Math.floor(Math.random() * bikeMats.length)];
+    for (const z of [0.52, -0.52]) part(bikeWheelGeo, darkMat, 0, 0.35, z, 0, Math.PI / 2);
+    part(bikeFrameGeo, fm, 0, 0.62, 0, 0.35); part(bikeFrameGeo, fm, 0, 0.75, 0.05);
+    part(riderGeo, pick(pedCloth), 0, 1.25, -0.08, -0.35);
+    part(pedHeadGeo, pick(pedSkin), 0, 1.68, 0.06);
+    part(helmetGeo, helmetMats[Math.floor(Math.random() * 4)], 0, 1.74, 0.06);
+    part(new THREE.BoxGeometry(0.5, 0.04, 0.04), darkMat, 0, 1.02, 0.45);
+    g.tail = part(motoTailGeo, tailOff, 0, 0.8, -0.6);
+    return g;
+  }
   // how each kind of person walks: older people are slow, kids run, some look at the phone, some hesitate
   const PED_SPEED = { adult: [1.1, 1.5], elder: [0.5, 0.7], phone: [0.9, 1.2], kid: [2.0, 2.6], doubt: [1.1, 1.4] };
   function pickType(school) {
@@ -5482,8 +5606,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
   function updateCoach() {
     let key = null;
     if (help && mode === "parking" && !opts.freeDrive) key = ["front", "back", "parallel"][S.mission] || null;
-    if (help && mode === "city" && !opts.freeDrive) key = S.mission === 6 ? "front" : S.mission === 7 ? "parallel" : null;
-    if (key && mode === "city" && !inLot(S.x, S.z)) key = null;
+    if (help && mode === "city" && !opts.freeDrive) key = S.mission === 6 ? "front" : S.mission === 7 && S.streetSpot && !S.parkedStreet && Math.hypot(S.x - S.streetSpot.x, S.z - S.streetSpot.z) < 40 ? "street" : null;
+    if (key && key !== "street" && mode === "city" && !inLot(S.x, S.z)) key = null;
     if (key !== coachKey) { coachKey = key; coachStep = 0; }
     // the parking sensors: in the parking place always, elsewhere in the lot only when something is close
     const showSensor = inLot(S.x, S.z) && Math.abs(S.v) < 3 && (mode === "parking" || sensorDist(S.gear === "R") < 2.2);
@@ -5496,18 +5620,18 @@ button.lamp:hover { border-color: var(--amber-dim); }
     if (coachEl.hidden) return;
     let html = "";
     if (key) {
-      const c = COACH[key];
+      const c = key === "street" ? streetCoach(S.streetSpot) : COACH[key];
       while (coachStep < c.steps.length && c.steps[coachStep].ok()) coachStep++;
-      document.getElementById("coach-title").textContent = c.title;
+      document.getElementById("coach-title").innerHTML = `${c.title}<span class="prog">${Math.min(coachStep + 1, c.steps.length)} de ${c.steps.length}</span>`;
       c.steps.forEach((st, n) => { html += `<li class="${n < coachStep ? "ok" : n === coachStep ? "now" : ""}">${st.text}</li>`; });
       const cur = c.steps[Math.min(coachStep, c.steps.length - 1)];
       if (cur.ghost && coachStep < c.steps.length) { const [gx, gz, gth] = cur.ghost; placeCar(ghost, gx, gz, gth); ghost.visible = true; }
-      document.getElementById("coach-angle").textContent = key === "parallel" ? `Ángulo ${Math.round(Math.abs(wrap(S.th + Math.PI / 2)) * 180 / Math.PI)}°` : "";
+      document.getElementById("coach-angle").textContent = key === "street" ? `Ángulo ${Math.round(Math.abs(wrap(S.th - S.streetSpot.th)) * 180 / Math.PI)}°` : key === "parallel" ? `Ángulo ${Math.round(Math.abs(wrap(S.th + Math.PI / 2)) * 180 / Math.PI)}°` : "";
     } else if (live) {
       if (live.id !== liveId) { liveId = live.id; liveDone = new Set(); }
       live.steps.forEach(([, ok], n) => { if (!liveDone.has(n)) { let v = false; try { v = !!ok(); } catch (err) {} if (v) liveDone.add(n); } });
       const now = live.steps.findIndex((st, n) => !liveDone.has(n));
-      document.getElementById("coach-title").textContent = live.title;
+      document.getElementById("coach-title").innerHTML = `${live.title}<span class="prog">${now < 0 ? live.steps.length : now + 1} de ${live.steps.length}</span>`;
       live.steps.forEach(([text], n) => { html += `<li class="${liveDone.has(n) ? "ok" : n === now ? "now" : ""}">${text}</li>`; });
       document.getElementById("coach-angle").textContent = live.note;
       if (coachSteps.innerHTML !== html) coachSteps.innerHTML = html;
@@ -5515,8 +5639,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
       parkCheckHtml();
       return;
     } else if (mis && mis.steps) {
-      document.getElementById("coach-title").textContent = mis.title;
       const now = mis.steps.findIndex((st, n) => !S.stepDone[S.mission + "-" + n]);
+      document.getElementById("coach-title").innerHTML = `${mis.title}<span class="prog">${now < 0 ? mis.steps.length : now + 1} de ${mis.steps.length}</span>`;
       mis.steps.forEach(([text], n) => { html += `<li class="${S.stepDone[S.mission + "-" + n] ? "ok" : n === now ? "now" : ""}">${text}</li>`; });
       if (coachSteps.innerHTML !== html) coachSteps.innerHTML = html;
       document.getElementById("coach-angle").textContent = "";
@@ -5613,8 +5737,10 @@ button.lamp:hover { border-color: var(--amber-dim); }
       }
     }
     if (lotMarker.visible) lotMarker.position.set(LOT_DOOR.x, 3, LOT_DOOR.z);
-    parTarget.visible = opts.freeDrive ? mode === "parking" || mode === "lesson" : mode === "city" ? S.mission === 7 || S.mission >= MISSIONS.length : mode === "parking" && S.mission >= 2;
-    for (const [m, r] of [[perpTarget, PERP_RECT], [parTarget, PAR_RECT]]) { const pc = S.parkCheck, good = pc && !pc.out && pc.ang <= pc.tol && inRect(S.x, S.z, r); m.material.color.setHex(good ? 0x46e86c : 0xffd23d); }
+    parTarget.visible = opts.freeDrive ? mode === "parking" || mode === "lesson" : mode === "city" ? S.mission >= MISSIONS.length : mode === "parking" && S.mission >= 2;
+    streetTarget.visible = !!(mode === "city" && S.streetSpot && !S.parkedStreet && S.mission === 7 && !opts.freeDrive);
+    if (streetTarget.visible) { const r = S.streetSpot.rect; streetTarget.position.set((r.x0 + r.x1) / 2, 0.025, (r.z0 + r.z1) / 2); streetTarget.scale.set(r.x1 - r.x0, 1, r.z1 - r.z0); }
+    for (const [m, r] of [[perpTarget, PERP_RECT], [parTarget, PAR_RECT], [streetTarget, S.streetSpot ? S.streetSpot.rect : PAR_RECT]]) { const pc = S.parkCheck, good = pc && !pc.out && pc.ang <= pc.tol && inRect(S.x, S.z, r); m.material.color.setHex(good ? 0x46e86c : 0xffd23d); }
 
     const amp = S.shake;
     const jx = (Math.random() - 0.5) * 0.02 * amp + Math.sin(S.t * 31) * 0.004 * amp;
@@ -5801,6 +5927,11 @@ button.lamp:hover { border-color: var(--amber-dim); }
     }
     gctx.fillStyle = "#d9d4c8";
     for (const c of traffic) { gctx.beginPath(); gctx.arc(X(c.x), Z(c.z), 1.8 * dpr, 0, Math.PI * 2); gctx.fill(); }
+    if (mode === "city" && S.mission === 7 && S.streetSpot && !S.parkedStreet && !opts.freeDrive) {
+      const sp = S.streetSpot, pr = pathTo(sp.i, sp.j, sp.k, [{ x: sp.x, z: sp.z }]);
+      gctx.strokeStyle = "#ffd23d"; gctx.lineWidth = 3 * dpr; gctx.lineJoin = "round"; gctx.beginPath(); pr.pts.forEach((p, k) => k ? gctx.lineTo(X(p.x), Z(p.z)) : gctx.moveTo(X(p.x), Z(p.z))); gctx.stroke();
+      gctx.fillStyle = "#ffd23d"; gctx.beginPath(); gctx.arc(clamp(X(sp.x), 6, w - 6), clamp(Z(sp.z), 6, h - 6), 5 * dpr, 0, Math.PI * 2); gctx.fill();
+    }
     if (S.exam && S.exam.phase === "route" && !S.exam.failed) {
       const [ci, cj] = S.exam.cps[S.exam.idx], er = pathTo(ci, cj, null);
       gctx.strokeStyle = "#46e86c"; gctx.lineWidth = 3 * dpr; gctx.lineJoin = "round"; gctx.beginPath(); er.pts.forEach((p, k) => k ? gctx.lineTo(X(p.x), Z(p.z)) : gctx.moveTo(X(p.x), Z(p.z))); gctx.stroke();
@@ -5930,6 +6061,10 @@ button.lamp:hover { border-color: var(--amber-dim); }
     }
     const nav = lotNav();
     if (nav) { setChip(nav.text, "#ffd23d"); return; }
+    if (mode === "city" && S.mission === 7 && S.streetSpot && !S.parkedStreet && !opts.freeDrive) {
+      const sp = S.streetSpot, dd = Math.hypot(S.x - sp.x, S.z - sp.z);
+      setChip(dd < 40 ? "Lugar libre para estacionar a tu derecha · sigue el panel" : `Lugar libre para estacionar: ${rideInstruction(pathTo(sp.i, sp.j, sp.k, [{ x: sp.x, z: sp.z }]))}`, "#ffd23d"); return;
+    }
     { const sg = segAt(S.x, S.z);
       if (help && sg && sg.axis === "NS" && isRailRow(sg.block)) {
         const rel = S.z - railZ(sg.block), d = (Math.abs(rel) - CAR_L / 2), toward = -Math.sign(rel) * dirOf(S.th).z > 0.5;
