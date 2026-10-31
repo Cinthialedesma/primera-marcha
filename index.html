@@ -509,6 +509,16 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       <p class="restart" id="stall-restart"></p>
       <div class="card-foot"><button class="btn" id="stall-ok" type="button">Entendido <span class="key">Enter</span></button></div>
     </div>
+    <div class="stall-card result-card" id="crash-card" role="dialog" aria-labelledby="crash-title" hidden>
+      <div class="card-head">
+        <div><span class="eyebrow">Choque · juego en pausa</span><h3 id="crash-title"></h3></div>
+        <button class="x" id="crash-x" type="button" aria-label="Cerrar">✕</button>
+      </div>
+      <p id="crash-text"></p>
+      <ol id="crash-steps"></ol>
+      <p class="restart">Sigues desde unos metros antes del choque, con el motor apagado: embrague a fondo y E para encender.</p>
+      <div class="card-foot"><button class="btn" id="crash-ok" type="button">Seguir <span class="key">Enter</span></button></div>
+    </div>
     <div class="stall-card result-card trip-card" id="trip-card" role="dialog" aria-labelledby="trip-title" hidden>
       <div class="card-head">
         <div><span class="eyebrow" id="trip-eyebrow">Resumen del viaje</span><h3 id="trip-title"></h3></div>
@@ -717,7 +727,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         <div class="stat"><b id="st-best">0</b><span>m sin errores</span></div>
       </div>
       <h2>Cómo se gana</h2>
-      <p class="note" style="border:0;padding:0">+50 misión · +10 PARE bien hecho · +10 doblar señalizando · +5 detenerte con luz roja · +40/+60 estacionar · +10 cada 400 m sin errores. Restan: −20 infracción, −30 choque, −5 motor apagado o caja raspada. Con más puntaje aparece más tránsito.</p>
+      <p class="note" style="border:0;padding:0">+50 misión · +10 PARE bien hecho · +10 doblar señalizando · +5 detenerte con luz roja · +40/+60 estacionar · +10 cada km sin errores. Restan: −20 infracción, −30 choque, −5 motor apagado o caja raspada. Con más puntaje aparece más tránsito.</p>
       <h2>Últimos movimientos</h2>
       <ul class="log" id="log"></ul>
     </div>
@@ -1147,6 +1157,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   }
   function stall() {
     S.running = false;
+    if (!document.getElementById("crash-card").hidden) return;
     S.counts.stall++;
     const info = explainStall();
     award(-5, "Se apagó el motor: " + info.title, "warn");
@@ -1227,6 +1238,42 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     drawStallChart();
     document.getElementById("stall-ok").focus({ preventScroll: true }); document.getElementById("stall-card").scrollTop = 0;
   }
+  const CRASH_TEXT = {
+    car: ["Chocaste con otro auto", "A esa velocidad un choque lastima a las personas aunque lleven cinturón. Casi siempre pasa por ir pegado al de adelante o por moverse sin mirar.", ["Deja 2 segundos con el de adelante (más con lluvia).", "Antes de moverte de carril o de doblar: espejo y mirar por encima del hombro (G).", "Si el de adelante frena, frena tú también enseguida: no esperes a estar encima."]],
+    front: ["Choque de frente", "Es el choque más grave que hay: las dos velocidades se suman.", ["Nunca adelantes si no ves libre el carril contrario hasta lejos.", "Donde hay doble línea amarilla, no se adelanta.", "Si dudas, no adelantes: espera una recta larga."]],
+    moto: ["Chocaste con una moto", "El motociclista no tiene carrocería que lo proteja: cualquier choque es grave para él.", ["Las motos pasan entre los carriles y quedan en tu punto ciego.", "Antes de moverte: espejo y mirar por encima del hombro (G).", "Quédate en el centro de tu carril."]],
+    parked: ["Chocaste un auto estacionado", "Pasa cuando vas rápido cerca del cordón o no calculas el largo de tu auto.", ["Cerca de autos estacionados ve más despacio.", "Para estacionar usa solo el punto de roce, sin acelerar.", "Mira los espejos laterales: muestran cuánto lugar te queda."]],
+    ped: ["Atropellaste a un peatón", "Es lo más grave que puede pasar manejando. El peatón siempre tiene prioridad en la senda peatonal y en las esquinas.", ["Frente a una senda, ve despacio y mira a los dos lados.", "Si alguien está cruzando o por cruzar, detente.", "Al doblar, cede el paso a quien cruza la calle a la que entras."]],
+    train: ["Te chocó el tren", "Un tren necesita cientos de metros para frenar: no puede esquivarte.", ["Con luces rojas, campanas o barreras bajando, siempre te detienes.", "Nunca te quedes parado sobre las vías: cruza solo si hay lugar del otro lado.", "En un paso sin barreras: PARE, mira a los dos lados y escucha."]],
+    wall: ["Chocaste contra la pared", "Te fuiste del camino a mucha velocidad.", ["Baja la velocidad antes de las curvas y las esquinas, no durante.", "Si el auto se va de lado, suelta el acelerador y endereza un poco.", "Con lluvia el auto agarra menos: ve más despacio."]],
+  };
+  function showCrash(hit, speed) {
+    if (S.paused) return;
+    let [title, text, steps] = CRASH_TEXT[hit === "curb" ? "wall" : hit] || CRASH_TEXT.wall;
+    if (title === CRASH_TEXT.wall[0]) title = mode === "campo" ? "Te saliste de la ruta y chocaste el alambrado" : mode === "autopista" ? "Chocaste contra la barrera" : title;
+    S.paused = true; for (const k in keys) keys[k] = false;
+    S.running = false; S.we = 0; // the engine dies in a crash; no separate "engine stalled" card
+    S.counts.bigCrash = (S.counts.bigCrash || 0) + 1;
+    document.getElementById("crash-title").textContent = `${title} a ${Math.round(speed)} km/h`;
+    document.getElementById("crash-text").textContent = text;
+    const ol = document.getElementById("crash-steps"); ol.innerHTML = "";
+    for (const st of steps) { const li = document.createElement("li"); li.textContent = st; ol.appendChild(li); }
+    toastsEl.innerHTML = "";
+    document.getElementById("crash-card").hidden = false;
+    say(title);
+    document.getElementById("crash-ok").focus({ preventScroll: true });
+  }
+  function closeCrash() {
+    const card = document.getElementById("crash-card");
+    if (card.hidden) return;
+    card.hidden = true;
+    // back to where you were a few seconds ago, stopped and with the engine off (it stalls in a crash)
+    const back = S.safeHist && S.safeHist.find(p => S.t - p.t >= 2.5) || (S.safeHist && S.safeHist[S.safeHist.length - 1]);
+    if (back) Object.assign(S, { x: back.x, z: back.z, th: back.th });
+    Object.assign(S, { v: 0, steer: 0, running: false, we: 0, gear: "N", hand: true, clutch: 0, gas: 0, brake: 0, lastHit: S.t, safeHist: [] });
+    S.paused = false;
+    document.getElementById("road").focus();
+  }
   function closeStall() {
     S.paused = false;
     document.getElementById("stall-card").hidden = true;
@@ -1252,6 +1299,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
 
 
   // ---------- physics ----------
+  // how much the road grips: about 0.9 g on dry asphalt, 0.6 in the rain, less on gravel and grass
+  const gripMu = () => (opts.rain ? 0.6 : 0.9) * [1, 0.8, 0.55][S.surf || 0];
   function physics(dt) {
     const ratio = RATIOS[S.gear] * FINAL;
     const e = S.gear === "N" ? 0 : engage(S.clutch);
@@ -1285,9 +1334,17 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       const nv = S.v + F / M * dt;
       S.v = nv * S.v < 0 ? 0 : nv;
     }
+    // grip: the tyres can only push the car sideways so much (less with braking, rain, gravel or grass);
+    // past that the front slides, the car goes wider than the wheel says (understeer) and the sliding eats speed
+    const mu = gripMu(), aBrake = Math.abs(S.v) > 0.5 ? Math.min(mu * 9.81 * 0.95, S.brake * (opts.rain ? 6500 : 9500) / M) : 0;
+    const aLatMax = Math.sqrt(Math.max(0.25, (mu * 9.81) ** 2 - aBrake ** 2));
+    let yaw = S.v / WHEELBASE * Math.tan(S.steer);
+    const aLat = Math.abs(S.v * yaw);
+    S.slip = aLat > aLatMax ? aLat / aLatMax : 0;
+    if (S.slip) { yaw *= aLatMax / aLat; S.v -= Math.sign(S.v) * Math.min(Math.abs(S.v), (aLat - aLatMax) * 0.12 * dt); }
     // kinematic bicycle around the rear axle: the rear wheels follow a tighter line than the front
     const d0 = dirOf(S.th), rx = S.x - d0.x * REAR + d0.x * S.v * dt, rz = S.z - d0.z * REAR + d0.z * S.v * dt;
-    S.th = wrap(S.th + S.v / WHEELBASE * Math.tan(S.steer) * dt);
+    S.th = wrap(S.th + yaw * dt);
     const d = dirOf(S.th);
     S.x = rx + d.x * REAR; S.z = rz + d.z * REAR;
     S.dist += Math.abs(S.v) * dt;
@@ -1340,7 +1397,11 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       const t = g.path[k], ang = Math.atan2(t.x - rx, -(t.z - rz)), alpha = wrap(ang - S.th), ld = Math.max(1, Math.hypot(t.x - rx, t.z - rz));
       const want = clamp(Math.atan2(2 * WHEELBASE * Math.sin(alpha), ld), -MAX_STEER, MAX_STEER);
       S.steer += clamp(want - S.steer, -1.0 * dt, 1.0 * dt);
-    } else if (steerIn) S.steer = clamp(S.steer + steerIn * (1.0 - 0.78 * clamp((Math.abs(S.v) - 8) / 14, 0, 1)) * dt, -MAX_STEER, MAX_STEER);
+    } else if (steerIn) {
+      const v2 = S.v * S.v, lim = Math.abs(S.v) > 4 ? Math.min(MAX_STEER, Math.atan(1.2 * gripMu() * 9.81 * WHEELBASE / v2)) : MAX_STEER;
+      const rate = Math.min(1.0 - 0.78 * clamp((Math.abs(S.v) - 8) / 14, 0, 1), Math.max(0.05, lim * 1.1));
+      S.steer = clamp(S.steer + steerIn * rate * dt, -Math.max(lim, Math.abs(S.steer) - rate * dt), Math.max(lim, Math.abs(S.steer) - rate * dt));
+    }
     else {
       const fast = clamp((Math.abs(S.v) - 8) / 14, 0, 1), back = (Math.min(0.8, Math.abs(S.v) * 0.2) * (1 - fast) + 0.05 * fast) * dt;
       S.steer = Math.abs(S.steer) <= back ? 0 : S.steer - Math.sign(S.steer) * back;
@@ -1397,7 +1458,9 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     }
     const speed = Math.abs(S.v) * 3.6;
     Object.assign(S, prev);
-    S.v = 0;
+    // a light knock bounces the car back a little; a hard one stops the trip with an explanation
+    S.v = speed < 25 ? -S.v * 0.12 : 0;
+    if (S.t - S.lastHit > 2 && (hit === "ped" || hit === "train" || speed >= 25)) showCrash(hit, speed);
     if (other) { other.v = 0; other.hitT = 2.5; }
     if (mode === "autopista" && S.hwJam && inJam(S.hwU ?? 0)) S.jamCrash = true;
     if (S.t - S.lastHit > 2) {
@@ -1436,7 +1499,16 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     return { i, j, dist: Math.abs(S.x - i * G) - HALF, axis: "EW" };
   }
 
+  function checkSlip(dt) {
+    if (S.slip > 1.05 && Math.abs(S.v) > 5) {
+      S.shake = Math.max(S.shake, 0.5 + Math.min(1.2, S.slip - 1));
+      S.slipT = (S.slipT || 0) + dt;
+      if (S.slipT > 0.3) tip(opts.rain ? "¡Las ruedas patinan! Con lluvia el auto agarra mucho menos: suelta el acelerador, endereza un poco el volante y no frenes de golpe. Ve más despacio en las curvas." : "¡Las ruedas patinan! Entraste muy rápido o giraste de golpe. Suelta el acelerador, endereza un poco el volante y no frenes fuerte en la curva.", "slip", 20);
+      if (S.slipT > 1 && !S.slipFlag) { S.slipFlag = true; award(-10, "Patinaste: perdiste adherencia en una curva"); toast("Patinaste: perdiste adherencia (-10)", "bad", "slip-bad", 4); }
+    } else { S.slipT = 0; if (!S.slip) S.slipFlag = false; }
+  }
   function checkCommon(dt) {
+    checkSlip(dt);
     const kmh = Math.abs(S.v) * 3.6;
     if (!S.belt && kmh > 5 && !S.beltFlag) { S.beltFlag = true; infraction("Manejaste sin el cinturón de seguridad"); tip("Abróchate el cinturón con C. En Argentina es obligatorio y en el examen es lo primero que miran.", "belt", 20); }
     if (!S.belt && S.running && S.v === 0) tip("Antes de arrancar abróchate el cinturón (C): la luz roja CINTURÓN del tablero te lo recuerda.", "belt-pre", 40);
@@ -1582,7 +1654,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         S.curve = null;
       }
     }
-    if (S.cleanDist >= 400) { S.bestClean = Math.max(S.bestClean, 400); S.cleanDist -= 400; S.routeClean = (S.routeClean || 0) + 400; award(10, "400 m sin errores"); }
+    if (S.cleanDist >= 1000) { S.bestClean = Math.max(S.bestClean, 1000); S.cleanDist -= 1000; S.routeClean = (S.routeClean || 0) + 1000; award(10, "1 km sin errores"); }
     S.bestClean = Math.max(S.bestClean, Math.round(S.cleanDist));
     const rpm = toRpm(S.we), e = S.gear === "N" ? 0 : engage(S.clutch), g = +S.gear;
     if (!S.running && S.gas > 0.4) tip("El motor está apagado: embrague a fondo (A) y pulsa E.", "off", 12);
@@ -1859,7 +1931,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       }
     } else S.parkT = 0;
 
-    if (S.cleanDist >= 400) { S.bestClean = Math.max(S.bestClean, 400); S.cleanDist -= 400; award(10, "400 m sin errores"); }
+    if (S.cleanDist >= 1000) { S.bestClean = Math.max(S.bestClean, 1000); S.cleanDist -= 1000; award(10, "1 km sin errores"); }
     S.bestClean = Math.max(S.bestClean, Math.round(S.cleanDist));
 
     const rpm = toRpm(S.we), e = S.gear === "N" ? 0 : engage(S.clutch), g = +S.gear;
@@ -2213,6 +2285,11 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   function renderPath() {
     const el = document.getElementById("path");
     if (!el) return;
+    if (opts.freeDrive) {
+      el.innerHTML = `<p>Modo libre: todos los lugares están abiertos. Tu camino queda guardado para cuando vuelvas a las misiones.</p>`;
+      for (const o of document.getElementById("mode").options) { o.disabled = false; o.textContent = MODE_NAMES[o.value]; }
+      return;
+    }
     let cur = PATH.findIndex((st, n) => !stageDone(n));
     if (cur < 0) cur = PATH.length;
     el.innerHTML = "";
@@ -2340,8 +2417,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       for (const [text, n] of rows.slice(0, 6)) { const li = document.createElement("li"); li.textContent = text + " "; if (n > 1) { const c = document.createElement("span"); c.className = "count"; c.textContent = "×" + n; li.appendChild(c); } ul.appendChild(li); }
     };
     if (missions) good.unshift([`${missions} ${missions === 1 ? "misión cumplida" : "misiones cumplidas"}`, 1]);
-    const clean = entries.filter(e => /400 m sin errores/.test(e.text)).length;
-    if (clean) good.push([`${clean * 400} m seguidos sin errores`, 1]);
+    const clean = entries.reduce((sum, e) => { const m = /^(\d+) (m|km) sin errores$/.exec(e.text); return sum + (m ? +m[1] * (m[2] === "km" ? 1000 : 1) : 0); }, 0);
+    if (clean) good.push([`${clean >= 1000 ? (clean / 1000).toLocaleString("es-AR") + " km" : clean + " m"} sin errores`, 1]);
     fill("trip-good", good, "Todavía nada: este viaje fue corto.");
     fill("trip-bad", bad, "¡Nada! No tuviste infracciones ni se te apagó el motor.");
     // advice for the most repeated mistakes
@@ -2548,7 +2625,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     const k = e.key.toLowerCase();
     if (S.paused) {
       if (quiz) { if (k === "escape" || (k === "enter" && quiz.done)) closeQuiz(); else if (k === "enter") quizNext(); e.preventDefault(); return; }
-      if (k === "enter" || k === "escape") { closeStall(); closeResult(); closeTrip(); closeRide(); e.preventDefault(); } return;
+      if (k === "enter" || k === "escape") { closeStall(); closeResult(); closeTrip(); closeRide(); closeCrash(); e.preventDefault(); } return;
     }
     if (KEYMAP[k]) { keys[KEYMAP[k]] = true; e.preventDefault(); return; }
     if (e.repeat) return;
@@ -2600,6 +2677,8 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   document.getElementById("btn-hand").addEventListener("click", () => { S.hand = !S.hand; });
   document.getElementById("stall-ok").addEventListener("click", closeStall);
   document.getElementById("stall-x").addEventListener("click", closeStall);
+  document.getElementById("crash-ok").addEventListener("click", closeCrash);
+  document.getElementById("crash-x").addEventListener("click", closeCrash);
   document.getElementById("btn-trip").addEventListener("click", () => { if (S.paused) return; showTrip(); });
   document.getElementById("trip-ok").addEventListener("click", closeTrip);
   document.getElementById("trip-x").addEventListener("click", closeTrip);
@@ -2772,7 +2851,12 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
         const g = ac.createGain(); g.gain.value = 0;
         o1.connect(f); o2.connect(f); f.connect(g); g.connect(ac.destination);
         o1.start(); o2.start();
-        audio = { ac, o1, o2, f, g, on: true };
+        // tyre screech: filtered noise that comes up when the tyres slide
+        const nb = ac.createBuffer(1, ac.sampleRate, ac.sampleRate), nd = nb.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+        const ns = ac.createBufferSource(); ns.buffer = nb; ns.loop = true;
+        const nf = ac.createBiquadFilter(); nf.type = "bandpass"; nf.frequency.value = 1500; nf.Q.value = 3;
+        const sg = ac.createGain(); sg.gain.value = 0; ns.connect(nf); nf.connect(sg); sg.connect(ac.destination); ns.start();
+        audio = { ac, o1, o2, f, g, sg, nf, on: true };
       } else {
         audio.on = !audio.on;
         if (audio.on) audio.ac.resume();
@@ -2797,6 +2881,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     audio.f.frequency.setTargetAtTime(220 + rpm * 0.18 + S.gas * 600, t, 0.05);
     const target = audio.on && rpm > 60 ? (S.crank > 0 ? 0.03 : 0.035 + 0.05 * S.gas) : 0;
     audio.g.gain.setTargetAtTime(target, t, 0.05);
+    if (audio.sg) { audio.sg.gain.setTargetAtTime(audio.on && S.slip > 1.03 && Math.abs(S.v) > 4 ? Math.min(0.09, (S.slip - 1) * 0.2 + 0.02) : 0, t, 0.04); audio.nf.frequency.setTargetAtTime(1300 + Math.abs(S.v) * 15, t, 0.1); }
   }
   let hornCtx = null;
   function honk(mine) {
@@ -5069,6 +5154,9 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     return c;
   }
   const mirrors = { rear: mirrorCam(38), left: mirrorCam(30), right: mirrorCam(30) };
+  const mirrorRT = {}, mirrorScene = new THREE.Scene(), mirrorOrtho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  const mirrorQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ depthTest: false, depthWrite: false })); mirrorScene.add(mirrorQuad);
+  let frameN = 0;
   mirrors.left.layers.enable(1); mirrors.right.layers.enable(1);
 
   function resize3d() {
@@ -5085,7 +5173,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
   function render3d() {
     // in the city the far ground sits lower, so it never covers the tunnels; each block has its own grass
     ground.position.set(Math.round(S.x / 16) * 16, mode === "campo" || mode === "hill" || mode === "autopista" ? -0.06 : -6.5, Math.round(S.z / 16) * 16);
-    sun.position.set(S.x + 50, 90, S.z + 35); sun.target.position.set(S.x, 0, S.z); sun.target.updateMatrixWorld();
+    if (frameN % (lowQuality ? 3 : 2) === 1) { sun.position.set(S.x + 50, 90, S.z + 35); sun.target.position.set(S.x, 0, S.z); sun.target.updateMatrixWorld(); }
     placeCar(myCar, S.x, S.z, S.th); myCar.position.y = heightAt(S.x, S.z);
     beamRoot.visible = opts.night && S.lights;
     if (beamRoot.visible) {
@@ -5128,17 +5216,26 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     camera.lookAt(ex + look.x * 20, heightAt(ex + look.x * 20, ez + look.z * 20) + 1.22 + jy - 0.9 + pitch, ez + look.z * 20);
     wheelEl.setAttribute("transform", `rotate(${(S.steer / MAX_STEER * 450).toFixed(1)} 500 390) translate(${(jx * 900).toFixed(1)},${(jy * 900).toFixed(1)})`);
 
-    renderer.shadowMap.needsUpdate = true;
+    // shadows every other frame (every third in light mode): the sun moves with the car only when they are redrawn
+    frameN++;
+    renderer.shadowMap.needsUpdate = frameN % (lowQuality ? 3 : 2) === 0;
     renderer.setScissorTest(false);
     renderer.setViewport(0, 0, stage.clientWidth, stage.clientHeight);
     renderer.render(scene, camera);
 
     const sr = stage.getBoundingClientRect(), H = stage.clientHeight;
     renderer.setScissorTest(true);
+    // the rear mirror is redrawn every other frame and each side mirror every fourth; a zoomed mirror every frame
+    const turn = ["rear", "left", "rear", "right"][frameN % 4];
     for (const name of ["rear", "left", "right"]) {
       const el = mirrorEls[name].getBoundingClientRect(), c = mirrors[name];
       const b = 5, x = el.left - sr.left + b, y = H - (el.top - sr.top) - el.height + b, w = el.width - 2 * b, h = el.height - 2 * b;
       if (w < 4 || h < 4) continue;
+      const pr = renderer.getPixelRatio(), rw = Math.max(8, Math.round(w * pr)), rh = Math.max(8, Math.round(h * pr));
+      let mrt = mirrorRT[name];
+      const fresh = !mrt || mrt.width !== rw || mrt.height !== rh;
+      if (fresh) { if (mrt) mrt.dispose(); mrt = mirrorRT[name] = new THREE.WebGLRenderTarget(rw, rh); }
+      if (fresh || name === turn || mirrorEls[name].classList.contains("zoom")) {
       let pos, tgt;
       if (name === "rear") { pos = v3(S.x + d.x * 0.3, hy + 1.32, S.z + d.z * 0.3); tgt = v3(pos.x - d.x * 20, heightAt(pos.x - d.x * 20, pos.z - d.z * 20) + 1.1, pos.z - d.z * 20); }
       else {
@@ -5149,8 +5246,11 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       }
       c.position.copy(pos); c.lookAt(tgt);
       if (Math.abs(c.aspect - w / h) > 0.01 || !c.flipped) { c.aspect = w / h; c.flip(); c.flipped = true; }
+      renderer.setRenderTarget(mrt); renderer.setScissorTest(false); renderer.setViewport(0, 0, w, h); renderer.render(scene, c); renderer.setRenderTarget(null); renderer.setScissorTest(true);
+      }
+      mirrorQuad.material.map = mrt.texture;
       renderer.setViewport(x, y, w, h); renderer.setScissor(x, y, w, h);
-      renderer.render(scene, c);
+      renderer.render(mirrorScene, mirrorOrtho);
     }
     renderer.setScissorTest(false);
   }
@@ -5231,7 +5331,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       line(u - 160, u + 160, () => 0, "#c9c4b8", 0.8);
       line(u - 160, u + 160, w => hwAux(w) > 0 ? hwLaneC(4) : null, "#6b6e72", 3.5 * 1);
       line(u - 160, u + 160, w => hwRamp(w), "#6b6e72", 4);
-      const exK = S.hwExitK != null && !S.hwExitOk ? S.hwExitK : null, wantIn = S.mission <= 1 && !S.hwMerged;
+      const exK = S.hwExitK != null && !S.hwExitOk ? S.hwExitK : null, wantIn = S.mission <= 1 && !S.hwMerged && !opts.freeDrive;
       if (exK != null) { const b = HW.FIRST + exK * HW.STEP; line(Math.max(u - 160, b - 250), Math.min(u + 160, b + 130), w => w < b ? hwLaneC(4) : hwRamp(w), "#3f8fe0", 2.4); }
       if (wantIn) { const j = hwJ(u + 200); line(Math.max(u - 160, j.b + 350), Math.min(u + 160, j.b + 760), w => w <= j.b + 480 ? hwRamp(w) : hwLaneC(4), "#11a35a", 2.4); }
       if (S.hwJam) line(Math.max(u - 160, S.hwJam.u0), Math.min(u + 160, S.hwJam.u1), () => 7.3, "rgba(255,59,36,.55)", 10);
@@ -5381,7 +5481,7 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
       if (jam && jam.u0 - u < 600 && u < jam.u1) setChip(u < jam.u0 ? `Tránsito detenido a ${Math.round(jam.u0 - u)} m · frena de a poco y pon balizas (B)` : "Embotellamiento: 1ª, un auto de distancia, ojo con las motos", "#ff3b24");
       else if (S.hwGap != null && (S.mission === 4 || S.hwGap < 1.5)) setChip(`Distancia con el de adelante: ${S.hwGap.toFixed(1).replace(".", ",")} s${S.hwGap < 2 ? " · deja 2 segundos" : " · bien"}`, S.hwGap < 1 ? "#ff3b24" : S.hwGap < 2 ? "#f2c230" : "#46e86c");
       else if (ex != null && ex > -140 && ex < 2000) setChip(`Tu salida: ${hwName(S.hwExitK)} · ${ex > 0 ? Math.round(ex) + " m" : "ahora"}${ex < 700 && S.hwLane !== 3 && S.hwLane !== 4 && S.hwLane !== "ramp" ? " · pásate al carril derecho" : ""}`, "#3f8fe0");
-      else if (S.mission <= 1 && !S.hwMerged) { const j = hwJ(u); setChip(j.rel < 350 ? `Rampa de entrada a la izquierda en ${Math.round(350 - j.rel)} m` : "Acelera en el carril de aceleración y pásate con guiño, espejo y punto ciego (G)", "#11a35a"); }
+      else if (S.mission <= 1 && !S.hwMerged && !opts.freeDrive) { const j = hwJ(u); setChip(j.rel < 350 ? `Rampa de entrada a la izquierda en ${Math.round(350 - j.rel)} m` : "Acelera en el carril de aceleración y pásate con guiño, espejo y punto ciego (G)", "#11a35a"); }
       else if (help) setChip(`Autopista · máx. 100 · mín. 50 km/h${typeof S.hwLane === "number" && S.hwLane <= 3 ? ` · carril ${["izquierdo", "del medio", "derecho"][S.hwLane - 1]}` : ""}`, "#11a35a");
       else chip.hidden = true;
       return;
@@ -5469,6 +5569,9 @@ button:focus-visible, canvas:focus-visible, [tabindex]:focus-visible { outline: 
     updateTrains(dt);
     updatePeds(dt);
     collide(prev);
+    if (S.t - S.lastHit > 2 && Math.abs(S.v) > 1 && drivable(S.x, S.z) && S.t - (S.safeT ?? -9) > 0.5) {
+      S.safeT = S.t; S.safeHist = S.safeHist || []; S.safeHist.unshift({ x: S.x, z: S.z, th: S.th, t: S.t }); if (S.safeHist.length > 14) S.safeHist.pop();
+    }
     updateCells();
     updateLights();
     checkRules(dt);
