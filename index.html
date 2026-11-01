@@ -217,6 +217,16 @@ button.lamp:hover { border-color: var(--amber-dim); }
 .missions li.current { background: var(--panel-2); color: var(--ink); }
 .missions li.current .n { border-color: var(--amber); color: var(--amber); }
 .missions li.locked { opacity: .55; }
+.missions li.skipped .n, .missions li.skipnote .n { border: 1px dashed var(--amber); color: var(--amber); }
+.missions li.skipnote { padding: 4px 8px; align-items: center; }
+.missions .mgo { all: unset; cursor: pointer; display: block; color: inherit; }
+.missions .mgo:hover { color: var(--ink); text-decoration: underline; }
+.missions .mgo:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; border-radius: 3px; }
+.missions .mskip { display: block; margin-top: 8px; background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 6px; padding: 4px 10px; font: inherit; font-size: .8rem; cursor: pointer; }
+.missions .mskip:hover, .missions .mskip:focus-visible { color: var(--ink); border-color: var(--muted); }
+.path .linkbtn { all: unset; cursor: pointer; color: var(--amber); font-size: .8rem; }
+.path .linkbtn:hover { text-decoration: underline; }
+.path .linkbtn:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .missions li > span:last-child { display: block; min-width: 0; }
 .msteps { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: .86rem; }
 .missions .msteps li { display: block; position: relative; padding: 0 0 0 20px; border-radius: 0; background: none; color: var(--ink); }
@@ -1257,7 +1267,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
       box: null, appr: {}, redOk: {}, stopOk: false, turned: { left: false, right: false },
       parkT: 0, parkedPerp: false, parkedPar: false, lastHit: -9, lastCurb: -9, lastCurbT: -9, shiftT: 0, wipers: false, wiperA: 0, exam: null, licensed: false, boxExitT: -9, guide: null,
       score: 0, cleanDist: 0, bestClean: 0, trafficLevel: 0,
-      mission: 0, counts: { infr: 0, stall: 0, grind: 0, crash: 0 }, log: [], hist: [], paused: false,
+      mission: 0, mDone: [], mSkip: [], missionT: 0, stuckTold: {}, counts: { infr: 0, stall: 0, grind: 0, crash: 0 }, log: [], hist: [], paused: false,
       trip: { logStart: 0, t0: 0, dist0: 0, score0: 0, maxKmh: 0 },
       stepDone: {}, lights: false, belt: false, beltFlag: false, mirrorT: -99, parkedStop: true, biteT: 0, fwd1: 0, lessonStops: 0, moved: false, rev: 0, l2: false,
       hs: null, dh: null, launchRolled: false, lastRoll: -9, parkedFront: false, parkedBack: false,
@@ -2515,7 +2525,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     if (!m || !m.steps || S.paused || opts.freeDrive) return;
     let changed = false;
     m.steps.forEach(([, ok], n) => { const k = S.mission + "-" + n; if (!S.stepDone[k]) { let v = false; try { v = !!ok(); } catch (err) {} if (v) { S.stepDone[k] = true; changed = true; } } });
-    if (changed) renderMissions();
+    if (changed) { renderMissions(); S.missionT = 0; }
   }
   // the order to learn in: each step opens the next one
   const PATH = [
@@ -2531,15 +2541,22 @@ button.lamp:hover { border-color: var(--amber-dim); }
   const MODE_NAMES = { lesson: "Primera clase", city: "Ciudad", hill: "Subidas y bajadas", parking: "Estacionamiento", campo: "Ruta en el campo", ride: "Llevar a alguien", autopista: "Autopista (tipo General Paz)" };
   let prog = { modes: {}, free: false, last: null };
   try { Object.assign(prog, JSON.parse(localStorage.getItem("pm-progress") || "{}")); } catch (err) {}
-  const missionOf = m => (m === mode && S ? S.mission : prog.modes[m] ? prog.modes[m].mission : 0);
+  // done and skipped missions are kept apart; the "frontier" is the first one neither done nor skipped
+  // (old saves only have the mission number: everything before it counts as done)
+  const frontierOf = (done, skip) => { let i = 0; while (done.includes(i) || skip.includes(i)) i++; return i; };
+  const savedDone = sv => sv.done ? sv.done : Array.from({ length: sv.mission || 0 }, (_, i) => i);
+  const missionOf = m => (m === mode && S ? frontierOf(S.mDone, S.mSkip) : prog.modes[m] ? frontierOf(savedDone(prog.modes[m]), prog.modes[m].skip || []) : 0);
+  const doneOf = m => (m === mode && S ? S.mDone : prog.modes[m] ? savedDone(prog.modes[m]) : []);
   const stageDone = n => PATH[n].theory ? !!prog.theoryPassed : missionOf(PATH[n].mode) >= PATH[n].until;
   const stageOpen = n => n === 0 || prog.free || stageDone(n - 1);
   const modeOpen = m => opts.freeDrive || (m === "ride" ? prog.free || stageDone(1) : m === "autopista" ? prog.free || stageDone(4) : PATH.some((st, n) => st.mode === m && stageOpen(n)));
   const examOpen = () => prog.free || stageDone(6);
   const circuitOpen = () => prog.free || stageDone(5);
+  // a step of the path is "clean" when none of its missions was skipped
+  const stageClean = n => PATH[n].theory ? !!prog.theoryPassed : Array.from({ length: PATH[n].until }, (_, i) => i).every(i => doneOf(PATH[n].mode).includes(i));
   function saveProgress() {
     if (!S) return;
-    prog.modes[mode] = { mission: S.mission, score: S.score, counts: S.counts, dist: S.dist, bestClean: S.bestClean, licensed: S.licensed, log: S.log.slice(0, 40), rides: S.rides || 0, bestStars: S.bestStars || 0 };
+    prog.modes[mode] = { mission: S.mission, done: S.mDone.slice(), skip: S.mSkip.slice(), score: S.score, counts: S.counts, dist: S.dist, bestClean: S.bestClean, licensed: S.licensed, log: S.log.slice(0, 40), rides: S.rides || 0, bestStars: S.bestStars || 0 };
     prog.last = mode;
     try { localStorage.setItem("pm-progress", JSON.stringify(prog)); } catch (err) {}
   }
@@ -2557,9 +2574,9 @@ button.lamp:hover { border-color: var(--amber-dim); }
     const row = document.createElement("div"); row.className = "steps";
     PATH.forEach((st, n) => {
       const b = document.createElement("button"); b.type = "button";
-      b.textContent = stageDone(n) ? "✓" : stageOpen(n) ? String(n + 1) : "🔒";
+      b.textContent = stageDone(n) ? (stageClean(n) ? "✓" : "↷") : stageOpen(n) ? String(n + 1) : "🔒";
       b.className = (stageDone(n) ? "done" : "") + (n === cur ? " here" : "");
-      b.title = `${n + 1}. ${st.title}`; b.disabled = !stageOpen(n);
+      b.title = `${n + 1}. ${st.title}` + (stageDone(n) && !stageClean(n) ? " (con misiones salteadas)" : ""); b.disabled = !stageOpen(n);
       b.addEventListener("click", () => { if (st.theory) { openQuiz(); return; } if (mode !== st.mode) setMode(st.mode); document.getElementById("road").focus(); });
       row.appendChild(b);
     });
@@ -2568,6 +2585,14 @@ button.lamp:hover { border-color: var(--amber-dim); }
     p.innerHTML = cur < PATH.length ? `Tu camino · paso ${cur + 1} de ${PATH.length}: <b></b>` : `<b>¡Completaste todo el camino!</b>`;
     if (cur < PATH.length) p.querySelector("b").textContent = PATH[cur].title + (PATH[cur].theory ? ` (tocá el ${cur + 1} o buscalo en la pestaña Reglas)` : PATH[cur].mode !== mode ? ` (elegilo en Lugar o tocá el ${cur + 1})` : "");
     el.appendChild(p);
+    if (!prog.free && PATH.some((st, n) => !stageOpen(n))) {
+      const ob = document.createElement("button"); ob.type = "button"; ob.className = "linkbtn"; ob.textContent = "¿Querés probar todo? Abrir todos los lugares";
+      ob.addEventListener("click", () => {
+        prog.free = true; document.getElementById("opt-free").checked = true; saveProgress(); renderMissions();
+        toast("Listo: todos los lugares y exámenes están abiertos. Tus misiones siguen guardadas. Para volver a cerrarlos: ⚙ Menú → Todo desbloqueado.", "good", "allopen", 2);
+      });
+      el.appendChild(ob);
+    }
     // the place selector shows which places are still closed
     for (const o of document.getElementById("mode").options) { const open = modeOpen(o.value); o.disabled = !open; o.textContent = (open ? "" : "🔒 ") + MODE_NAMES[o.value]; }
   }
@@ -2584,18 +2609,28 @@ button.lamp:hover { border-color: var(--amber-dim); }
     }
     MISSIONS.forEach((m, i) => {
       const li = document.createElement("li");
-      const locked = (mode === "city" && i >= 8 && !examOpen()) || (mode === "parking" && i >= 3 && !circuitOpen());
-      li.className = (i < S.mission ? "done" : i === S.mission && !locked ? "current" : "") + (locked ? " locked" : "");
-      li.innerHTML = `<span class="n">${i < S.mission ? "✓" : i + 1}</span><span></span>`;
+      const locked = missionLocked(i), done = S.mDone.includes(i), cur = i === S.mission, skipped = !done && !cur && S.mSkip.includes(i);
+      li.className = (done ? "done" : cur && !locked ? "current" : "") + (skipped ? " skipped" : "") + (locked ? " locked" : "");
+      li.innerHTML = `<span class="n">${done ? "✓" : skipped ? "↷" : i + 1}</span><span></span>`;
       const body = li.lastChild;
-      body.textContent = m.title;
+      if (!cur && !done && !locked) {
+        const b = document.createElement("button"); b.type = "button"; b.className = "mgo"; b.textContent = m.title;
+        b.title = skipped ? "La salteaste: tocá para intentarla de nuevo" : "Tocá para ir a esta misión";
+        b.addEventListener("click", () => goMission(i));
+        body.appendChild(b);
+      } else body.textContent = m.title;
       if (i === S.mission && m.steps && !locked) {
         // the steps, crossed off as they are done; the long explanation stays under "Más ayuda"
         const ul = document.createElement("ul"); ul.className = "msteps";
         m.steps.forEach(([t], n) => { const li2 = document.createElement("li"); li2.textContent = t; if (S.stepDone[S.mission + "-" + n]) li2.className = "ok"; ul.appendChild(li2); });
         body.appendChild(ul);
         const det = document.createElement("details"); det.className = "more"; det.innerHTML = "<summary>Más ayuda</summary>"; const h = document.createElement("span"); h.className = "hint"; h.textContent = m.hint; det.appendChild(h); body.appendChild(det);
-      } else if (i === S.mission) { const h = document.createElement("span"); h.className = "hint"; h.textContent = locked ? (mode === "parking" ? "Se abre cuando apruebes el examen teórico (mirá Tu camino, arriba)." : "El examen final se abre cuando termines los pasos anteriores de Tu camino (arriba): Subidas, Estacionamiento, Ruta, el examen teórico y el de circuito.") : m.hint; body.appendChild(h); }
+      } else if (cur) { const h = document.createElement("span"); h.className = "hint"; h.textContent = locked ? (mode === "parking" ? "Se abre cuando apruebes el examen teórico (mirá Tu camino, arriba)." : "El examen final se abre cuando termines los pasos anteriores de Tu camino (arriba): Subidas, Estacionamiento, Ruta, el examen teórico y el de circuito.") : m.hint; body.appendChild(h); }
+      if (cur && canSkip(i)) {
+        const sk = document.createElement("button"); sk.type = "button"; sk.className = "mskip"; sk.textContent = "Saltar esta misión ↷";
+        sk.title = "Pasá a la próxima; después la podés intentar de nuevo desde esta lista";
+        sk.addEventListener("click", skipMission); body.appendChild(sk);
+      }
       missionsEl.appendChild(li);
     });
     if (S.mission >= MISSIONS.length) {
@@ -2609,6 +2644,13 @@ button.lamp:hover { border-color: var(--amber-dim); }
         : mode === "lesson" ? `<span class="n">★</span><span>¡Terminaste la primera clase! Ya sabés lo básico del embrague. Ahora elegí Ciudad en Lugar, arriba.</span>`
         : `<span class="n">★</span><span>Completaste las misiones de este lugar. Probá otro en el selector Lugar, arriba.</span>`;
       missionsEl.appendChild(li);
+    }
+    // one line on top explains the ↷ marks, instead of repeating it under each one
+    const nSkip = S.mSkip.filter(i => !S.mDone.includes(i) && i !== S.mission).length;
+    if (nSkip) {
+      const li = document.createElement("li"); li.className = "skipnote";
+      li.innerHTML = `<span class="n">↷</span><span class="hint" style="margin:0">${nSkip === 1 ? "1 misión salteada" : `${nSkip} misiones salteadas`}: tocá su nombre cuando quieras intentarla de nuevo.</span>`;
+      missionsEl.prepend(li);
     }
   }
   const EXAM_POOL = [[1, -1], [1, -2], [0, -2], [-1, -2], [-1, -1], [-1, 0], [1, 0], [0, 1], [1, 1]];
@@ -2912,13 +2954,64 @@ button.lamp:hover { border-color: var(--amber-dim); }
       const before = PATH.map((st, n) => stageDone(n));
       award(50, "Misión cumplida: " + MISSIONS[S.mission].title);
       toast("Misión cumplida: " + MISSIONS[S.mission].title + " (+50)", "good", "m" + S.mission);
-      S.mission++;
+      const doneNow = S.mission;
+      if (!S.mDone.includes(doneNow)) S.mDone.push(doneNow);
+      S.mSkip = S.mSkip.filter(k => k !== doneNow);
+      for (let k = 0; k < doneNow; k++) if (!S.mDone.includes(k) && !S.mSkip.includes(k)) S.mSkip.push(k);
+      S.mission = frontierOf(S.mDone, S.mSkip); S.missionT = 0;
       saveProgress();
       renderMissions();
       // a step of the path finished: say what opens now
-      PATH.forEach((st, n) => { if (!before[n] && stageDone(n)) toast(n + 1 < PATH.length ? `¡Completaste "${st.title}"! Se abrió: ${PATH[n + 1].title}. Tocalo en Tu camino, en la pestaña Misiones.` : "¡Completaste todo el camino!", "good", "stage" + n, 999); });
+      pathOpened(before);
       if (S.mission < MISSIONS.length) { const nx = MISSIONS[S.mission]; toast(`Ahora: ${nx.title}.${nx.steps ? " Los pasos están en el panel de la derecha." : " " + nx.hint}`, "tip", "next" + S.mission, 999); }
     }
+  }
+
+  // the path step that just opened, if any
+  function pathOpened(before) {
+    PATH.forEach((st, n) => { if (!before[n] && stageDone(n)) toast(n + 1 < PATH.length ? `${stageClean(n) ? `¡Completaste "${st.title}"!` : `Terminaste "${st.title}" (con alguna misión salteada).`} Se abrió: ${PATH[n + 1].title}. Tocalo en Tu camino, en la pestaña Misiones.` : "¡Completaste todo el camino!", "good", "stage" + n, 999); });
+  }
+  // ---------- skipping and choosing missions: nobody stays stuck ----------
+  const missionLocked = i => (mode === "city" && i >= 8 && !examOpen()) || (mode === "parking" && i >= 3 && !circuitOpen());
+  // the street exam is the last thing in the city: skipping it would leave nothing to do
+  const canSkip = i => i < MISSIONS.length && !opts.freeDrive && !(mode === "city" && i === MISSIONS.length - 1) && !missionLocked(i);
+  function skipMission() {
+    const cur = S.mission; if (!canSkip(cur)) return;
+    const before = PATH.map((st, n) => stageDone(n));
+    if (!S.mSkip.includes(cur)) S.mSkip.push(cur);
+    S.mission = frontierOf(S.mDone, S.mSkip); S.missionT = 0;
+    saveProgress(); renderMissions();
+    const nx = MISSIONS[S.mission];
+    toast(`Salteaste «${MISSIONS[cur].title}»: queda con ↷ en la lista para después.${nx ? ` Ahora: ${nx.title}.` : ""}`, "", "skip" + cur, 2);
+    pathOpened(before);
+    document.getElementById("road").focus();
+  }
+  function goMission(i) {
+    if (i === S.mission || i >= MISSIONS.length || S.mDone.includes(i) || missionLocked(i)) return;
+    const before = PATH.map((st, n) => stageDone(n));
+    // going ahead leaves the ones in between as skipped, so you can come back to them
+    for (let k = 0; k < i; k++) if (!S.mDone.includes(k) && !S.mSkip.includes(k)) S.mSkip.push(k);
+    S.mission = i; S.missionT = 0;
+    for (const k of Object.keys(S.stepDone)) if (k.startsWith(i + "-")) delete S.stepDone[k];
+    if (S.exam && !S.exam.passed && i !== MISSIONS.length - 1) S.exam = null;
+    saveProgress(); renderMissions();
+    const m = MISSIONS[i];
+    toast(`Misión: ${m.title}.${m.steps ? " Los pasos están en el panel." : " " + m.hint}`, "", "go" + i, 2);
+    pathOpened(before);
+    document.getElementById("road").focus();
+  }
+  // a long time on the same mission without ticking any step: offer help or a skip, once per mission
+  function updateStuck(dt) {
+    if (S.paused || S.mission >= MISSIONS.length || examOn() || !canSkip(S.mission)) return;
+    S.missionT += dt;
+    if (S.missionT < 210 || S.stuckTold[S.mission]) return;
+    S.stuckTold[S.mission] = true;
+    const d = toast("¿Te trabaste con esta misión? Mirá «Más ayuda» en el panel, o salteala y seguí con la próxima: después la podés intentar de nuevo desde la lista.", "", "stuck" + S.mission, 999);
+    if (!d) return;
+    clearTimeout(d._tm); d._tm = setTimeout(() => d.remove(), 25000);
+    const b = document.createElement("button"); b.type = "button"; b.className = "btn"; b.textContent = "Saltar misión ↷"; b.style.marginLeft = "6px";
+    b.addEventListener("click", ev => { ev.stopPropagation(); d.remove(); skipMission(); });
+    d.appendChild(b);
   }
 
   // ---------- score panel ----------
@@ -5173,7 +5266,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     REC.buf = []; REC.pending = []; REC.last = -1; // the recording starts over in the new place (saved replays stay)
     const saved = prog.modes[m];
     if (saved) {
-      Object.assign(S, { mission: saved.mission || 0, score: saved.score || 0, dist: saved.dist || 0, bestClean: saved.bestClean || 0, licensed: !!saved.licensed, log: (saved.log || []).slice() });
+      Object.assign(S, { mission: saved.mission || 0, mDone: savedDone(saved).slice(), mSkip: (saved.skip || []).slice(), score: saved.score || 0, dist: saved.dist || 0, bestClean: saved.bestClean || 0, licensed: !!saved.licensed, log: (saved.log || []).slice() });
       Object.assign(S.counts, saved.counts || {});
       S.rides = saved.rides || 0; S.bestStars = saved.bestStars || 0;
       S.trip = { logStart: S.log.length, t0: 0, dist0: S.dist, score0: S.score, maxKmh: 0 };
@@ -6711,6 +6804,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     checkRules(dt);
     checkMissions();
     updateSteps();
+    updateStuck(dt);
     updateRide(dt);
     updateExam();
     S.trip.maxKmh = Math.max(S.trip.maxKmh, Math.abs(S.v) * 3.6);
