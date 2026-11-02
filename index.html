@@ -159,6 +159,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
 .pedal.held { border-color: var(--amber); }
 .pedal.bite-on { border-color: var(--green); box-shadow: 0 0 0 2px rgba(115,194,122,.35); }
 .pedal.bite-on .name { color: var(--green); }
+.pedal.grip-on { border-color: var(--green); box-shadow: 0 0 0 3px rgba(115,194,122,.65); }
+.pedal.grip-on .name { color: var(--green); font-weight: 700; }
 .pedal .bar {
   position: relative; width: 26px; height: 92px; background: #111315; border-radius: 4px; overflow: hidden;
   border: 1px solid var(--line);
@@ -464,6 +466,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
 .coach ol li.now::before { content: "→ "; color: var(--amber); }
 .coach ol li.now + li { opacity: .75; font-size: .95em; }
 .coach ol li.now + li::before { content: "Después: "; color: var(--muted); }
+.coach ol li .cue { display: block; margin-top: 3px; color: var(--amber); font-weight: 600; }
+.coach ol li.now + li .cue { display: none; }
 .coach .prog { color: var(--muted); font-weight: 400; font-size: .74rem; margin-left: 6px; }
 .coach { max-height: 48%; overflow-y: auto; }
 .coach li.now { color: var(--ink); font-weight: 600; }
@@ -1895,6 +1899,15 @@ button.lamp:hover { border-color: var(--amber-dim); }
     if (g >= 2 && rpm < 1200 && e > 0.9 && S.v > 0.5) tip(`El motor va muy bajo de vueltas: bajá a ${g - 1}ª.`, "down" + g, 15);
     if (slowAhead && slowAhead.kind === "tractor" && slowAhead.u - u < 40 && slowAhead.u - u > 8 && !left) tip(noPass(u) ? "Un tractor adelante. Hay doble línea amarilla: esperá detrás, a distancia, hasta que la línea sea discontinua." : "Para adelantar al tractor: mirá el espejo, poné el guiño izquierdo (Z), fijate que no venga nadie de frente, pasate al otro carril y acelerá. Volvé con el guiño derecho (X) cuando lo veas en el espejo de adentro.", "tractor" + (noPass(u) ? "np" : "ok"), 25);
   }
+  // how much the clutch already pulls compared to what the slope pulls back (null when not facing uphill):
+  // at 1 or more the car holds itself and the hand brake can go
+  function hillGrip() {
+    if (mode !== "hill" || !S.running || S.gear === "N" || S.gear === "R") return null;
+    const dS = dirOf(S.th), slope = heightAt(S.x + dS.x * 0.5, S.z + dS.z * 0.5) - heightAt(S.x - dS.x * 0.5, S.z - dS.z * 0.5);
+    const pull = M * 9.81 * slope - 160;
+    if (pull <= 50) return null;
+    return engage(S.clutch) * TCMAX * RATIOS[S.gear] * FINAL / R * EFF / pull;
+  }
   function checkHill(dt) {
     checkSlopePark(dt);
     const kmh = Math.abs(S.v) * 3.6, u = -S.z, north = Math.cos(S.th) > 0.7, half = HILL_P / 2;
@@ -1911,6 +1924,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
       tip("Te vas para atrás: pisá el freno (↓) o subí el freno de mano (Q).", "rollback", 8);
     }
     if (S.v === 0 && (S.hand || S.brake > 0.3)) S.launchRolled = false;
+    { const gr = hillGrip(); if (S.hand && S.v === 0 && gr != null && gr >= 1.1 && toRpm(S.we) > 1000) tip("¡Ya hace fuerza! Bajá el freno de mano (Q) y seguí soltando el embrague de a poco, acelerando.", "hill-grip", 8); }
     if (S.v > 2 && !S.launchRolled && Math.abs(hillDz(S.z)) > 0.06) S.hillLaunchOk = true;
     if (north) {
       const front = u + CAR_L / 2, n = Math.max(0, Math.ceil((front - 0.01) / half)), lineU = n * half, uphill = n % 2 === 0;
@@ -1919,7 +1933,19 @@ button.lamp:hover { border-color: var(--amber-dim); }
       if (pend) {
         const past = front - pend.lineU;
         if (past < 4 && Math.abs(S.v) < 1.5 / 3.6 && !pend.lateStop) { pend.lateStop = true; toast(`Te detuviste ${past.toFixed(1).replace(".", ",")} m pasada la línea. Cuenta, pero la próxima frená un poco antes.`, "tip", "hill-late" + pend.n, 5); }
-        if (past >= 4) { S.hsPend = null; if (pend.lateStop) infraction(`Te detuviste en el PARE en ${pend.uphill ? "subida" : "bajada"} pasando la línea`, -5); else infraction(`Pasaste un PARE en ${pend.uphill ? "subida" : "bajada"} sin detenerte`); }
+        // a stop a little past the line still counts for the missions (with a small fault): the start from there is judged too
+        if (pend.lateStop) {
+          pend.lmax = Math.max(pend.lmax ?? u, u);
+          if (u < pend.lmax - 0.4 && !pend.lrolled) { pend.lrolled = true; if (pend.uphill) toast("Se fue para atrás. Frená (↓) o subí el freno de mano (Q) y probá de nuevo desde acá.", "bad", "hs-rolled", 4); }
+          if (pend.lrolled && S.v === 0 && (S.hand || S.brake > 0.3)) { pend.lrolled = false; pend.lmax = u; }
+        }
+        if (past >= 4) {
+          S.hsPend = null;
+          if (pend.lateStop) {
+            infraction(`Te detuviste en el PARE en ${pend.uphill ? "subida" : "bajada"} pasando la línea`, -5);
+            if (pend.uphill) { S.hillStopOk = true; if (!pend.lrolled && !S.hillStartOk) { S.hillStartOk = true; award(15, "Arrancaste en subida sin irte para atrás"); } }
+          } else infraction(`Pasaste un PARE en ${pend.uphill ? "subida" : "bajada"} sin detenerte`);
+        }
       }
       if (!S.hs || S.hs.n !== n) {
         const prev = S.hs;
@@ -1935,9 +1961,14 @@ button.lamp:hover { border-color: var(--amber-dim); }
       const hs = S.hs, dist = lineU - front;
       if (dist < 30) hs.minV = Math.min(hs.minV, Math.abs(S.v));
       if (Math.abs(S.v) < 0.05 && dist < 30) { if (!hs.stopped) toast("Detenida en el PARE ✓", "good", "hill-stop-ok" + n, 3); hs.stopped = true; }
-      if (hs.stopped) { hs.maxU = Math.max(hs.maxU, u); if (u < hs.maxU - 0.3) hs.rolled = true; }
+      if (hs.stopped) {
+        hs.maxU = Math.max(hs.maxU, u);
+        if (u < hs.maxU - 0.4 && !hs.rolled) { hs.rolled = true; if (uphill) toast("Se fue para atrás. Frená (↓) o subí el freno de mano (Q) y probá de nuevo desde acá. Truco: poné el freno de mano con ↓ todavía apretado, y recién después soltá ↓.", "bad", "hs-rolled", 4); }
+        // stopped again with the brakes before the line: the start can be tried again at this same PARE
+        if (hs.rolled && S.v === 0 && (S.hand || S.brake > 0.3) && dist > -1) { hs.rolled = false; hs.maxU = u; if (uphill) tip("Bien, quieta de nuevo. Otra vez: 1ª, unas 2.000 rpm, soltá el embrague hasta que el pedal diga «Fuerza» y recién ahí bajá el freno de mano.", "hs-retry", 6); }
+      }
       if (dist > 15 && dist < 50 && S.v > 3) {
-        if (uphill) tip(`PARE en subida en ${Math.round(dist)} m. Al detenerte, subí el freno de mano (Q). Para salir: 1ª, acelerá a unas 2.000 rpm, soltá el embrague hasta que el auto haga fuerza y recién ahí bajá el freno de mano.`, "hill-stop" + n, 60);
+        if (uphill) tip(`PARE en subida en ${Math.round(dist)} m. Al detenerte, subí el freno de mano (Q). Para salir: 1ª, acelerá a unas 2.000 rpm, soltá el embrague hasta que el pedal diga «Fuerza» y recién ahí bajá el freno de mano.`, "hill-stop" + n, 60);
         else tip(`PARE en bajada en ${Math.round(dist)} m: frená antes de lo normal, en bajada el auto tarda más en detenerse.`, "down-stop" + n, 60);
       }
       // the descent: from a quarter to three quarters of each wave
@@ -2228,16 +2259,16 @@ button.lamp:hover { border-color: var(--amber-dim); }
     { title: "Examen práctico (como el de la licencia)", hint: "Un examinador te va diciendo por dónde ir: el GPS no marca el camino y no hay ayudas en pantalla. Antes de salir: cinturón y espejos. Faltas graves (terminan el examen): no detenerte en el PARE, cruzar en rojo, contramano, chocar, subirte al cordón, no cederle el paso a un peatón o una bici, ir más de 10 km/h por encima del límite o salir sin cinturón. Con más de 4 faltas leves (sin guiño, sin espejo, motor apagado, no mirar en el PARE…) tampoco aprobás. Al final estacionás en paralelo en la calle.", done: () => S.exam && S.exam.passed },
   ];
   const HILL_MISSIONS = [
-    { title: "Arrancá en subida sin irte para atrás", hint: "Empezás parada en una subida con el freno de mano puesto. Embrague a fondo, 1ª, acelerá hasta unas 2.000 rpm y soltá el embrague hasta que el auto haga fuerza (las rpm bajan un poco y el auto tiembla). Recién ahí bajá el freno de mano (Q) y seguí soltando el embrague de a poco.", done: () => S.hillLaunchOk },
+    { title: "Arrancá en subida sin irte para atrás", hint: "Empezás parada en una subida con el freno de mano puesto. Embrague a fondo, 1ª, acelerá hasta unas 2.000 rpm y soltá el embrague de a poco hasta que el pedal diga «Fuerza» (el auto ya se sostiene solo). Recién ahí bajá el freno de mano (Q) y seguí soltando el embrague de a poco.", done: () => S.hillLaunchOk },
     { title: "Detenete en el PARE en subida", hint: "Al llegar al PARE frená hasta detenerte por completo antes de la línea. Pisá el embrague antes de parar y subí el freno de mano (Q) para no irte para atrás.", done: () => S.hillStopOk },
-    { title: "Salí del PARE en subida sin irte para atrás", hint: "Desde el PARE: 1ª, acelerá a unas 2.000 rpm, soltá el embrague hasta el punto de roce y bajá el freno de mano. Si el auto retrocede aunque sea un poco, no cuenta.", done: () => S.hillStartOk },
+    { title: "Salí del PARE en subida sin irte para atrás", hint: "Detenida en el PARE con el freno de mano puesto: 1ª, acelerá a unas 2.000 rpm y soltá el embrague de a poco hasta que el pedal diga «Fuerza» (el auto ya se sostiene solo). Recién ahí bajá el freno de mano (Q) y seguí soltando el embrague. Si se va para atrás, frená y probalo de nuevo ahí mismo.", done: () => S.hillStartOk },
     { title: "Bajá la pendiente sin pasar los 30 km/h", hint: "En la bajada poné 2ª y dejá el embrague suelto: el motor frena el auto. Ayudate con el freno de a poco. Nunca bajes en neutro.", done: () => S.downOk },
     { title: "Estacioná en subida junto al cordón", hint: "Después del próximo PARE en subida hay un lugar marcado en amarillo junto al cordón derecho. Detenete ahí, derecho y pegado al cordón. Freno de mano, 1ª puesta y el volante girado hacia la calle (a la izquierda): si el freno fallara, el auto iría para atrás y la parte de atrás de la rueda se apoyaría en el cordón. Apagá el motor.", done: () => S.slopeParkUp },
     { title: "Estacioná en bajada junto al cordón", hint: "Después del PARE en bajada hay otro lugar amarillo junto al cordón. Detenete ahí, derecho y pegado al cordón. Freno de mano, reversa puesta y el volante girado hacia el cordón (a la derecha): si el auto se fuera para adelante, la rueda se apoyaría en el cordón. Apagá el motor.", done: () => S.slopeParkDown },
   ];
   const PARK_MISSIONS = [
     { title: "Estacioná de frente en el lugar amarillo", hint: "El lugar está adelante a la derecha. Andá en 1ª usando solo el punto de roce, sin acelerar. Entrá derecho y detenete antes del muro.", done: () => S.parkedFront },
-    { title: "Estacioná de culata (en reversa)", hint: "Salí del lugar, avanzá unos metros más allá, poné reversa (R) y entrá marcha atrás. Mirá los espejos laterales (clic para agrandar) para quedar entre las líneas.", done: () => S.parkedBack },
+    { title: "Estacioná de culata (en reversa)", hint: "Como en la calle: andá por el pasillo con el lugar amarillo a tu derecha, pasalo y frená con tu cola un poco más allá (donde está el auto fantasma). Reversa (R) y volante todo a la derecha: la cola entra girando. Cuando el auto quede derecho con el lugar, enderezá y seguí en reversa despacio hasta que el sensor de atrás se ponga rojo. Mirá los espejos laterales (clic para agrandarlos).", done: () => S.parkedBack },
     { title: "Estacioná en paralelo", hint: "Al fondo del estacionamiento, entre dos autos. Ponete al lado del auto de adelante a 1 m, con las colas alineadas. En reversa girá todo a la derecha hasta quedar en 45°, enderezá, y cuando tu frente pase la cola del auto de adelante girá todo a la izquierda.", done: () => S.parkedPar },
   ];
   const LESSON_MISSIONS = [
@@ -2511,9 +2542,16 @@ button.lamp:hover { border-color: var(--amber-dim); }
     CITY_MISSIONS[6].steps = [["Andá al estacionamiento (la P del GPS)", () => inLot(S.x, S.z)], ["Entrá al rectángulo amarillo", () => inRect(S.x, S.z, PERP_RECT, 0.5)], ["Todo el auto adentro, derecho y frenado 1 segundo (el lugar se pone verde)", () => S.parkedPerp]];
     CITY_MISSIONS[7].steps = [["Seguí el GPS hasta el lugar libre marcado en amarillo", () => (S.streetSpot && Math.hypot(S.x - S.streetSpot.x, S.z - S.streetSpot.z) < 40) || S.parkedStreet], ["Ponete al lado del auto de adelante del lugar, con el guiño derecho", () => (S.streetSpot && Math.abs(spotFrame(S.streetSpot, S.x, S.z).a - PARK_DS) < 2 && Math.abs(wrap(S.th - S.streetSpot.th)) < 0.3) || S.parkedStreet], ["Estacioná en paralelo junto al cordón y quedate quieto 1 segundo", () => S.parkedStreet]];
     CITY_MISSIONS[8].steps = [["Cinturón y espejos, y arrancá", () => S.exam && (S.exam.phase !== "prep" || S.exam.passed)], ["Seguí las indicaciones del examinador (3 tramos)", () => S.exam && (S.exam.idx >= 3 || S.exam.passed)], ["Estacioná en paralelo donde te indique", () => S.exam && S.exam.passed]];
-    HILL_MISSIONS[0].steps = [["Embrague a fondo y poné 1ª", () => S.gear === "1"], ["Acelerá hasta unas 2.000 rpm", () => rpm() > 1700 && S.gas > 0.15], ["Soltá el embrague hasta que haga fuerza (tiembla)", () => e() > 0.08 && S.running], ["Ahí, bajá el freno de mano (Q)", () => !S.hand && S.running], ["Subí sin irte para atrás", () => S.hillLaunchOk]];
+    HILL_MISSIONS[0].steps = [["Embrague a fondo y poné 1ª", () => S.gear === "1"], ["Acelerá hasta unas 2.000 rpm", () => rpm() > 1700 && S.gas > 0.15], ["Soltá el embrague hasta que el pedal diga «Fuerza»", () => S.running && (S.hillLaunchOk || (hillGrip() ?? (e() > 0.08 ? 9 : 0)) >= 1.1)], ["Ahí, bajá el freno de mano (Q)", () => !S.hand && S.running], ["Subí sin irte para atrás", () => S.hillLaunchOk]];
     HILL_MISSIONS[4].steps = [["Subí hasta el lugar amarillo, después del PARE en subida", () => S.slopeParkUp || (slopeSpot() && Math.abs(-S.z - slopeSpot().u) < 20)], ["Freno de mano, 1ª y volante hacia la calle (←)", () => S.slopeParkUp || (S.hand && S.gear === "1" && S.steer < -0.15)], ["Apagá el motor", () => S.slopeParkUp]];
     HILL_MISSIONS[5].steps = [["Bajá hasta el lugar amarillo, después del PARE en bajada", () => S.slopeParkDown || (slopeSpot() && Math.abs(-S.z - slopeSpot().u) < 20)], ["Freno de mano, reversa y volante hacia el cordón (→)", () => S.slopeParkDown || (S.hand && S.gear === "R" && S.steer > 0.15)], ["Apagá el motor", () => S.slopeParkDown]];
+    HILL_MISSIONS[2].steps = [
+      ["Detenete en el PARE en subida con el freno de mano (Q)", () => S.hillStartOk || (S.v === 0 && S.hand && S.hs && S.hs.uphill && S.hs.stopped)],
+      ["1ª y acelerá a unas 2.000 rpm", () => S.hillStartOk || (S.gear === "1" && rpm() > 1700 && S.gas > 0.15)],
+      ["Soltá el embrague hasta que el pedal diga «Fuerza»", () => S.hillStartOk || (S.hand && (hillGrip() ?? 0) >= 1.1)],
+      ["Ahí, bajá el freno de mano (Q)", () => S.hillStartOk || (!S.hand && S.running && S.v >= 0 && S.hs && S.hs.stopped)],
+      ["Seguí soltando el embrague y cruzá la línea sin irte para atrás", () => S.hillStartOk],
+    ];
     HILL_MISSIONS[1].steps = [["Al llegar al PARE, frená hasta detenerte", () => S.v === 0 && S.hs && S.hs.uphill && S.hs.stopped], ["Pisá el embrague antes de parar", () => S.v === 0 && S.clutch > 0.6], ["Subí el freno de mano (Q)", () => S.hillStopOk || (S.v === 0 && S.hand)]];
     CAMPO_MISSIONS[0].steps = prep.concat([["Encendé las luces bajas (K)", () => S.lights], ["Encendé el motor y salí en 1ª", () => S.running && S.v > 2]]);
     CAMPO_MISSIONS[1].steps = [["2ª a unos 20 km/h", () => S.gear === "2"], ["3ª a unos 35 km/h", () => S.gear === "3"], ["4ª a unos 55 km/h", () => S.gear === "4"], ["5ª y llegá a 75–80 km/h", () => S.gear === "5" && kmh() >= 75]];
@@ -5771,18 +5809,29 @@ button.lamp:hover { border-color: var(--amber-dim); }
   for (const geo of [carParts.body, carParts.glass, carParts.dark]) ghost.add(new THREE.Mesh(geo, ghostMat));
   ghost.visible = false; scene.add(ghost);
   const SPOT_Z = spaceZ(TARGET_SPACE), PAR_CAR_AHEAD_X = 18;
+  // where to stop before reversing into the space: from here, full lock to the right leaves the car centered in it
+  const BACK_GX = 50.6, BACK_GZ = SPOT_Z - 4.8;
+  function backSpotCue() {
+    if (Math.abs(wrap(S.th)) > 0.5 || Math.abs(S.x - BACK_GX) > 3 || Math.abs(S.z - BACK_GZ) > 14) return "";
+    const ahead = S.z - BACK_GZ, side = S.x - BACK_GX, m = v => Math.abs(v).toFixed(1).replace(".", ",");
+    let cue = ahead > 0.4 ? `Seguí avanzando: faltan ${m(ahead)} m.` : ahead < -0.4 ? `Te pasaste ${m(ahead)} m: retrocedé un poco.` : "¡Ahí! Frená.";
+    if (Math.abs(side) > 1.5) cue += side > 0 ? ` Estás muy cerca de los autos estacionados: alejate ${m(side)} m.` : ` Estás muy lejos de los autos estacionados: acercate ${m(side)} m.`;
+    return ` <span class="cue">${cue}</span>`;
+  }
   const near = (a, b, tol) => Math.abs(a - b) < tol, headingNear = (th, tol) => Math.abs(wrap(S.th - th)) < tol;
   const COACH = {
-    front: { title: "Estacionar de frente", steps: [
+    front: { title: "Estacionar de frente", reset: () => !S.parkedFront && !S.parkedPerp && Math.hypot(S.x - 57.3, S.z - SPOT_Z) > 12, steps: [
       { text: "Ponete en el pasillo, derecho frente al lugar amarillo.", ghost: [49, SPOT_Z, Math.PI / 2], ok: () => near(S.z, SPOT_Z, 0.5) && headingNear(Math.PI / 2, 0.17) && S.x < 53 },
       { text: "1ª y solo el punto de roce, sin acelerar: avanzá derecho.", ghost: [57.3, SPOT_Z, Math.PI / 2], ok: () => inRect(S.x + 2.1, S.z, PERP_RECT) },
       { text: "Frená cuando el sensor se ponga rojo (a medio metro del muro).", ok: () => S.v === 0 && inRect(S.x, S.z, PERP_RECT) },
       { text: "Quedate quieto 1 segundo con todo el auto entre las líneas (el lugar se pone verde).", ok: () => S.parkedFront || S.parkedPerp } ] },
-    back: { title: "Estacionar de culata", steps: [
-      { text: "Salí del lugar y da la vuelta: quedate de espaldas al lugar amarillo, en el pasillo.", ghost: [47, SPOT_Z, -Math.PI / 2], ok: () => near(S.z, SPOT_Z, 0.5) && headingNear(-Math.PI / 2, 0.17) && S.x < 53 },
-      { text: "Reversa (R) y retrocedé derecho mirando los espejos laterales.", ghost: [57.3, SPOT_Z, -Math.PI / 2], ok: () => inRect(S.x + 2.1, S.z, PERP_RECT) },
-      { text: "Frená cuando el sensor de atrás se ponga rojo y quedate quieto 1 segundo.", ok: () => S.parkedBack } ] },
-    parallel: { title: "Estacionar en paralelo", steps: [
+    back: { title: "Estacionar de culata", reset: () => !S.parkedBack && Math.hypot(S.x - 57.3, S.z - SPOT_Z) > 9 && S.gear !== "R", steps: [
+      // like in real life: pass the space along the aisle, stop a bit past it and reverse turning into it
+      { get text() { return "Salí del lugar y ubicate como el auto fantasma: en el pasillo, con el lugar amarillo a tu derecha y tu cola un poco pasada del lugar." + backSpotCue(); }, ghost: [BACK_GX, BACK_GZ, 0], ok: () => (near(S.x, BACK_GX, 1.6) && near(S.z, BACK_GZ, 0.5) && headingNear(0, 0.22) && S.v === 0) || (S.gear === "R" && S.x > 52 && near(S.z, SPOT_Z, 3) && Math.cos(S.th) < 0.5) },
+      { text: "Reversa (R) y volante todo a la derecha (→). Mirá el espejo derecho: la cola va entrando al lugar.", ghost: [57.3, SPOT_Z, -Math.PI / 2], ok: () => headingNear(-Math.PI / 2, 0.3) && S.x > 51 },
+      { text: "Cuando el auto quede casi derecho con el lugar, enderezá (soltá →) y seguí en reversa hasta que el sensor de atrás se ponga rojo.", ghost: [57.3, SPOT_Z, -Math.PI / 2], ok: () => inRect(S.x, S.z, PERP_RECT) },
+      { text: "Frená y quedate quieto 1 segundo con todo el auto entre las líneas (el lugar se pone verde).", ok: () => S.parkedBack } ] },
+    parallel: { title: "Estacionar en paralelo", reset: () => !S.parkedPar && Math.hypot(S.x - 24.3, S.z - (LOT.z0 + 1.25)) > 16, steps: [
       { text: "Ponete al lado del auto de adelante, a 1 m, con las colas alineadas, mirando hacia el oeste.", ghost: [PAR_CAR_AHEAD_X, LOT.z0 + 3.9, -Math.PI / 2], ok: () => near(S.x, PAR_CAR_AHEAD_X, 1.5) && near(S.z, LOT.z0 + 3.9, 1.0) && headingNear(-Math.PI / 2, 0.21) },
       { text: "Reversa (R) despacio con el volante todo a la derecha (→) hasta quedar en diagonal, a unos 45°.", ghost: [24.3, LOT.z0 + 1.25, -Math.PI / 2], ok: () => wrap(S.th + Math.PI / 2) < -0.6 },
       { text: "Enderezá el volante y seguí en reversa derecho hasta que tu frente pase la cola del auto de adelante.", ghost: [24.3, LOT.z0 + 1.25, -Math.PI / 2], ok: () => S.x + dirOf(S.th).x * 2.1 > PAR_CAR_AHEAD_X + 2.3 },
@@ -5901,6 +5950,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
     let html = "";
     if (key) {
       const c = key === "street" ? streetCoach(S.streetSpot) : COACH[key];
+      // after a failed try, driving away from the space starts the guide over (with the ghost car again)
+      if (coachStep > 0 && c.reset && c.reset()) coachStep = 0;
       while (coachStep < c.steps.length && c.steps[coachStep].ok()) coachStep++;
       document.getElementById("coach-title").innerHTML = `${c.title}<span class="prog">${Math.min(coachStep + 1, c.steps.length)} de ${c.steps.length}</span>`;
       c.steps.forEach((st, n) => { html += `<li class="${n < coachStep ? "ok" : n === coachStep ? "now" : ""}">${st.text}</li>`; });
@@ -6660,7 +6711,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
   let lastLimit = null;
   const hudSpeed = document.getElementById("hud-speed");
   function updateDom() {
-    { const e = S.gear === "N" ? 0 : engage(S.clutch), on = S.running && e > 0.03 && e < 0.6 && Math.abs(S.v) < 4; fills.clutch.b.classList.toggle("bite-on", on); const nm = fills.clutch.b.querySelector(".name"); const t = on ? "Roce" : "Embrague"; if (nm.textContent !== t) nm.textContent = t; }
+    { const e = S.gear === "N" ? 0 : engage(S.clutch), on = S.running && e > 0.03 && e < 0.6 && Math.abs(S.v) < 4; fills.clutch.b.classList.toggle("bite-on", on); const nm = fills.clutch.b.querySelector(".name"); const gr = S.v === 0 && e > 0.03 ? hillGrip() : null, strong = gr != null && gr >= 1.1; fills.clutch.b.classList.toggle("grip-on", strong); const t = strong ? "Fuerza ✓" : on ? "Roce" : "Embrague"; if (nm.textContent !== t) nm.textContent = t; }
     for (const p of ["clutch", "brake", "gas"]) { fills[p].f.style.height = (S[p] * 100).toFixed(1) + "%"; fills[p].b.classList.toggle("held", held(p) || (p === "clutch" && S.clutchManual)); }
     el("gear-big").textContent = S.gear;
     if (hudSpeed.offsetParent) { const t = `<b>${Math.round(Math.abs(S.v) * 3.6)}</b> km/h · <b>${S.gear}</b> · ${Math.round(toRpm(S.we) / 100) * 100} rpm`; if (hudSpeed.dataset.t !== t) { hudSpeed.dataset.t = t; hudSpeed.innerHTML = t; } }
