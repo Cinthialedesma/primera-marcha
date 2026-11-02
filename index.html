@@ -325,51 +325,9 @@ button.lamp:hover { border-color: var(--amber-dim); }
 .log li.bad .pts { color: var(--red); }
 .log li.good .pts { color: var(--green); }
 .toast { pointer-events: auto; cursor: pointer; }
-@media (max-width: 640px) {
-  .gps { width: 96px; height: 96px; }
-  #m-left, #m-right { width: 22%; height: 13%; bottom: 28%; }
-  #m-rear { width: 34%; }
-}
+
 /* phones: compact header, a smaller view and the controls ordered as you use them */
-@media (max-width: 719px) {
-  body { padding: 8px max(8px, env(safe-area-inset-left, 0px)) 16px; }
-  .app { gap: 8px; }
-  .top { align-items: center; gap: 6px 10px; }
-  .top h1 { font-size: 1.25rem; }
-  .top p, .sel-l { display: none; }
-  .top { flex-wrap: nowrap; }
-  .top-actions { flex: 1 1 auto; justify-content: flex-end; gap: 6px; flex-wrap: nowrap; min-width: 0; }
-  .top-actions .sel { min-width: 0; flex: 1 1 auto; justify-content: flex-end; }
-  .top-actions .sel select { min-width: 0; max-width: 100%; }
-  .top-actions .btn { padding: 6px 9px; font-size: .85rem; white-space: nowrap; }
-  #btn-trip { display: none; }
-  .menu-trip { display: block; }
-  .stage { height: clamp(230px, 44vh, 420px); }
-  .limit-sign { width: 38px; height: 38px; font-size: .95rem; border-width: 4px; }
-  .gps { width: 84px; height: 84px; }
-  .hud { gap: 6px; left: 8px; top: 8px; }
-  .hud-speed { display: block; }
-  .coach { width: 50%; font-size: .68rem; max-height: 55%; overflow: auto; top: 38px; right: 8px; padding: 6px 8px; }
-  .next-chip { font-size: .7rem; max-width: 62%; top: 8px; right: 8px; }
-  .toasts { max-width: 94%; bottom: 6px; }
-  .toast { font-size: .76rem; padding: 4px 8px; }
-  .toast:nth-child(n+2) { display: none; }
-  .coach .meter { flex-wrap: wrap; gap: 4px 8px; }
-  .cockpit { padding: 8px; gap: 10px; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: center; }
-  .cluster, .steer, .aux { grid-column: 1 / -1; }
-  .cluster { grid-template-columns: minmax(0, 1fr); }
-  .cluster canvas { display: none; }
-  .center-read { flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 6px; }
-  .gear-big { font-size: 1.6rem; width: 44px; padding: 2px 0; }
-  .lamp { font-size: .8rem; padding: 4px 7px; }
-  .caption { display: none; }
-  .shifter { display: contents; }
-  .cluster { order: 0; } .steer { order: 1; } .pedals-wrap { order: 2; } .shifter svg { order: 3; max-width: 150px; justify-self: center; } .aux { order: 4; }
-  .steer .btn { flex: 1; min-height: 52px; justify-content: center; font-size: 1rem; }
-  .pedal .bar { height: 104px; width: 30px; }
-  .pedal .key { display: none; }
-  .pedal { padding: 6px 2px; }
-}
+
 /* desktop: everything fits in one screen, no page scroll */
 @media (min-width: 1000px) and (min-height: 560px) {
   html, body { height: 100%; }
@@ -469,7 +427,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
 .coach ol li.now + li::before { content: "Después: "; color: var(--muted); }
 .coach ol li .cue { display: block; margin-top: 3px; color: var(--amber); font-weight: 600; }
 .coach ol li.now + li .cue { display: none; }
-.coach .prog { color: var(--muted); font-weight: 400; font-size: .74rem; margin-left: 6px; }
+.coach .prog { color: var(--muted); font-weight: 400; font-size: .74rem; margin-left: 6px; white-space: nowrap; }
 .coach { max-height: 48%; overflow-y: auto; }
 .coach li.now { color: var(--ink); font-weight: 600; }
 .coach li.ok { color: var(--green); text-decoration: line-through; }
@@ -522,6 +480,52 @@ button.lamp:hover { border-color: var(--amber-dim); }
 .trip-list.bad li::before { content: "•"; color: var(--red); }
 .trip-list.tip li::before { content: "→"; color: var(--amber); }
 .trip-list .count { font-family: var(--font-num); color: var(--muted); }
+/* phone layout last, so it wins over the general rules above */
+@media (max-width: 640px) {
+  .gps { width: 96px; height: 96px; }
+  #m-left, #m-right { width: 22%; height: 13%; bottom: 28%; }
+  #m-rear { width: 34%; }
+}
+@media (max-width: 719px) {
+  body { padding: 8px max(8px, env(safe-area-inset-left, 0px)) 16px; }
+  .app { gap: 8px; }
+  .top { align-items: center; gap: 6px 10px; }
+  .top h1 { font-size: 1.25rem; }
+  .top p, .sel-l { display: none; }
+  .top { flex-wrap: nowrap; }
+  .top-actions { flex: 1 1 auto; justify-content: flex-end; gap: 6px; flex-wrap: nowrap; min-width: 0; }
+  .top-actions .sel { min-width: 0; flex: 1 1 auto; justify-content: flex-end; }
+  .top-actions .sel select { min-width: 0; max-width: 100%; }
+  .top-actions .btn { padding: 6px 9px; font-size: .85rem; white-space: nowrap; }
+  #btn-trip { display: none; }
+  .menu-trip { display: block; }
+  .stage { height: clamp(230px, 44vh, 420px); }
+  .limit-sign { width: 38px; height: 38px; font-size: .95rem; border-width: 4px; }
+  .gps { width: 84px; height: 84px; }
+  .hud { gap: 6px; left: 8px; top: 8px; }
+  .hud-speed { display: block; }
+  .coach { width: 54%; font-size: .68rem; max-height: 44%; overflow: auto; top: 64px; right: 8px; padding: 6px 8px; }
+  .coach ol li.now + li { display: none; }
+  .next-chip { font-size: .7rem; max-width: 64%; top: 64px; right: 8px; }
+  .toasts { max-width: 94%; bottom: 6px; }
+  .toast { font-size: .76rem; padding: 4px 8px; }
+  .toast:nth-child(n+2) { display: none; }
+  .coach .meter { flex-wrap: wrap; gap: 4px 8px; }
+  .cockpit { padding: 8px; gap: 10px; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: center; }
+  .cluster, .steer, .aux { grid-column: 1 / -1; }
+  .cluster { grid-template-columns: minmax(0, 1fr); }
+  .cluster canvas { display: none; }
+  .center-read { flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 6px; }
+  .gear-big { font-size: 1.6rem; width: 44px; padding: 2px 0; }
+  .lamp { font-size: .8rem; padding: 4px 7px; }
+  .caption { display: none; }
+  .shifter { display: contents; }
+  .cluster { order: 0; } .steer { order: 1; } .pedals-wrap { order: 2; } .shifter svg { order: 3; max-width: 150px; justify-self: center; } .aux { order: 4; }
+  .steer .btn { flex: 1; min-height: 52px; justify-content: center; font-size: 1rem; }
+  .pedal .bar { height: 104px; width: 30px; }
+  .pedal .key { display: none; }
+  .pedal { padding: 6px 2px; }
+}
 </style>
 
 <div class="app">
@@ -3400,7 +3404,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
   twoStep(document.getElementById("btn-wipe"), () => true, () => {
     prog = { modes: {}, free: false, last: null };
     try { localStorage.setItem("pm-progress", JSON.stringify(prog)); } catch (err) {}
-    S = null; setMode("lesson");
+    S.t = 0; setMode("lesson"); // with t at 0, setMode does not save the progress just erased
     toast("Borraste tu progreso: empezás de nuevo desde la Primera clase.", "", "wipe", 1);
   });
   const optFog = document.getElementById("opt-fog"); optFog.checked = !!opts.fog;
@@ -3439,12 +3443,12 @@ button.lamp:hover { border-color: var(--amber-dim); }
     const m = mode, backup = prog.modes[m] ? JSON.parse(JSON.stringify(prog.modes[m])) : null;
     delete prog.modes[m];
     try { localStorage.setItem("pm-progress", JSON.stringify(prog)); } catch (err) {}
-    S = null; setMode(m);
+    S.t = 0; setMode(m);
     const d = document.createElement("div"); d.className = "toast good";
     d.textContent = `Empezaste de nuevo: ${MODE_NAMES[m]}, desde la primera misión. `;
     if (backup && (backup.mission || backup.score)) {
       const u = document.createElement("button"); u.type = "button"; u.className = "btn"; u.textContent = "Deshacer"; u.style.marginLeft = "6px";
-      u.addEventListener("click", ev => { ev.stopPropagation(); prog.modes[m] = backup; try { localStorage.setItem("pm-progress", JSON.stringify(prog)); } catch (err) {} S = null; setMode(m); d.remove(); toast("Listo, recuperaste tu progreso.", "good", "undo", 1); });
+      u.addEventListener("click", ev => { ev.stopPropagation(); prog.modes[m] = backup; try { localStorage.setItem("pm-progress", JSON.stringify(prog)); } catch (err) {} S.t = 0; setMode(m); d.remove(); toast("Listo, recuperaste tu progreso.", "good", "undo", 1); });
       d.appendChild(u);
     }
     toastsEl.prepend(d); setTimeout(() => d.remove(), 10000);
@@ -5154,8 +5158,10 @@ button.lamp:hover { border-color: var(--amber-dim); }
   const jamV = (u, t) => Math.max(0, 2.2 + 3.6 * Math.sin(0.42 * t - 0.035 * u));
   const inJam = u => S.hwJam && u >= S.hwJam.u0 && u <= S.hwJam.u1;
   // is there room in a lane (an offset) from a little behind to a little ahead?
+  // a lane is free when nobody is in it nearby, and nobody is about to move into it (blinking toward it)
+  const hwLaneOff = n => n <= 4 ? hwLaneC(n) : hwColC(n - 4);
   function hwFree(list, c, off, back, ahead) {
-    return !list.some(o => o !== c && Math.abs(o.off - off) < o.hw + c.hw + 0.5 && o.u - c.u > -(back + Math.max(0, o.v - c.v) * 2.5) && o.u - c.u < ahead);
+    return !list.some(o => o !== c && (Math.abs(o.off - off) < o.hw + c.hw + 0.5 || (!o.me && o.lane != null && Math.abs(hwLaneOff(o.lane) - off) < o.hw + c.hw + 0.5)) && o.u - c.u > -(back + Math.max(0, o.v - c.v) * 2.5) && o.u - c.u < ahead);
   }
   function hwLeader(list, c) {
     let best = null, gap = Infinity;
@@ -5265,7 +5271,11 @@ button.lamp:hover { border-color: var(--amber-dim); }
       if (c.kind === "moto" && ld && ld.o.me && ld.gap < 8 && S.t - (c.honkT ?? -9) > 4) { c.honkT = S.t; honk(); toast("Una moto viene entre los carriles: quedate en el centro de tu carril, no la encierres.", "tip", "moto-block", 15); }
       // lane changes: think every second or two, blink first, then move over slowly
       if (c.kind !== "moto" && !c.path) {
-        if (c.lcT > 0) { c.lcT -= dt; if (c.lcT <= 0) c.toOff = c.lane <= 4 ? hwLaneC(c.lane) : hwColC(c.lane - 4); }
+        if (c.lcT > 0) {
+          c.lcT -= dt;
+          // after blinking, a last look before moving over: if someone came alongside, stay
+          if (c.lcT <= 0) { if (c.fromLane != null && !hwFree(list, c, hwLaneOff(c.lane), 8, 10 + c.hl)) { c.lane = c.fromLane; c.blink = null; } else c.toOff = hwLaneOff(c.lane); c.fromLane = null; }
+        }
         c.think -= dt;
         if (c.think <= 0 && c.lcT <= 0 && Math.abs(c.off - c.toOff) < 0.05 && c.shadowT <= 0 && !inJam(c.u)) {
           c.think = 1 + Math.random() * 1.5;
@@ -5282,7 +5292,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
           }
           // courtesy: someone is joining from the extra lane with the blinker on, so make room (move left, or let them in)
           if (!want && L0 === 3 && S.hwLane === 4 && S.blink === "left" && c.u > pu - 45 && c.u < pu + 3) { if (free(2)) want = 2; else c.yieldT = 4; }
-          if (want) { c.blink = want < L0 ? "left" : "right"; c.lane = want; c.lcT = 1.4; }
+          if (want) { c.blink = want < L0 ? "left" : "right"; c.fromLane = L0; c.lane = want; c.lcT = 1.4; }
         }
         // flashing the lights at you when you sit in the left lane and it wants to go faster
         if (ld && ld.o.me && playerLane === 1 && ld.gap < 25 && vd > S.v + 3 && S.t - (S.flashedT ?? -99) > 25) { S.flashedT = S.t; toast("El auto de atrás te hace luces: el carril izquierdo es para adelantar. Cuando puedas, guiño derecho y pasate a la derecha.", "bad", "hw-flash", 20); }
@@ -5355,6 +5365,10 @@ button.lamp:hover { border-color: var(--amber-dim); }
           if (!c.flashed && gap < 110) { c.flashed = true; toast("¡El auto que viene de frente te hace luces! Volvé ya a tu carril.", "bad", "flash" + n, 3); honk(); }
         }
       }
+      // keeps its distance from the vehicle in front in its own lane, instead of driving through it
+      { const len = o => o.kind === "truck" ? 9 : o.kind === "tractor" ? 4.5 : CAR_L; let lead = null, lg = Infinity;
+        for (const o of routeCars) if (o !== c && Math.sign(o.lane) === Math.sign(c.lane)) { const g2 = (o.u - c.u) * Math.sign(c.lane); if (g2 > 0 && g2 < lg) { lg = g2; lead = o; } }
+        if (lead && lg < 70) vT = Math.min(vT, Math.max(0, lead.v + (lg - (len(c) + len(lead)) / 2 - 8) * 0.4)); }
       c.v += clamp(vT - c.v, -6 * dt, 2 * dt); c.v = Math.max(0, c.v);
       c.u += c.lane > 0 ? c.v * dt : -c.v * dt;
       const p = routePoint(c.u, c.lane * LANE);
@@ -5657,7 +5671,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
     };
     // cars facing you (waiting to enter a roundabout, or coming the other way) are not in your lane
     for (const o of traffic) if (o !== c && Math.cos(o.th - c.th) > -0.3) test(o, false);
-    for (const pd of peds) if (pd.onRoad) { const dx = pd.x - c.x, dz = pd.z - c.z, a = dx * d.x + dz * d.z, l = Math.abs(dx * d.z - dz * d.x); if (a > 0 && a < 30 && l < 2.2) gap = Math.min(gap, a - CAR_L / 2 - 1.5); }
+    // anyone crossing the street in front, in any lane: a person coming from the other side reaches your lane in a second
+    for (const pd of peds) if (pd.onRoad) { const dx = pd.x - c.x, dz = pd.z - c.z, a = dx * d.x + dz * d.z, l = Math.abs(dx * d.z - dz * d.x); if (a > -1 && a < 30 && l < HALF + 0.8) gap = Math.min(gap, a - CAR_L / 2 - 1.5); }
     test(S, true);
     return gap;
   }
@@ -6049,7 +6064,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
       { text: "Frená y acomodate un poco adelante o atrás para quedar en el medio.", ok: () => S.parkedPar } ] },
   };
   const coachEl = document.getElementById("coach"), coachSteps = document.getElementById("coach-steps");
-  let coachKey = null, coachStep = 0, lastBeep = 0;
+  let coachKey = null, coachStep = 0, lastBeep = 0, lastChipKey = null;
   function sensorDist(back) {
     // distance from the bumper to the nearest parked car or wall, up to 2.5 m
     const d = dirOf(S.th), r = rightOf(S.th), sg = back ? -1 : 1;
@@ -6810,7 +6825,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     }
     S.events = S.events.filter(ev => !ev.done);
   }
-  function clearEvents() { for (const ev of S.events || []) { if (ev.obj) scene.remove(ev.obj); } if (S) S.events = []; }
+  function clearEvents() { for (const ev of (S && S.events) || []) { if (ev.obj) scene.remove(ev.obj); } if (S) S.events = []; }
   // ---------- parking on a slope: by the curb, hand brake, a gear in and the wheels turned the right way ----------
   // uphill: 1st gear and the wheels toward the street (if it rolls back, the tyre stops against the curb); downhill: reverse and the wheels toward the curb
   const SLOPE_SPOTS = [{ u: 340, up: true }, { u: 490, up: false }];
@@ -7014,6 +7029,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
       if (chip.dataset.t !== txt) { chip.dataset.t = txt; chip.innerHTML = `<i style="background:${col}"></i>`; chip.appendChild(document.createTextNode(txt)); }
       chip.hidden = false;
     } else chip.hidden = true;
+    // the coach panel goes right under the chip, however many lines the chip takes
+    { const ck = chip.hidden ? "" : chip.dataset.t.replace(/[\d.,]+/g, "#"); if (ck !== lastChipKey) { lastChipKey = ck; coachEl.style.top = chip.hidden ? "" : (chip.offsetTop + chip.offsetHeight + 6) + "px"; } }
   }
 
   const focusHint = el("focus-hint");
