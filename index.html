@@ -226,6 +226,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
 .missions .mgo:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; border-radius: 3px; }
 .missions .mskip { display: block; margin-top: 8px; background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 6px; padding: 4px 10px; font: inherit; font-size: .8rem; cursor: pointer; }
 .missions .mskip:hover, .missions .mskip:focus-visible { color: var(--ink); border-color: var(--muted); }
+.path .free-note { font-size: .78rem; color: var(--muted); }
 .path .linkbtn { all: unset; cursor: pointer; color: var(--amber); font-size: .8rem; }
 .path .linkbtn:hover { text-decoration: underline; }
 .path .linkbtn:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
@@ -811,7 +812,6 @@ button.lamp:hover { border-color: var(--amber-dim); }
         <label for="opt-voice"><input type="checkbox" id="opt-voice"><span>Instructor por voz<small>Los consejos se escuchan, así no sacás la vista de la calle.</small></span></label>
         <label for="opt-rise"><input type="checkbox" id="opt-rise"><span>El pedal de embrague sube solo<small>Más fácil: al soltar Espacio el pie sube despacio y se frena un momento en el punto de roce. Apagado (lo normal), el pedal queda donde lo dejás y lo soltás vos con W.</small></span></label>
         <label for="opt-guide"><input type="checkbox" id="opt-guide"><span>Guía amarilla para doblar<small>Se apaga sola cuando ya doblaste bien 6 veces, como en la vida real.</small></span></label>
-        <label for="opt-free"><input type="checkbox" id="opt-free"><span>Todo desbloqueado<small>Si ya sabés manejar: podés elegir cualquier lugar sin seguir el camino.</small></span></label>
         <label for="opt-night"><input type="checkbox" id="opt-night"><span>De noche<small>Se ve poco: encendé las luces bajas (K). Los peatones y las bicis cuestan más de ver.</small></span></label>
         <label for="opt-events"><input type="checkbox" id="opt-events"><span>Imprevistos<small>De vez en cuando algo pasa de golpe: una ambulancia atrás, una pelota con un chico detrás, un perro, el de adelante que frena fuerte.</small></span></label>
         <label for="opt-fog"><input type="checkbox" id="opt-fog"><span>Niebla<small>Se ve muy poco: luces bajas (no las altas) y más despacio.</small></span></label>
@@ -2586,10 +2586,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
   const missionOf = m => (m === mode && S ? frontierOf(S.mDone, S.mSkip) : prog.modes[m] ? frontierOf(savedDone(prog.modes[m]), prog.modes[m].skip || []) : 0);
   const doneOf = m => (m === mode && S ? S.mDone : prog.modes[m] ? savedDone(prog.modes[m]) : []);
   const stageDone = n => PATH[n].theory ? !!prog.theoryPassed : missionOf(PATH[n].mode) >= PATH[n].until;
-  const stageOpen = n => n === 0 || prog.free || stageDone(n - 1);
-  const modeOpen = m => opts.freeDrive || (m === "ride" ? prog.free || stageDone(1) : m === "autopista" ? prog.free || stageDone(4) : PATH.some((st, n) => st.mode === m && stageOpen(n)));
-  const examOpen = () => prog.free || stageDone(6);
-  const circuitOpen = () => prog.free || stageDone(5);
+  // nothing is locked: every place, mission and exam can be chosen at any time; Tu camino is only a suggested order
+  const stageOpen = () => true, modeOpen = () => true, examOpen = () => true, circuitOpen = () => true;
   // a step of the path is "clean" when none of its missions was skipped
   const stageClean = n => PATH[n].theory ? !!prog.theoryPassed : Array.from({ length: PATH[n].until }, (_, i) => i).every(i => doneOf(PATH[n].mode).includes(i));
   function saveProgress() {
@@ -2623,14 +2621,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
     p.innerHTML = cur < PATH.length ? `Tu camino · paso ${cur + 1} de ${PATH.length}: <b></b>` : `<b>¡Completaste todo el camino!</b>`;
     if (cur < PATH.length) p.querySelector("b").textContent = PATH[cur].title + (PATH[cur].theory ? ` (tocá el ${cur + 1} o buscalo en la pestaña Reglas)` : PATH[cur].mode !== mode ? ` (elegilo en Lugar o tocá el ${cur + 1})` : "");
     el.appendChild(p);
-    if (!prog.free && PATH.some((st, n) => !stageOpen(n))) {
-      const ob = document.createElement("button"); ob.type = "button"; ob.className = "linkbtn"; ob.textContent = "¿Querés probar todo? Abrir todos los lugares";
-      ob.addEventListener("click", () => {
-        prog.free = true; document.getElementById("opt-free").checked = true; saveProgress(); renderMissions();
-        toast("Listo: todos los lugares y exámenes están abiertos. Tus misiones siguen guardadas. Para volver a cerrarlos: ⚙ Menú → Todo desbloqueado.", "good", "allopen", 2);
-      });
-      el.appendChild(ob);
-    }
+    const fr = document.createElement("p"); fr.className = "free-note"; fr.textContent = "Todo está abierto: tocá cualquier paso de arriba o cualquier misión de la lista para ir directo.";
+    el.appendChild(fr);
     // the place selector shows which places are still closed
     for (const o of document.getElementById("mode").options) { const open = modeOpen(o.value); o.disabled = !open; o.textContent = (open ? "" : "🔒 ") + MODE_NAMES[o.value]; }
   }
@@ -2651,9 +2643,9 @@ button.lamp:hover { border-color: var(--amber-dim); }
       li.className = (done ? "done" : cur && !locked ? "current" : "") + (skipped ? " skipped" : "") + (locked ? " locked" : "");
       li.innerHTML = `<span class="n">${done ? "✓" : skipped ? "↷" : i + 1}</span><span></span>`;
       const body = li.lastChild;
-      if (!cur && !done && !locked) {
+      if (!cur && !locked) {
         const b = document.createElement("button"); b.type = "button"; b.className = "mgo"; b.textContent = m.title;
-        b.title = skipped ? "La salteaste: tocá para intentarla de nuevo" : "Tocá para ir a esta misión";
+        b.title = done ? "Ya la hiciste: tocá para repetirla" : skipped ? "La salteaste: tocá para intentarla de nuevo" : "Tocá para ir a esta misión";
         b.addEventListener("click", () => goMission(i));
         body.appendChild(b);
       } else body.textContent = m.title;
@@ -2677,7 +2669,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
       li.innerHTML = mode === "city"
         ? `<span class="n">★</span><span>¡Aprobaste el examen! Ya tenés tu licencia de práctica. Seguí manejando con tránsito, con lluvia o sin ayudas para subir tu puntaje.</span>`
         : mode === "ride" ? `<span class="n">★</span><span>¡Ya sos chofer de confianza! Siguen apareciendo pasajeros: probá con mucho tránsito, de noche o con lluvia.</span>`
-        : mode === "campo" ? `<span class="n">★</span><span>¡Completaste la ruta! Se abrió la Autopista (tipo General Paz): elegila en Lugar, arriba.</span>`
+        : mode === "campo" ? `<span class="n">★</span><span>¡Completaste la ruta! Probá la Autopista (tipo General Paz): elegila en Lugar, arriba.</span>`
         : mode === "autopista" ? `<span class="n">★</span><span>¡Ya manejás en autopista! Seguí practicando con mucho tránsito, de noche o con lluvia: cada tanto aparece un embotellamiento.</span>`
         : mode === "lesson" ? `<span class="n">★</span><span>¡Terminaste la primera clase! Ya sabés lo básico del embrague. Ahora elegí Ciudad en Lugar, arriba.</span>`
         : `<span class="n">★</span><span>Completaste las misiones de este lugar. Probá otro en el selector Lugar, arriba.</span>`;
@@ -2892,7 +2884,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     { q: "¿Qué documentos tenés que llevar al manejar?", a: ["Licencia, cédula del auto y comprobante del seguro", "Solo el DNI", "Solo la licencia"], why: "Licencia de conducir, cédula de identificación del vehículo y seguro obligatorio vigente (y la VTV donde corresponda)." },
     { q: "¿Se puede usar el celular con la mano mientras manejás?", a: ["No, está prohibido", "Sí, si vas despacio", "Sí, en los semáforos"], why: "Está prohibido manipular el celular al manejar." },
     { q: "El semáforo cambia a amarillo cuando estás llegando. ¿Qué hacés?", a: ["Me detengo si puedo hacerlo con seguridad", "Acelero para pasar", "Toco bocina y cruzo"], why: "El amarillo indica que hay que detenerse, salvo que no se pueda hacer con seguridad." },
-    { q: "En una bajada larga y pronunciada, ¿cómo bajas?", a: ["Con una marcha puesta (por ejemplo 2ª) para que el motor frene", "En neutro, para ahorrar", "Con el embrague pisado todo el tiempo"], why: "Bajar en neutro está prohibido y es peligroso: los frenos se recalientan." },
+    { q: "En una bajada larga y pronunciada, ¿cómo bajás?", a: ["Con una marcha puesta (por ejemplo 2ª) para que el motor frene", "En neutro, para ahorrar", "Con el embrague pisado todo el tiempo"], why: "Bajar en neutro está prohibido y es peligroso: los frenos se recalientan." },
     { q: "¿Qué indica esta señal?", sign: "bump", a: ["Lomo de burro adelante: hay que pasarlo despacio", "Puente angosto", "Fin de la zona urbana"], why: "Es una advertencia: reducí la velocidad antes de llegar." },
     { q: "¿Qué indica esta señal?", sign: "noLeft", a: ["Prohibido girar a la izquierda", "Obligatorio girar a la izquierda", "Curva peligrosa a la izquierda"], why: "Las señales redondas con borde rojo prohíben." },
     { q: "¿Para qué se usa la banquina de la ruta?", a: ["Solo para emergencias", "Para adelantar por la derecha", "Para circular si vas despacio"], why: "No se circula por la banquina." },
@@ -2942,7 +2934,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     document.getElementById("quiz-opts").innerHTML = "";
     document.getElementById("quiz-why").textContent = passed ? "Ahora seguí con el examen de circuito con conos, en Estacionamiento." : "Repasá la pestaña Reglas y volvé a intentarlo: las preguntas cambian cada vez.";
     say(document.getElementById("quiz-q").textContent);
-    if (passed && !prog.theoryPassed) { prog.theoryPassed = true; saveProgress(); toast("¡Aprobaste el examen teórico! Se abrió: Examen de circuito con conos.", "good", "theory-ok", 999); }
+    if (passed && !prog.theoryPassed) { prog.theoryPassed = true; saveProgress(); toast("¡Aprobaste el examen teórico! Lo que sigue en Tu camino: el examen de circuito con conos, en Estacionamiento.", "good", "theory-ok", 999); }
     prog.theoryBest = Math.max(prog.theoryBest || 0, quiz.ok); saveProgress();
     renderMissions();
     const nx = document.getElementById("quiz-next"); nx.hidden = false; nx.firstChild.textContent = "Cerrar "; quiz.answered = true; quiz.done = true;
@@ -2988,15 +2980,16 @@ button.lamp:hover { border-color: var(--amber-dim); }
     if (opts.freeDrive) return;
     if (mode === "city" && S.mission >= 8 && !examOpen()) return;
     if (mode === "parking" && S.mission >= 3 && !circuitOpen()) return;
+    if (S.replayHold) { let d = true; try { d = !!MISSIONS[S.mission].done(); } catch (err) {} if (!d) S.replayHold = false; return; }
     if (S.mission < MISSIONS.length && MISSIONS[S.mission].done()) {
       const before = PATH.map((st, n) => stageDone(n));
-      award(50, "Misión cumplida: " + MISSIONS[S.mission].title);
-      toast("Misión cumplida: " + MISSIONS[S.mission].title + " (+50)", "good", "m" + S.mission);
+      const again = S.mDone.includes(S.mission), pts = again ? 10 : 50;
+      award(pts, (again ? "Misión repetida: " : "Misión cumplida: ") + MISSIONS[S.mission].title);
+      toast((again ? "Misión repetida: " : "Misión cumplida: ") + MISSIONS[S.mission].title + ` (+${pts})`, "good", "m" + S.mission);
       const doneNow = S.mission;
       if (!S.mDone.includes(doneNow)) S.mDone.push(doneNow);
       S.mSkip = S.mSkip.filter(k => k !== doneNow);
-      for (let k = 0; k < doneNow; k++) if (!S.mDone.includes(k) && !S.mSkip.includes(k)) S.mSkip.push(k);
-      S.mission = frontierOf(S.mDone, S.mSkip); S.missionT = 0;
+      S.mission = nextMission(doneNow); S.missionT = 0;
       saveProgress();
       renderMissions();
       // a step of the path finished: say what opens now
@@ -3007,7 +3000,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
 
   // the path step that just opened, if any
   function pathOpened(before) {
-    PATH.forEach((st, n) => { if (!before[n] && stageDone(n)) toast(n + 1 < PATH.length ? `${stageClean(n) ? `¡Completaste "${st.title}"!` : `Terminaste "${st.title}" (con alguna misión salteada).`} Se abrió: ${PATH[n + 1].title}. Tocalo en Tu camino, en la pestaña Misiones.` : "¡Completaste todo el camino!", "good", "stage" + n, 999); });
+    PATH.forEach((st, n) => { if (!before[n] && stageDone(n)) toast(n + 1 < PATH.length ? `${stageClean(n) ? `¡Completaste "${st.title}"!` : `Terminaste "${st.title}" (con alguna misión salteada).`} Lo que sigue en Tu camino: ${PATH[n + 1].title}.` : "¡Completaste todo el camino!", "good", "stage" + n, 999); });
   }
   // ---------- skipping and choosing missions: nobody stays stuck ----------
   const missionLocked = i => (mode === "city" && i >= 8 && !examOpen()) || (mode === "parking" && i >= 3 && !circuitOpen());
@@ -3016,25 +3009,47 @@ button.lamp:hover { border-color: var(--amber-dim); }
   function skipMission() {
     const cur = S.mission; if (!canSkip(cur)) return;
     const before = PATH.map((st, n) => stageDone(n));
-    if (!S.mSkip.includes(cur)) S.mSkip.push(cur);
-    S.mission = frontierOf(S.mDone, S.mSkip); S.missionT = 0;
+    if (!S.mDone.includes(cur) && !S.mSkip.includes(cur)) S.mSkip.push(cur);
+    S.mission = nextMission(cur); S.missionT = 0; S.replayHold = false;
     saveProgress(); renderMissions();
     const nx = MISSIONS[S.mission];
     toast(`Salteaste «${MISSIONS[cur].title}»: queda con ↷ en la lista para después.${nx ? ` Ahora: ${nx.title}.` : ""}`, "", "skip" + cur, 2);
     pathOpened(before);
     document.getElementById("road").focus();
   }
+  // the next mission to do after this one: the next not done (and not skipped), going round to the start
+  function nextMission(from) {
+    const n = MISSIONS.length, open = k => !S.mDone.includes(k) && !S.mSkip.includes(k);
+    for (let k = from + 1; k < n; k++) if (open(k)) return k;
+    for (let k = 0; k < from; k++) if (open(k)) return k;
+    for (let k = 0; k < n; k++) if (!S.mDone.includes(k) && k !== from) return k;
+    return n;
+  }
+  // repeating a mission already done: its own marks go back to the start (not the car: gear, speed, lights stay as they are)
+  const CAR_STATE = new Set(["x", "z", "th", "v", "we", "gear", "running", "clutch", "clutchManual", "gas", "brake", "steer", "hand", "lights", "high", "t", "dist", "score", "blink", "hazard", "mirrorT", "belt", "wipers", "headYaw", "lookL", "lookR", "paused", "mission", "missionT", "crank", "shake", "limit", "cleanDist", "bestClean"]);
+  function resetMissionMarks(i) {
+    const m = MISSIONS[i]; if (!m) return;
+    const seen = new Set(), real = S;
+    S = new Proxy(real, { get(t, k) { if (typeof k === "string") seen.add(k); return t[k]; } });
+    try { try { m.done(); } catch (err) {} for (const [, ok] of m.steps || []) { try { ok(); } catch (err) {} } } finally { S = real; }
+    const f = freshState();
+    for (const k of seen) {
+      if (CAR_STATE.has(k) || !(typeof S[k] === "boolean" || typeof S[k] === "number")) continue;
+      if (k in f) S[k] = f[k]; else delete S[k];
+    }
+    if (S.exam) S.exam = null;
+  }
   function goMission(i) {
-    if (i === S.mission || i >= MISSIONS.length || S.mDone.includes(i) || missionLocked(i)) return;
-    const before = PATH.map((st, n) => stageDone(n));
-    // going ahead leaves the ones in between as skipped, so you can come back to them
-    for (let k = 0; k < i; k++) if (!S.mDone.includes(k) && !S.mSkip.includes(k)) S.mSkip.push(k);
+    if (i === S.mission || i >= MISSIONS.length || missionLocked(i)) return;
+    const before = PATH.map((st, n) => stageDone(n)), again = S.mDone.includes(i);
+    if (again) resetMissionMarks(i);
     S.mission = i; S.missionT = 0;
+    S.replayHold = false; if (again) { try { S.replayHold = !!MISSIONS[i].done(); } catch (err) {} }
     for (const k of Object.keys(S.stepDone)) if (k.startsWith(i + "-")) delete S.stepDone[k];
     if (S.exam && !S.exam.passed && i !== MISSIONS.length - 1) S.exam = null;
     saveProgress(); renderMissions();
     const m = MISSIONS[i];
-    toast(`Misión: ${m.title}.${m.steps ? " Los pasos están en el panel." : " " + m.hint}`, "", "go" + i, 2);
+    toast(`${again ? "Repetís" : "Misión"}: ${m.title}.${m.steps ? " Los pasos están en el panel." : " " + m.hint}`, "", "go" + i, 2);
     pathOpened(before);
     document.getElementById("road").focus();
   }
@@ -3382,11 +3397,8 @@ button.lamp:hover { border-color: var(--amber-dim); }
       setTimeout(() => { if (armed && Date.now() - armed >= 3900) { armed = 0; btn.textContent = label; btn.classList.remove("armed"); } }, 4000);
     });
   }
-  const optFree = document.getElementById("opt-free");
-  optFree.checked = !!prog.free;
-  optFree.addEventListener("change", () => { prog.free = optFree.checked; saveProgress(); renderMissions(); document.getElementById("road").focus(); });
   twoStep(document.getElementById("btn-wipe"), () => true, () => {
-    prog = { modes: {}, free: false, last: null }; optFree.checked = false;
+    prog = { modes: {}, free: false, last: null };
     try { localStorage.setItem("pm-progress", JSON.stringify(prog)); } catch (err) {}
     S = null; setMode("lesson");
     toast("Borraste tu progreso: empezás de nuevo desde la Primera clase.", "", "wipe", 1);
@@ -3606,6 +3618,222 @@ button.lamp:hover { border-color: var(--amber-dim); }
   scene.add(sun); scene.add(sun.target);
   const L = p => new THREE.MeshLambertMaterial(Object.assign({ side: THREE.DoubleSide }, p));
   const B = p => new THREE.MeshBasicMaterial(Object.assign({ side: THREE.DoubleSide }, p));
+  // ---------- people: rounded bodies with arms, hands, shoes, a face, hair and varied clothes ----------
+  // each look is built once and reused; a person is 5 meshes (body, 2 legs, 2 arms) with the colors painted on the vertices
+  const personMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const _pm = new THREE.Matrix4(), _pq = new THREE.Quaternion(), _pe = new THREE.Euler(), _pv = new THREE.Vector3(), _ps = new THREE.Vector3(), _pn = new THREE.Matrix3(), _pc = new THREE.Color();
+  // parts: [geometry, color, x, y, z, rx, ry, rz, sx, sy, sz, parentMatrix]
+  function mergeParts(parts) {
+    let nv = 0, ni = 0;
+    for (const [g] of parts) { nv += g.attributes.position.count; ni += g.index ? g.index.count : g.attributes.position.count; }
+    const pos = new Float32Array(nv * 3), nor = new Float32Array(nv * 3), col = new Float32Array(nv * 3), idx = new (nv > 65000 ? Uint32Array : Uint16Array)(ni);
+    let ov = 0, oi = 0;
+    for (const [g, hex, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1, parent] of parts) {
+      _pm.compose(_pv.set(x, y, z), _pq.setFromEuler(_pe.set(rx, ry, rz)), _ps.set(sx, sy, sz));
+      if (parent) _pm.premultiply(parent);
+      _pn.getNormalMatrix(_pm); _pc.setHex(hex);
+      const p = g.attributes.position, n = g.attributes.normal;
+      for (let i = 0; i < p.count; i++) {
+        const o = (ov + i) * 3;
+        _pv.fromBufferAttribute(p, i).applyMatrix4(_pm); pos[o] = _pv.x; pos[o + 1] = _pv.y; pos[o + 2] = _pv.z;
+        _pv.fromBufferAttribute(n, i).applyMatrix3(_pn).normalize(); nor[o] = _pv.x; nor[o + 1] = _pv.y; nor[o + 2] = _pv.z;
+        col[o] = _pc.r; col[o + 1] = _pc.g; col[o + 2] = _pc.b;
+      }
+      if (g.index) for (let i = 0; i < g.index.count; i++) idx[oi + i] = g.index.array[i] + ov;
+      else for (let i = 0; i < p.count; i++) idx[oi + i] = ov + i;
+      ov += p.count; oi += g.index ? g.index.count : p.count;
+    }
+    const out = new THREE.BufferGeometry();
+    out.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    out.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
+    out.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    out.setIndex(new THREE.BufferAttribute(idx, 1));
+    out.computeBoundingSphere();
+    return out;
+  }
+  const lathe = pts => new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), 12);
+  const PG = {
+    sph: new THREE.SphereGeometry(1, 12, 9), sphLo: new THREE.SphereGeometry(1, 7, 5),
+    cap: new THREE.SphereGeometry(1, 12, 5, 0, Math.PI * 2, 0, Math.PI * 0.56),
+    cyl: new THREE.CylinderGeometry(1, 1, 1, 10, 1, true), box: new THREE.BoxGeometry(1, 1, 1),
+    leg: new THREE.CylinderGeometry(0.074, 0.05, 1, 8, 1, true), upper: new THREE.CylinderGeometry(0.05, 0.043, 1, 7, 1, true), fore: new THREE.CylinderGeometry(0.042, 0.035, 1, 7, 1, true),
+    skirt: new THREE.CylinderGeometry(0.17, 0.27, 1, 14, 1, true), stick: new THREE.CylinderGeometry(0.013, 0.013, 1, 5, 1, true),
+    // torsos: hips at 0.9, shoulders at about 1.42 (scaled flatter front to back when used)
+    torsoM: lathe([[0.001, 0.86], [0.15, 0.87], [0.163, 0.94], [0.152, 1.04], [0.162, 1.14], [0.185, 1.27], [0.19, 1.35], [0.175, 1.42], [0.12, 1.465], [0.05, 1.49], [0.001, 1.495]]),
+    torsoF: lathe([[0.001, 0.85], [0.16, 0.86], [0.175, 0.93], [0.136, 1.06], [0.155, 1.2], [0.168, 1.3], [0.16, 1.39], [0.14, 1.44], [0.09, 1.47], [0.04, 1.485], [0.001, 1.49]]),
+    // the white school smock (guardapolvo), down to the knees
+    smock: lathe([[0.001, 0.56], [0.235, 0.57], [0.2, 0.75], [0.168, 0.95], [0.162, 1.06], [0.176, 1.2], [0.19, 1.33], [0.178, 1.42], [0.12, 1.465], [0.05, 1.49], [0.001, 1.495]]),
+  };
+  const P_SKIN = [0xf1c9a5, 0xe3b089, 0xc98f66, 0xa06a45, 0x744a2e];
+  const P_HAIR = [0x1d1612, 0x2e2018, 0x4a2f1c, 0x6e4a2a, 0x9a7444, 0xc9a46c, 0x121212];
+  const P_GREY = [0xdedad2, 0xc4bfb6, 0xa29e96];
+  const P_SHIRT = [0x2f5d8a, 0x8a2f4a, 0x3f7a4a, 0xc58a2e, 0x6a4a8a, 0xd8d2c4, 0xeceae4, 0x1f2a38, 0xb5473a, 0x7c8a95, 0xd9b44a, 0x2e8a8a, 0xe07a8a];
+  const P_KNIT = [0x8a6a4a, 0x6a5a4a, 0x9a8a7a, 0x5a4a5a, 0x7a3a3a, 0x4a5a6a];
+  const P_PANTS = [0x2c3e5c, 0x3a4f6e, 0x22252b, 0x8a7a5c, 0x5a5f66, 0x2a2a30];
+  const P_SHOES = [0x1b1b1b, 0xe8e8e8, 0x4a3020, 0x2b3a5a, 0x6a6a6a];
+  const P_BAG = [0x5a3a24, 0x2a1f1a, 0x8a5a3a, 0xa33a3a, 0x222222];
+  const P_PACK = [0xd94a3a, 0x3a7ad9, 0xe8b42a, 0x3aa86a, 0x8a4ad9, 0xe86aa8];
+  const P_HELMET = [0xeeeeee, 0x222222, 0xd94a3a, 0x3a7ad9, 0xe8b42a];
+  const prng = seed => () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  // a limb as a cylinder from a (its thick end) to b
+  function limb(geo, color, a, b, r = 1, parent) {
+    const d = _pv.copy(a).sub(b), len = d.length();
+    _pq.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize()); _pe.setFromQuaternion(_pq);
+    return [geo, color, (a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2, _pe.x, _pe.y, _pe.z, r, len, r, parent];
+  }
+  const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  // the face and hair, around a head centered at (0, hy, 0); H is the head's own matrix (tilt, size)
+  function headParts(L, hy, H) {
+    const P = [];
+    P.push([PG.cyl, L.skin, 0, hy - 0.12, 0, 0, 0, 0, 0.046, 0.1, 0.046, H]);                 // neck
+    P.push([PG.sph, L.skin, 0, hy, 0, 0, 0, 0, 0.093, 0.114, 0.104, H]);                     // head
+    for (const s of [-1, 1]) {
+      P.push([PG.sphLo, 0x17120f, s * 0.034, hy + 0.015, 0.091, 0, 0, 0, 0.013, 0.013, 0.01, H]);   // eyes
+      P.push([PG.sphLo, L.skin, s * 0.093, hy, -0.004, 0, 0, 0, 0.018, 0.032, 0.025, H]);           // ears
+      P.push([PG.box, L.hair, s * 0.035, hy + 0.04, 0.09, 0, 0, s * -0.1, 0.034, 0.008, 0.008, H]); // eyebrows
+    }
+    _pc.setHex(L.skin).multiplyScalar(0.9);
+    P.push([PG.sphLo, _pc.getHex(), 0, hy - 0.008, 0.102, 0, 0, 0, 0.016, 0.026, 0.022, H]);  // nose
+    P.push([PG.box, 0x8a4a42, 0, hy - 0.05, 0.094, 0, 0, 0, 0.032, 0.007, 0.01, H]);          // mouth
+    const nape = () => P.push([PG.sph, L.hair, 0, hy - 0.045, -0.052, 0, 0, 0, 0.088, 0.062, 0.062, H]);
+    const top = (k = 1) => P.push([PG.cap, L.hair, 0, hy + 0.01, -0.006, -0.32, 0, 0, 0.1 * k, 0.105 * k, 0.113 * k, H]);
+    switch (L.style) {
+      case "long": top(); nape(); P.push([PG.sph, L.hair, 0, hy - 0.12, -0.09, 0.12, 0, 0, 0.102, 0.17, 0.065, H]); break;
+      case "pony": top(); nape(); P.push([PG.sph, L.hair, 0, hy - 0.06, -0.128, 0.55, 0, 0, 0.036, 0.095, 0.036, H]); break;
+      case "bun": top(); nape(); P.push([PG.sph, L.hair, 0, hy + 0.085, -0.085, 0, 0, 0, 0.048, 0.044, 0.048, H]); break;
+      case "buzz": top(0.97); break;
+      case "cap": nape(); P.push([PG.cap, L.capColor, 0, hy + 0.03, 0, 0, 0, 0, 0.104, 0.085, 0.114, H]); P.push([PG.box, L.capColor, 0, hy + 0.04, 0.105, -0.12, 0, 0, 0.15, 0.012, 0.09, H]); break;
+      case "boina": nape(); P.push([PG.sph, L.capColor, 0, hy + 0.085, -0.01, -0.15, 0, 0, 0.115, 0.035, 0.12, H]); break;
+      default: top(); nape();
+    }
+    return P;
+  }
+  // what one look wears: chosen once per (type, variant) with a fixed seed, so the same look is reused
+  function personLook(type, school, v) {
+    const r = prng(v * 7919 + ({ adult: 1, phone: 2, elder: 3, kid: 4, doubt: 5 }[type] || 1) * 104729 + (school ? 77 : 0) + 11);
+    const p = a => a[Math.floor(r() * a.length)];
+    const L = { f: r() < 0.5, skin: p(P_SKIN), shoes: p(P_SHOES), shirt: p(P_SHIRT), pants: p(P_PANTS) };
+    L.hair = type === "elder" ? p(P_GREY) : p(P_HAIR);
+    L.long = r() < 0.5;   // long sleeves
+    if (type === "elder") {
+      L.shirt = p(P_KNIT); L.long = true;
+      L.style = L.f ? (r() < 0.6 ? "bun" : "short") : r() < 0.45 ? "boina" : "buzz";
+      L.capColor = p([0x2a2a30, 0x3a3020, 0x2a3040]);
+    } else if (type === "kid") {
+      L.style = L.f ? p(["long", "pony", "pony"]) : p(["short", "buzz", "short"]);
+      L.pack = p(P_PACK); L.shirt = school ? 0xf6f6f2 : p(P_SHIRT); L.pants = p([0x1f2a44, 0x2c3e5c, 0x22252b]);
+    } else {
+      L.style = L.f ? p(["long", "long", "pony", "bun", "short"]) : p(["short", "short", "buzz", "cap"]);
+      L.capColor = p([0x1f2a38, 0xb5473a, 0x2e2e2e, 0xeaeaea]);
+      if (L.f && r() < 0.35) { L.skirt = p([0x2a2a30, 0x6a3a5a, 0x2c3e5c, 0x8a5a3a, L.shirt]); L.legs = r() < 0.5 ? L.skin : 0x2a2a30; }
+      if (r() < 0.4) L.bag = L.f ? "purse" : "pack";
+      L.bagColor = L.bag === "pack" ? p(P_PACK) : p(P_BAG);
+    }
+    return L;
+  }
+  const personKits = new Map();
+  function personKit(type, school, v) {
+    const key = type + (school ? "s" : "") + v;
+    if (personKits.has(key)) return personKits.get(key);
+    const L = personLook(type, school, v), kid = type === "kid";
+    const lean = type === "elder" ? 0.17 : 0;
+    const U = new THREE.Matrix4().makeTranslation(0, 0.9, 0).multiply(new THREE.Matrix4().makeRotationX(lean)).multiply(new THREE.Matrix4().makeTranslation(0, -0.9, 0));
+    const tilt = type === "phone" ? 0.38 : type === "elder" ? -0.1 : 0, hs = kid ? 1.24 : 1;
+    const H = U.clone().multiply(new THREE.Matrix4().makeTranslation(0, 1.5, 0)).multiply(new THREE.Matrix4().makeRotationX(tilt)).multiply(new THREE.Matrix4().makeScale(hs, hs, hs)).multiply(new THREE.Matrix4().makeTranslation(0, -1.5, 0));
+    const B = [];
+    // torso, hips, shoulders
+    if (kid && school) {
+      B.push([PG.smock, 0xf6f6f2, 0, 0, 0, 0, 0, 0, 1.14, 1, 0.74, U]);
+      for (const s of [-1, 1]) B.push([PG.sphLo, 0x1f2f5a, s * 0.035, 1.44, 0.14, 0, 0, s * 0.5, 0.045, 0.028, 0.02, U]);   // the navy bow
+    } else {
+      B.push([L.f ? PG.torsoF : PG.torsoM, L.shirt, 0, 0, 0, 0, 0, 0, L.f ? 1.15 : 1.18, 1, L.f ? 0.74 : 0.7, U]);
+      if (L.skirt) B.push([PG.skirt, L.skirt, 0, 0.74, 0, 0, 0, 0, 1.08, 0.46, 0.8]);
+      else B.push([PG.cyl, L.pants, 0, 0.9, 0, 0, 0, 0, L.f ? 0.205 : 0.198, 0.13, 0.13]);
+    }
+    for (const s of [-1, 1]) B.push([PG.sphLo, kid && school ? 0xf6f6f2 : L.shirt, s * 0.2, 1.405, 0, 0, 0, 0, 0.064, 0.06, 0.064, U]);
+    B.push(...headParts(L, 1.625, H));
+    // bags and backpacks
+    if (L.pack || L.bag === "pack") B.push([PG.box, L.pack || L.bagColor, 0, 1.17, -0.165, 0.05, 0, 0, 0.27, 0.36, 0.13, U], [PG.box, L.pack || L.bagColor, 0, 1.08, -0.235, 0.05, 0, 0, 0.2, 0.14, 0.04, U]);
+    if (L.bag === "purse") B.push([PG.box, L.bagColor, 0.245, 1.0, 0.02, 0, 0, 0.06, 0.07, 0.2, 0.25], [PG.box, L.bagColor, 0.19, 1.22, 0.0, 0, 0, 0.22, 0.014, 0.44, 0.02]);
+    const body = mergeParts(B);
+    // a leg hangs from the hip (pivot at its top): pants, skirt legs or school trousers, and a shoe
+    const legC = L.legs || L.pants;
+    const leg = mergeParts([[PG.leg, legC, 0, -0.42, 0, 0, 0, 0, 1, 0.84, 1], [PG.sphLo, L.shoes, 0, -0.862, 0.045, 0, 0, 0, 0.053, 0.042, 0.122]]);
+    // arms hang from the shoulder: sleeve, forearm (bare with short sleeves), hand
+    const sleeve = kid && school ? 0xf6f6f2 : L.shirt, fore = L.long ? sleeve : L.skin;
+    const straightArm = (extra = []) => mergeParts([
+      [PG.upper, sleeve, 0, -0.145, 0, 0, 0, 0, 1, 0.29, 1], [PG.fore, fore, 0, -0.415, 0, 0, 0, 0, 1, 0.26, 1],
+      [PG.sph, L.skin, 0, -0.585, 0.004, 0, 0, 0, 0.036, 0.055, 0.026], ...extra]);
+    let armL = straightArm(), armR = armL, armBase = [0, 0], armSwing = [1, 1];
+    if (type === "phone") {
+      // the arm bent at the elbow, the phone in front of the chest and the head down
+      const e = V(0, -0.27, 0.06), hnd = V(-0.11, -0.17, 0.3);
+      armR = mergeParts([limb(PG.upper, sleeve, V(0, 0, 0), e), limb(PG.fore, fore, e, hnd), [PG.sph, L.skin, hnd.x, hnd.y, hnd.z, 0, 0, 0, 0.036, 0.04, 0.05],
+        [PG.box, 0x111317, hnd.x, hnd.y + 0.035, hnd.z + 0.015, -0.9, 0, 0, 0.07, 0.135, 0.012]]);
+      armSwing = [1, 0];
+    }
+    if (type === "elder") {
+      // the cane goes with the right hand
+      armR = straightArm([[PG.stick, 0x5a3a22, 0, -1.02, 0.03, 0.03, 0, 0, 1, 0.84, 1], [PG.sphLo, 0x5a3a22, 0, -0.6, 0.03, 0, 0, 0, 0.022, 0.022, 0.05]]);
+      armBase = [0.05, -0.18]; armSwing = [0.5, 0.25];
+    }
+    const sh = _pv.set(0.215, 1.405, 0).applyMatrix4(U).clone();
+    const kit = { body, leg, armL, armR, armBase, armSwing, sh, lean };
+    personKits.set(key, kit);
+    return kit;
+  }
+  function makePed(type, school) {
+    const k = personKit(type, school, Math.floor(Math.random() * 10)), g = new THREE.Group();
+    const add = (geo, x, y, z) => { const m = new THREE.Mesh(geo, personMat); m.position.set(x, y, z); m.castShadow = true; g.add(m); return m; };
+    add(k.body, 0, 0, 0);
+    g.legs = [-0.085, 0.085].map(x => add(k.leg, x, 0.9, 0));
+    g.arms = [add(k.armL, -k.sh.x, k.sh.y, k.sh.z), add(k.armR, k.sh.x, k.sh.y, k.sh.z)];
+    g.arms[0].rotation.z = -0.07; g.arms[1].rotation.z = 0.07;
+    g.armBase = k.armBase; g.armSwing = k.armSwing;
+    poseWalk(g, 0);
+    if (type === "kid") g.scale.setScalar(0.62);
+    return g;
+  }
+  // walking: each arm swings against the leg on its side
+  function poseWalk(g, swing) {
+    if (!g.legs) return;
+    g.legs[0].rotation.x = swing; g.legs[1].rotation.x = -swing;
+    if (g.arms) g.arms.forEach((a, i) => { a.rotation.x = g.armBase[i] + (i ? swing : -swing) * 0.85 * g.armSwing[i]; });
+  }
+  // someone hailing the car: one arm up
+  function poseHail(g) { if (g.arms) { g.arms[1].rotation.x = -2.55; g.arms[1].rotation.z = 0.3; } }
+  // a seated rider for bicycles and motorcycles, hips at the origin, facing +z
+  const riderKits = new Map();
+  function riderGeom(kind, v) {
+    const key = kind + v;
+    if (riderKits.has(key)) return riderKits.get(key);
+    const r = prng(v * 3571 + (kind === "moto" ? 99 : 7)), p = a => a[Math.floor(r() * a.length)];
+    const moto = kind === "moto";
+    const L = { f: r() < 0.4, skin: p(P_SKIN), hair: p(P_HAIR), shoes: p(P_SHOES), shirt: moto ? p([0x22252b, 0x3a3a40, 0x2c3e5c, 0x6a2a2a, 0xd9662a]) : p(P_SHIRT), pants: p(P_PANTS) };
+    const helmet = p(P_HELMET), lean = moto ? 0.26 : 0.4;
+    const U = new THREE.Matrix4().makeRotationX(lean).multiply(new THREE.Matrix4().makeTranslation(0, -0.9, 0));
+    const H = new THREE.Matrix4().makeRotationX(lean).multiply(new THREE.Matrix4().makeTranslation(0, 0.6, 0)).multiply(new THREE.Matrix4().makeRotationX(-lean)).multiply(new THREE.Matrix4().makeTranslation(0, -1.5, 0));
+    const B = [[L.f ? PG.torsoF : PG.torsoM, L.shirt, 0, 0, 0, 0, 0, 0, 1.18, 1, 0.72, U], [PG.cyl, L.pants, 0, 0, 0, 0, 0, 0, 0.2, 0.14, 0.14]];
+    for (const s of [-1, 1]) B.push([PG.sphLo, L.shirt, s * 0.2, 1.405, 0, 0, 0, 0, 0.064, 0.06, 0.064, U]);
+    B.push([PG.cyl, L.skin, 0, 1.505, 0, 0, 0, 0, 0.046, 0.1, 0.046, H], [PG.sph, L.skin, 0, 1.625, 0, 0, 0, 0, 0.093, 0.114, 0.104, H]);
+    if (moto) B.push([PG.sph, helmet, 0, 1.63, -0.005, 0, 0, 0, 0.145, 0.15, 0.158, H], [PG.box, 0x15181c, 0, 1.635, 0.125, 0, 0, 0, 0.17, 0.075, 0.08, H]);
+    else B.push([PG.cap, helmet, 0, 1.655, -0.01, -0.2, 0, 0, 0.115, 0.115, 0.13, H], [PG.sph, L.hair, 0, 1.58, -0.055, 0, 0, 0, 0.088, 0.06, 0.06, H]);
+    // arms to the handlebar, legs to the pedals or the foot pegs
+    const hands = moto ? [V(-0.27, 0.15, 0.66), V(0.27, 0.15, 0.66)] : [V(-0.22, 0.08, 0.56), V(0.22, 0.08, 0.56)];
+    const knees = moto ? [V(-0.17, 0.0, 0.36), V(0.17, 0.0, 0.36)] : [V(-0.13, -0.06, 0.38), V(0.13, -0.16, 0.26)];
+    const feet = moto ? [V(-0.17, -0.44, 0.22), V(0.17, -0.44, 0.22)] : [V(-0.12, -0.55, 0.3), V(0.12, -0.68, 0.02)];
+    for (let i = 0; i < 2; i++) {
+      const s = i ? 1 : -1, sh = V(s * 0.215, 1.405, 0).applyMatrix4(U), hnd = hands[i], el = sh.clone().lerp(hnd, 0.5).add(V(s * 0.06, -0.08, 0));
+      B.push(limb(PG.upper, L.shirt, sh, el), limb(PG.fore, moto ? L.shirt : L.long ? L.shirt : L.skin, el, hnd), [PG.sph, moto ? 0x1a1a1a : L.skin, hnd.x, hnd.y, hnd.z, 0, 0, 0, 0.04, 0.04, 0.05]);
+      const hip = V(s * 0.09, 0, 0.02);
+      B.push(limb(PG.leg, L.pants, hip, knees[i], 1.0), limb(PG.leg, L.pants, knees[i], feet[i], 0.8), [PG.sph, L.shoes, feet[i].x, feet[i].y - 0.02, feet[i].z + 0.05, 0, 0, 0, 0.053, 0.042, 0.122]);
+    }
+    const geo = mergeParts(B);
+    riderKits.set(key, geo);
+    return geo;
+  }
+  function makeRider(kind) { const m = new THREE.Mesh(riderGeom(kind, Math.floor(Math.random() * 8)), personMat); m.castShadow = true; return m; }
+
 
   function canvasTex(w, h, draw, repeat = true) {
     const c = document.createElement("canvas"); c.width = w; c.height = h;
@@ -4898,8 +5126,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     const g = new THREE.Group(), part = (geo, mat, x, y, z, rx = 0, rz = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, 0, rz); m.castShadow = true; g.add(m); return m; };
     for (const z of [0.72, -0.72]) part(motoWheelGeo, darkMat, 0, 0.31, z, 0, Math.PI / 2);
     part(motoBodyGeo, bodyMat || motoMats[Math.floor(Math.random() * motoMats.length)], 0, 0.62, 0);
-    part(riderGeo, riderMat, 0, 1.18, -0.12, -0.25);
-    part(helmetGeo, helmetMats[Math.floor(Math.random() * 4)], 0, 1.62, 0.02);
+    { const rd = makeRider("moto"); rd.position.set(0, 0.9, -0.12); g.add(rd); }
     part(barGeo, darkMat, 0, 1.05, 0.55);
     part(motoHeadGeo, headMat, 0, 0.9, 0.78);
     g.tail = part(motoTailGeo, tailOff, 0, 0.8, -0.78);
@@ -5199,7 +5426,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     const pick = pickSpot(60, 260);
     if (!pick) return;
     ride = { p, place, pick, drop: null, state: "pickup", comfort: 100, events: {}, stopT: 0, prevV: 0, prevTh: S.th, acc: 0, brakeT: 0, lastHit: 0, infr0: S.counts.infr, t0: 0 };
-    const ped = makePed(p.type, p.type === "kid"); ped.position.set(pick.cx, 0, pick.cz); ped.rotation.y = Math.atan2(-rightOf(pick.th).x, -rightOf(pick.th).z); scene.add(ped); rideObjs.push(ped); ride.ped = ped;
+    const ped = makePed(p.type, p.type === "kid"); ped.position.set(pick.cx, 0, pick.cz); ped.rotation.y = Math.atan2(-rightOf(pick.th).x, -rightOf(pick.th).z); poseHail(ped); scene.add(ped); rideObjs.push(ped); ride.ped = ped;
     toast(`${p.who} te pide que ${p.lo} lleves ${place}. Busca${p.lo}: en el GPS es el punto azul, y en la calle, la columna azul.`, "good", "ride-new" + S.t, 1);
   }
   const atSpot = sp => { const d = dirOf(sp.th), r = rightOf(sp.th), along = (S.x - sp.x) * d.x + (S.z - sp.z) * d.z, side = (S.x - sp.x) * r.x + (S.z - sp.z) * r.z; return Math.abs(along) < 7 && side > -1.2 && side < 1.6 && Math.cos(S.th - sp.th) > 0.8; };
@@ -5634,9 +5861,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
     const fm = bikeMats[Math.floor(Math.random() * bikeMats.length)];
     for (const z of [0.52, -0.52]) part(bikeWheelGeo, darkMat, 0, 0.35, z, 0, Math.PI / 2);
     part(bikeFrameGeo, fm, 0, 0.62, 0, 0.35); part(bikeFrameGeo, fm, 0, 0.75, 0.05);
-    part(riderGeo, pick(pedCloth), 0, 1.25, -0.08, -0.35);
-    part(pedHeadGeo, pick(pedSkin), 0, 1.68, 0.06);
-    part(helmetGeo, helmetMats[Math.floor(Math.random() * 4)], 0, 1.74, 0.06);
+    { const rd = makeRider("bike"); rd.position.set(0, 0.95, -0.1); g.add(rd); }
     part(new THREE.BoxGeometry(0.5, 0.04, 0.04), darkMat, 0, 1.02, 0.45);
     g.tail = part(motoTailGeo, tailOff, 0, 0.8, -0.6);
     return g;
@@ -5649,21 +5874,6 @@ button.lamp:hover { border-color: var(--amber-dim); }
     return r < 0.45 ? "adult" : r < 0.62 ? "elder" : r < 0.77 ? "phone" : r < 0.87 ? "kid" : "doubt";
   }
   const smockMat = L({ color: 0xf4f4f0 });
-  function makePed(type, school) {
-    const g = new THREE.Group();
-    const legs = [-0.1, 0.1].map(x => { const m = new THREE.Mesh(pedLegGeo, pedPants); m.position.set(x, 0.85, 0); g.add(m); return m; });
-    const body = new THREE.Mesh(pedBodyGeo, pick(type === "kid" ? kidCloth : pedCloth)); body.position.y = 1.16; g.add(body);
-    const head = new THREE.Mesh(pedHeadGeo, pick(pedSkin)); head.position.y = 1.62; g.add(head);
-    const hair = new THREE.Mesh(pedHairGeo, type === "elder" ? greyHair : pick(hairMats)); hair.position.y = 1.635; g.add(hair);
-    if (type === "elder") { body.rotation.x = 0.18; body.position.z = 0.04; head.position.z = hair.position.z = 0.12; head.position.y = hair.position.y = 1.56; const cane = new THREE.Mesh(caneGeo, caneMat); cane.position.set(0.28, 0.46, 0.22); g.add(cane); }
-    if (type === "phone") { const ph = new THREE.Mesh(phoneGeo, phoneMat); ph.position.set(0.1, 1.38, 0.24); ph.rotation.x = -0.6; g.add(ph); head.position.z = hair.position.z = 0.05; }
-    if (type === "adult" && Math.random() < 0.4) { const bag = new THREE.Mesh(bagGeo, pick(pedCloth)); bag.position.set(0.3, 0.95, 0); g.add(bag); }
-    if (type === "kid" && school) { body.material = smockMat; body.scale.set(1.05, 1.35, 1.05); body.position.y = 1.08; } // the white school smock
-    if (type === "kid") g.scale.setScalar(0.62);
-    g.traverse(o => { if (o.isMesh) o.castShadow = true; });
-    g.legs = legs;
-    return g;
-  }
   const CROSS_A = -(HALF + 1.8), CROSS_END = HALF + 2.4;
   const pedPose = pd => { const [x, z] = rel(pd.cx, pd.cz, pd.th, pd.a, pd.b); return { x, z }; };
   function addPed(pd) {
@@ -5769,7 +5979,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
       // walk animation: legs swing, a little bounce
       if (moving) pd.phase += dt * pd.speed * 5.5;
       const swing = moving ? Math.sin(pd.phase) * (pd.type === "kid" ? 0.7 : pd.type === "elder" ? 0.25 : 0.45) : 0;
-      pd.obj.legs[0].rotation.x = swing; pd.obj.legs[1].rotation.x = -swing;
+      poseWalk(pd.obj, swing);
       pd.obj.position.set(pd.x, moving ? Math.abs(Math.cos(pd.phase)) * 0.04 : 0, pd.z);
       const back = pd.state === "back" ? -1 : 1, wd = pd.role === "walker" ? dirOf(pd.th) : rightOf(pd.th);
       pd.obj.rotation.y = Math.atan2(wd.x * pd.dir * back, wd.z * pd.dir * back);
@@ -6565,7 +6775,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
         if (!ev.hit) { ev.run += ev.speed * dt; ev.x += ev.vx * ev.speed * dt; ev.z += ev.vz * ev.speed * dt; }
         const th = Math.atan2(ev.vx, -ev.vz);
         ev.obj.position.set(ev.x, heightAt(ev.x, ev.z) + (ev.kind === "ball" ? 0.13 + Math.abs(Math.sin(ev.run * 2.4)) * 0.35 : 0), ev.z); ev.obj.rotation.y = Math.PI - th;
-        if (ev.obj.legs) ev.obj.legs.forEach((m, k) => { m.rotation.x = Math.sin(ev.run * 4 + k * Math.PI) * 0.6; });
+        if (ev.obj.legs) poseWalk(ev.obj, Math.sin(ev.run * 4) * 0.6);
         // hit?
         const p = evNear(ev.x, ev.z), pad = ev.kind === "ball" ? 0.1 : 0.3;
         if (!ev.hit && Math.abs(p.a) < CAR_L / 2 + pad && Math.abs(p.b) < CAR_W / 2 + pad && Math.abs(S.v) > 0.3) {
@@ -6877,7 +7087,7 @@ button.lamp:hover { border-color: var(--amber-dim); }
   applyWeather();
   const firstTime = !Object.keys(prog.modes).length;
   setMode(prog.last && modeOpen(prog.last) ? prog.last : "lesson");
-  if (firstTime) { toastsEl.innerHTML = ""; tip("Hola. Empezamos por la Primera clase: en un estacionamiento vacío aprendés el embrague paso a paso. Los pasos están en el panel de la derecha y se tachan solos. Después se van abriendo los otros lugares.", "welcome", 999); }
+  if (firstTime) { toastsEl.innerHTML = ""; tip("Hola. Empezamos por la Primera clase: en un estacionamiento vacío aprendés el embrague paso a paso. Los pasos están en el panel de la derecha y se tachan solos. Después podés seguir Tu camino o elegir cualquier lugar y cualquier misión cuando quieras.", "welcome", 999); }
   else { toastsEl.innerHTML = ""; const wp = weakPoints()[0]; tip(`Hola de nuevo. Seguís donde quedaste: ${MODE_NAMES[mode]}, misión ${Math.min(S.mission + 1, MISSIONS.length)} de ${MISSIONS.length}.${wp ? ` Lo que más te cuesta: ${wp.w[1].toLowerCase()} (mirá la pestaña Puntaje).` : ""}`, "welcome", 999); }
   requestAnimationFrame(frame);
 })();
